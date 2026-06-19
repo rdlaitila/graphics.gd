@@ -1,0 +1,285 @@
+# graphics.gd style
+
+Conventions for new code. Existing code may differ; do not churn-format
+unrelated files when making a change.
+
+- [graphics.gd style](#graphicsgd-style)
+  - [Go](#go)
+    - [No spurious spacing in types or functions](#no-spurious-spacing-in-types-or-functions)
+    - [Method receivers are always named `t`](#method-receivers-are-always-named-t)
+    - [Don't over-comment](#dont-over-comment)
+    - [Align struct field tags for legibility](#align-struct-field-tags-for-legibility)
+  - [Git](#git)
+    - [Use Conventional Commits](#use-conventional-commits)
+
+
+## Go
+
+### No spurious spacing in types or functions
+
+Spacing is subjective — the same blank line reads as a logical
+boundary to one author and as noise to another. Inside a type or
+function body, drop blank lines used as breathing room. When a section
+genuinely needs separation, name it with a single or multiline comment instead.
+
+**Rationale:** code is read far more often than it is written; a
+consistent block layout lowers the mental cost of skimming and reserves
+visual structure for moments where an explicit comment also signals
+intent.
+
+**Avoid**
+
+```go
+type Canary struct {
+    Node3D.Extension[Canary]
+
+    Tweeted Signal.Solo[string]
+
+    score int
+
+    rng *rand.Rand
+}
+
+func (c *Canary) tick(delta Float.X) {
+    c.velocity -= gravity * delta
+
+    pos := c.bird.Position()
+    pos.Y += c.velocity * delta
+    c.bird.SetPosition(pos)
+
+    if pos.Y < floorY {
+        c.gameOver()
+    }
+}
+```
+
+**Prefer**
+
+```go
+type Canary struct {
+    Node3D.Extension[Canary]
+    Tweeted Signal.Solo[string]
+    score   int
+    rng     *rand.Rand
+}
+
+func (t *Canary) tick(delta Float.X) {
+    // physics
+    t.velocity -= gravity * delta
+    pos := t.bird.Position()
+    pos.Y += t.velocity * delta
+    t.bird.SetPosition(pos)
+    // collision
+    if pos.Y < floorY {
+        t.gameOver()
+    }
+}
+```
+
+### Method receivers are always named `t`
+
+Every method receiver uses the single-letter name `t`, regardless of
+the enclosing type. This ensures all usage sites are instantly reconizable. 
+
+**Rationale:** receiver names communicate nothing about the type —
+the signature already does. A per-type initial (`c` for `Canary`,
+`s` for `Server`, etc.) forces the reader to mentally remap on every file. A
+fixed name lets every method body across the codebase be skimmed the same way.
+
+**Avoid**
+
+```go
+func (c *Canary) Tweet(song string) { c.chirper.Play() }
+func (s *Server) Serve()             { s.listener.Accept() }
+```
+
+**Prefer**
+
+```go
+func (t *Canary) Tweet(song string) { t.chirper.Play() }
+func (t *Server) Serve()             { t.listener.Accept() }
+```
+
+### Don't over-comment
+
+Treat code as self-describing by default — Go's naming, types, and
+control flow already tell a reader most of what's happening. Reach for
+a comment when the language can't carry the meaning on its own, and
+then be deliberate about it.
+
+**Public interfaces** (exported types, functions, methods, package
+docs) get a comment so the package-level API doc renders something
+useful. Keep it concise: one or two sentences naming what the symbol
+is and what a caller is expected to do with it. Don't reach for a
+dedicated comment on every struct field — group related fields under a
+shared header comment, and skip the comment entirely when the field
+name is self-evident.
+
+**Function bodies** are where comments most often go wrong. Reserve
+them for moments that need to context-switch a human reader or
+agent: a non-obvious workaround, a quirk in an upstream API, a
+hidden invariant, a reference to the issue or paper that explains
+the algorithm, or a real logical boundary inside a long routine.
+Don't paraphrase the next line; if the code can be read straight
+through, no annotation is helping.
+
+When in doubt, ask whether deleting the comment would leave the
+reader any worse off. If not, delete it.
+
+**Rationale:** every comment is a second source of truth that drifts
+out of sync the moment the code beneath it changes. Sparse, deliberate
+comments stay accurate and earn the reader's trust; pervasive ones
+become wallpaper, get skimmed past, and quietly start lying. For an AI
+agent reading the code, redundant comments are doubly costly — they
+inflate context, distract from the load-bearing signal, and amplify
+any drift.
+
+**Avoid**
+
+```go
+// Canary represents a canary bird.
+type Canary struct {
+    // chirper is the AudioStreamPlayer used to chirp.
+    chirper AudioStreamPlayer.Instance
+    // score is the current score.
+    score int
+}
+
+func (t *Canary) tick(delta Float.X) {
+    // update velocity using gravity
+    t.velocity -= gravity * delta
+    // get the current position
+    pos := t.bird.Position()
+    // advance position by velocity
+    pos.Y += t.velocity * delta
+    // write the new position back
+    t.bird.SetPosition(pos)
+}
+```
+
+**Prefer**
+
+```go
+// Canary is the player avatar: a yellow sphere that flaps through
+// scrolling cloud obstacles.
+type Canary struct {
+    chirper AudioStreamPlayer.Instance
+    score   int
+}
+
+func (t *Canary) tick(delta Float.X) {
+    t.velocity -= gravity * delta
+    pos := t.bird.Position()
+    pos.Y += t.velocity * delta
+    t.bird.SetPosition(pos)
+}
+```
+
+### Align struct field tags for legibility
+
+When a struct's fields carry tags — particularly multi-encoder tags like
+`json` + `xml` + `yaml` — align them into columns when prudent. The eye
+should be able to scan one encoder vertically without sliding sideways
+for every row.
+
+Pick a consistent encoder order for the struct and stick to it across
+every row; separate consecutive tags with enough spaces that each one
+starts in the same visual column. If a tag is missing for a given
+encoder, leave the column empty where possible rather than collapsing
+the spacing — the alignment is the point. `gofmt` preserves the inner
+whitespace of the backtick literal, so the columns survive a save.
+
+Use judgement: a single tag, very long values, or a struct with wildly
+mismatched fields can make strict alignment hurt more than it helps.
+Drop the columns there. Inline field comments or grouping comments
+also break the visual flow — when one appears mid-struct, reflow the
+alignment per-section so each group is internally consistent rather
+than forcing the whole struct to share a single column width.
+
+**Rationale:** struct tags are dense, low-information glue. Aligning
+them turns the block into a small two-dimensional table the reader can
+treat as data rather than prose; misalignment forces a per-row reparse
+of which token belongs to which encoder.
+
+**Avoid**
+
+```go
+type Platform struct {
+    XMLName xml.Name `json:"-" xml:"platform" yaml:"-"`
+    Title string `json:"title,omitempty" yaml:"title,omitempty" xml:"title,attr,omitempty"`
+    GOOS string `xml:"goos" json:"goos" yaml:"goos"`
+    GOARCH string `json:"goarch" xml:"goarch" yaml:"goarch"`
+}
+```
+
+**Prefer**
+
+```go
+type Platform struct {
+    XMLName xml.Name `json:"-"               xml:"platform"             yaml:"-"`
+    Title   string   `json:"title,omitempty" xml:"title,attr,omitempty" yaml:"title,omitempty"`
+    GOOS    string   `json:"goos"            xml:"goos"                 yaml:"goos"`
+    GOARCH  string   `json:"goarch"          xml:"goarch"               yaml:"goarch"`
+}
+```
+
+When a comment splits the struct, use best judgement to re-align each section locally so the
+columns stay scannable inside the group even if they no longer match
+between groups:
+
+```go
+type Platform struct {
+    // canonical identity
+    GOOS   string `json:"goos"   xml:"goos"   yaml:"goos"`
+    GOARCH string `json:"goarch" xml:"goarch" yaml:"goarch"`
+    // serialisation metadata
+    Aliases   []string `json:"aliases,omitempty"   xml:"aliases>alias,omitempty"      yaml:"aliases,omitempty"`
+    Renderers []string `json:"renderers,omitempty" xml:"renderers>renderer,omitempty" yaml:"renderers,omitempty"`
+}
+```
+
+## Git
+
+### Use Conventional Commits
+
+Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org/):
+`type(scope): summary`. The type and scope make `git log --oneline` and
+release tooling readable at a glance; the summary stays imperative,
+lowercase, and under ~72 characters with no trailing period.
+
+Common types in this repo:
+
+- `feat` — user-facing capability added
+- `fix` — bug fix
+- `refactor` — code restructure with no behaviour change
+- `docs` — documentation only
+- `test` — tests only
+- `ci` — workflow / CI driver changes
+- `chore` — tooling, deps, gitignore, etc.
+
+Pick the **narrowest accurate scope** — usually a package or component:
+`feat(gdnext)`, `refactor(product)`, `fix(android)`, `ci(gdnext-ci)`,
+`docs(plans)`. Skip the scope only when a change genuinely spans the
+whole module.
+
+**Avoid**
+
+```
+Added a flag to make platforms output vertical.
+Update some files
+WIP fixing the thing
+```
+
+**Prefer**
+
+```
+feat(gdnext): add --vertical flag to platforms subcommand
+refactor(product): move Status to product.go for cross-entity reuse
+ci(gdnext-ci): derive install matrix from product.ToolchainMatrix
+```
+
+**Rationale:** consistent commit shapes turn history into a queryable
+log. `git log --grep '^feat'` surfaces every feature in scope order;
+`git log --grep '^fix(android)'` finds every android regression. Free-
+form subjects break those queries and leave changelog generators with
+nothing to anchor on.
