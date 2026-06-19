@@ -58,12 +58,17 @@ case "$goos" in
     ;;
 esac
 
-# Android-specific: verify the produced apk is signed with our cryptic
-# keystore. apksigner is itself resolved through the gdnext toolchain so
-# this also confirms `toolchain path apksigner` works.
+# Android-specific: `gdnext build` exports an unsigned apk (it bypasses
+# Godot's jarsigner by writing a stub `java` binary). Sign it with the
+# debug keystore that `gdnext build` already provisioned via the cryptic
+# generator, then verify. This proves apksigner + the keystore + the
+# toolchain path resolver all line up end-to-end.
 if [ "$goos" = "android" ]; then
   apk=$(ls "releases/android/${goarch}/"*.apk 2>/dev/null | head -1)
   test -n "$apk" || { echo "android build produced no apk" >&2; exit 1; }
-  apksigner=$(gdnext toolchain path apksigner)
-  "$apksigner" verify --print-certs "$apk"
+  keystore=$(gdnext android keystore show)
+  test -f "$keystore" || { echo "expected keystore at $keystore but it's missing"; exit 1; }
+  gdnext android apk sign "$apk" \
+    --ks "$keystore" --ks-pass pass:android --ks-key-alias androiddebugkey
+  gdnext android apk verify "$apk"
 fi

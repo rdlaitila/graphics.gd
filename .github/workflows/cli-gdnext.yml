@@ -124,8 +124,7 @@ jobs:
         shell: bash
         run: ci/cli-gdnext/build-target.sh js wasm "${{ steps.stage.outputs.tmp }}"
 
-      - name: Build android/arm64 (ubuntu only — JDK + cryptic keystore)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build android/arm64
         shell: bash
         run: ci/cli-gdnext/build-target.sh android arm64 "${{ steps.stage.outputs.tmp }}"
 
