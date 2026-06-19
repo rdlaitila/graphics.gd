@@ -1,0 +1,139 @@
+name: cli-gdnext
+
+on:
+  push:
+    branches: ["release", "staging"]
+    paths:
+      - "cmd/gdnext/**"
+      - "ci/cli-gdnext/**"
+      - "examples/**"
+      - ".github/workflows/cli-gdnext.yml"
+  pull_request:
+    branches: ["release"]
+    paths:
+      - "cmd/gdnext/**"
+      - "ci/cli-gdnext/**"
+      - "examples/**"
+      - ".github/workflows/cli-gdnext.yml"
+
+jobs:
+  cli-gdnext:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        example: [canarybird]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.26"
+
+      - name: Compute week key
+        id: week
+        shell: bash
+        run: echo "week=$(date +%Y-%W)" >> $GITHUB_OUTPUT
+
+      - name: Resolve Godot export-templates dir
+        id: templates
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Linux)   echo "dir=$HOME/.local/share/godot/export_templates" >> $GITHUB_OUTPUT ;;
+            macOS)   echo "dir=$HOME/Library/Application Support/Godot/export_templates" >> $GITHUB_OUTPUT ;;
+            Windows) echo "dir=$APPDATA/Godot/export_templates" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Cache ~/gd and Godot export templates
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/gd
+            ${{ steps.templates.outputs.dir }}
+          key: ${{ runner.os }}-gdnext-weekly-${{ steps.week.outputs.week }}
+          restore-keys: ${{ runner.os }}-gdnext-weekly-
+
+      - name: Build + vet + unit tests
+        shell: bash
+        run: ci/cli-gdnext/build-vet-test.sh
+
+      - name: Install gdnext into PATH
+        shell: bash
+        run: |
+          go install ./cmd/gdnext
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Help text smoke
+        shell: bash
+        run: ci/cli-gdnext/help-text.sh
+
+      - name: Diagnostic verbs (pre-install)
+        shell: bash
+        run: ci/cli-gdnext/diagnostic-verbs.sh
+
+      - name: Go passthrough
+        shell: bash
+        run: ci/cli-gdnext/go-passthrough.sh
+
+      - name: Short-flag rewrite
+        shell: bash
+        run: ci/cli-gdnext/short-flag-rewrite.sh
+
+      - name: Toolchain install (zig + godot)
+        shell: bash
+        run: ci/cli-gdnext/toolchain-install.sh
+
+      - name: Stage example (${{ matrix.example }})
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          echo "tmp=$tmp" >> $GITHUB_OUTPUT
+          ci/cli-gdnext/stage-example.sh "${{ matrix.example }}" "$tmp"
+
+      # -------------------------------------------------------------------
+      # Build matrix — each step is gated to the runners that can actually
+      # produce the artefact. Every step runs `gdnext build` for real
+      # (no RUNNING_INSIDE_GODOT short-circuit) so the full pipeline
+      # templates.Assert → BuildMain → godot --headless --export-release
+      # is exercised end-to-end.
+      # -------------------------------------------------------------------
+
+      - name: Build linux/amd64
+        shell: bash
+        run: ci/cli-gdnext/build-target.sh linux amd64 "${{ steps.stage.outputs.tmp }}"
+
+      - name: Build linux/arm64 (ubuntu only — zig cross)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: ci/cli-gdnext/build-target.sh linux arm64 "${{ steps.stage.outputs.tmp }}"
+
+      - name: Build windows/amd64
+        shell: bash
+        run: ci/cli-gdnext/build-target.sh windows amd64 "${{ steps.stage.outputs.tmp }}"
+
+      - name: Build darwin/arm64 (macos only — universal, unsigned)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: ci/cli-gdnext/build-target.sh darwin arm64 "${{ steps.stage.outputs.tmp }}"
+
+      - name: Build js/wasm
+        shell: bash
+        run: ci/cli-gdnext/build-target.sh js wasm "${{ steps.stage.outputs.tmp }}"
+
+      - name: Build android/arm64 (ubuntu only — JDK + cryptic keystore)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: ci/cli-gdnext/build-target.sh android arm64 "${{ steps.stage.outputs.tmp }}"
+
+      - name: Build musl/amd64 (ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: ci/cli-gdnext/build-target.sh musl amd64 "${{ steps.stage.outputs.tmp }}"
+
+      - name: Headless test pipeline
+        shell: bash
+        run: ci/cli-gdnext/test-headless.sh "${{ steps.stage.outputs.tmp }}"

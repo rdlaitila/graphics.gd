@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://canarybird000000"]
+
+; The entire scene is constructed in Go by the CanaryBird node's Ready()
+; method. The .tscn only needs to declare the CanaryBird root so Godot's
+; editor and the --headless export both have something to mount.
+[node name="CanaryBird" type="Node3D"]

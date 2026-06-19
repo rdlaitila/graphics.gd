@@ -11,7 +11,6 @@ example/bin/
 /bin/example.so
 /gdextension/header.h
 /gdextension/extension_api.json
-/go.work
 /extension_api.json
 /internal/testbed/.godot
 /internal/testbed/testing.lib
@@ -19,16 +18,24 @@ example/bin/
 /.vscode/launch.json
 *.wasm
 /gdextension/internal
-/go.work.sum
 .idea
 internal/extension_api.json
 package-lock.json
 releases/
 testing
 graphics
+# Re-include the examples tree. The bare `graphics` / `releases` /
+# `testing` rules above were written when those names only meant
+# generated artefacts; under examples/<name>/ they are part of the
+# committed project layout. Per-example .gitignore files exclude the
+# actual build outputs.
+!examples/
+!examples/**
 /startup/internal/dlopen_old
 /internal/tool/trivial-methods/trivial_methods
 /results.jsonl
 /trivial_methods.json
 CLAUDE.md
 AGENTS.md
+
+

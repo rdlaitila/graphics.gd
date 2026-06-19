@@ -1,0 +1,12 @@
+go 1.26.1
+
+// `go.work` redirects `require graphics.gd` in any in-tree module to the
+// local working copy. Without it, `go build ./examples/canarybird` would
+// try to resolve graphics.gd via the proxy and fail (v0.0.0 isn't
+// published).
+//
+// CI does not rely on this file — the workflow stages each example in a
+// tempdir and runs `go mod edit -replace=graphics.gd=$GITHUB_WORKSPACE`
+// before building. The workspace file is purely for the dev/editor loop.
+use .
+use ./examples/canarybird

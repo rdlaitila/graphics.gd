@@ -1,0 +1,51 @@
+--- !tapi-tbd
+tbd-version:  4
+install-name: '/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation'  # expected location for the implementation on macos, see crypto/x509/internal/macos
+targets:
+ - x86_64-macos
+ - arm64-macos
+ - arm64-ios
+exports:
+ - targets: [ x86_64-macos, arm64-macos, arm64-ios ]
+   symbols: # the required symbols to compile Go code, see crypto/x509/internal/macos
+    - _CFArrayAppendValue
+    - _CFArrayCreateMutable
+    - _CFArrayGetCount
+    - _CFArrayGetValueAtIndex
+    - _CFDataCreate
+    - _CFDataGetBytePtr
+    - _CFDataGetLength
+    - _CFDateCreate
+    - _CFErrorCopyDescription
+    - _CFErrorGetCode
+    - _CFRelease
+    - _CFStringCreateExternalRepresentation
+    - _CFStringCreateWithBytes
+
+    # runtime/cgo
+    - _CFBundleGetValueForInfoDictionaryKey
+    - _CFBundleGetMainBundle
+    - _CFBundleCopyResourceURL
+
+    # needed by godot
+    - _kCFRunLoopDefaultMode
+    - _kCFAllocatorDefault
+    - ___NSDictionary0__
+    - ___CFConstantStringClassReference
+    - _CFURLGetString
+    - _CFStringGetLength
+    - _CFStringGetCharacterAtIndex
+    - _CFStringGetCString
+    - _CFStringCreateWithCString
+    - _CFStringCompare
+    - _CFRunLoopRunInMode
+    - _CFRetain
+    - _CFNumberCreate
+    - _CFDictionaryCreateMutableCopy
+    - _CFDictionaryCreateMutable
+    - _CFDictionaryAddValue
+    - _CFBundleGetVersionNumber
+    - _CFStringGetCStringPtr
+    - _CFStringGetFastestEncoding
+    - _CFStringGetBytes
+...

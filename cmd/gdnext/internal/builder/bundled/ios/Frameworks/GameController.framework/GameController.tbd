@@ -1,0 +1,38 @@
+--- !tapi-tbd
+tbd-version:  4
+install-name: '/System/Library/Frameworks/GameController.framework/GameController'  # expected location for the implementation on IOS
+targets:
+ - arm64-ios
+exports:
+ - targets: [ arm64-ios ]
+   symbols:
+    - _GCHapticsLocalityRightHandle
+    - _GCHapticsLocalityLeftHandle
+    - _GCHapticDurationInfinite
+    - _GCControllerDidDisconnectNotification
+    - _GCControllerDidConnectNotification
+    - _GCInputXboxPaddleTwo
+    - _GCInputXboxPaddleThree
+    - _GCInputXboxPaddleOne
+    - _GCInputXboxPaddleFour
+    - _GCInputRightTrigger
+    - _GCInputRightThumbstickButton
+    - _GCInputRightThumbstick
+    - _GCInputRightShoulder
+    - _GCInputLeftTrigger
+    - _GCInputLeftThumbstickButton
+    - _GCInputLeftThumbstick
+    - _GCInputLeftShoulder
+    - _GCInputButtonY
+    - _GCInputButtonX
+    - _GCInputButtonShare
+    - _GCInputButtonOptions
+    - _GCInputButtonMenu
+    - _GCInputButtonHome
+    - _GCInputButtonB
+    - _GCInputButtonA
+   objc-classes:
+    - GCXboxGamepad
+    - GCKeyboard
+    - GCController
+...
