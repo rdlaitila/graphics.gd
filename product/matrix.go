@@ -117,7 +117,7 @@ var PlatformMatrix = []Platform{
 		GOOS:      "musl",
 		GOARCH:    "amd64",
 		Kind:      Target,
-		Status:    Supported,
+		Status:    Experimental,
 		Renderers: []string{"vulkan", "opengl3", "gl_compatibility"},
 		Notes:     "fully-static linux binary; runs on any libc",
 	},
