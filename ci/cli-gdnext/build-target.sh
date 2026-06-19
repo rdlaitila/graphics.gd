@@ -13,7 +13,11 @@ goarch="${2:?usage: build-target.sh <goos> <goarch> <scratch_dir>}"
 scratch="${3:?usage: build-target.sh <goos> <goarch> <scratch_dir>}"
 
 cd "$scratch"
-gdnext -goos "$goos" -goarch "$goarch" build
+# Redirect stdin away from the parent shell so the optional AAB-signing
+# `Provide passphrase:` prompt in `gdnext build` reads EOF immediately
+# and the build returns cleanly. Without this, term.ReadPassword can
+# consume the next bash script line as the passphrase.
+gdnext -goos "$goos" -goarch "$goarch" build < /dev/null
 
 # Shared library next to the project files. macOS BuildMain produces both
 # the arch-specific dylib and a universal lipo'd one — assert both so a
@@ -58,17 +62,22 @@ case "$goos" in
     ;;
 esac
 
-# Android-specific: `gdnext build` exports an unsigned apk (it bypasses
-# Godot's jarsigner by writing a stub `java` binary). Sign it with the
-# debug keystore that `gdnext build` already provisioned via the cryptic
-# generator, then verify. This proves apksigner + the keystore + the
-# toolchain path resolver all line up end-to-end.
+# Android-specific: `gdnext build` exports an unsigned apk (it stubs out
+# Godot's jarsigner step). Sign it with the debug keystore that gdnext
+# already provisioned via the cryptic generator, then verify. This proves
+# apksigner + the keystore + the toolchain path resolver all line up
+# end-to-end.
+#
+# apksigner is positional-last: pass --ks/--ks-pass/--ks-key-alias first,
+# then the apk path. The opposite order trips apksigner's parser into
+# emitting "At least one signer must be specified".
 if [ "$goos" = "android" ]; then
   apk=$(ls "releases/android/${goarch}/"*.apk 2>/dev/null | head -1)
   test -n "$apk" || { echo "android build produced no apk" >&2; exit 1; }
   keystore=$(gdnext android keystore show)
   test -f "$keystore" || { echo "expected keystore at $keystore but it's missing"; exit 1; }
-  gdnext android apk sign "$apk" \
-    --ks "$keystore" --ks-pass pass:android --ks-key-alias androiddebugkey
+  gdnext android apk sign \
+    --ks "$keystore" --ks-pass pass:android --ks-key-alias androiddebugkey \
+    "$apk"
   gdnext android apk verify "$apk"
 fi
