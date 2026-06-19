@@ -63,7 +63,31 @@ type toolchain struct {
 
 	IsLibrary bool
 
+	// Targets enumerates the GOOS strings this toolchain is required for.
+	// Special value "all" means "required no matter what we're building"
+	// (the base set: godot, go, zig). An empty Targets slice means the
+	// toolchain is purely optional — doctor will never fail on it being
+	// missing.
+	Targets []string
+
 	Path string // cached by [toolchain.Lookup]
+}
+
+// IsRequiredFor reports whether this toolchain is needed when targeting
+// any of the given GOOS values. "all" in Targets matches everything; an
+// empty Targets slice never matches (the tool is optional).
+func (exe toolchain) IsRequiredFor(goos ...string) bool {
+	for _, t := range exe.Targets {
+		if t == "all" {
+			return true
+		}
+		for _, g := range goos {
+			if t == g {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (exe toolchain) PathToCommand() string {

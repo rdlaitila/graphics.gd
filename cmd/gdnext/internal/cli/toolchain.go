@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
+	"strings"
 	"text/tabwriter"
 
 	"graphics.gd/cmd/gdnext/internal/tooling"
@@ -18,26 +20,45 @@ type toolchainEntry struct {
 	Name    string
 	Version string
 	Purpose string
+	Targets []string
 	Lookup  func(...tooling.Mode) (string, error)
+}
+
+// IsRequiredFor reports whether this entry is needed when targeting any
+// of the supplied GOOS values. Mirrors tooling.toolchain.IsRequiredFor;
+// the duplication is here because toolchainEntry is the exported surface
+// the cli package uses.
+func (e toolchainEntry) IsRequiredFor(goos ...string) bool {
+	for _, t := range e.Targets {
+		if t == "all" {
+			return true
+		}
+		for _, g := range goos {
+			if t == g {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func toolchainCatalog() []toolchainEntry {
 	return []toolchainEntry{
-		{"godot", tooling.Godot.Version, tooling.Godot.RequiredFor, tooling.Godot.Lookup},
-		{"go", tooling.Go.Version, tooling.Go.RequiredFor, tooling.Go.Lookup},
-		{"zig", tooling.Zig.Version, tooling.Zig.RequiredFor, tooling.Zig.Lookup},
-		{"llvm", tooling.LLVM.Version, tooling.LLVM.RequiredFor, tooling.LLVM.Lookup},
-		{"adb", tooling.AndroidDebugBridge.Version, tooling.AndroidDebugBridge.RequiredFor, tooling.AndroidDebugBridge.Lookup},
-		{"apksigner", tooling.AndroidPackageSigner.Version, tooling.AndroidPackageSigner.RequiredFor, tooling.AndroidPackageSigner.Lookup},
-		{"aapt2", tooling.AndroidAssetPackagingTool.Version, tooling.AndroidAssetPackagingTool.RequiredFor, tooling.AndroidAssetPackagingTool.Lookup},
-		{"apktool", tooling.AndroidPackageKitTool.Version, tooling.AndroidPackageKitTool.RequiredFor, tooling.AndroidPackageKitTool.Lookup},
-		{"bundletool", tooling.BundleTool.Version, tooling.BundleTool.RequiredFor, tooling.BundleTool.Lookup},
-		{"android.jar", tooling.Android.Version, tooling.Android.RequiredFor, tooling.Android.Lookup},
-		{"upx", tooling.UltimatePackerForExecutables.Version, tooling.UltimatePackerForExecutables.RequiredFor, tooling.UltimatePackerForExecutables.Lookup},
-		{"vpk", tooling.Velopack.Version, tooling.Velopack.RequiredFor, tooling.Velopack.Lookup},
-		{"libgodot", tooling.LibGodot.Version, tooling.LibGodot.RequiredFor, tooling.LibGodot.Lookup},
-		{"libgodot-editor", tooling.LibGodotEditor.Version, tooling.LibGodotEditor.RequiredFor, tooling.LibGodotEditor.Lookup},
-		{"ldd", tooling.ListDynamicDependencies.Version, tooling.ListDynamicDependencies.RequiredFor, tooling.ListDynamicDependencies.Lookup},
+		{"godot", tooling.Godot.Version, tooling.Godot.RequiredFor, tooling.Godot.Targets, tooling.Godot.Lookup},
+		{"go", tooling.Go.Version, tooling.Go.RequiredFor, tooling.Go.Targets, tooling.Go.Lookup},
+		{"zig", tooling.Zig.Version, tooling.Zig.RequiredFor, tooling.Zig.Targets, tooling.Zig.Lookup},
+		{"llvm", tooling.LLVM.Version, tooling.LLVM.RequiredFor, tooling.LLVM.Targets, tooling.LLVM.Lookup},
+		{"adb", tooling.AndroidDebugBridge.Version, tooling.AndroidDebugBridge.RequiredFor, tooling.AndroidDebugBridge.Targets, tooling.AndroidDebugBridge.Lookup},
+		{"apksigner", tooling.AndroidPackageSigner.Version, tooling.AndroidPackageSigner.RequiredFor, tooling.AndroidPackageSigner.Targets, tooling.AndroidPackageSigner.Lookup},
+		{"aapt2", tooling.AndroidAssetPackagingTool.Version, tooling.AndroidAssetPackagingTool.RequiredFor, tooling.AndroidAssetPackagingTool.Targets, tooling.AndroidAssetPackagingTool.Lookup},
+		{"apktool", tooling.AndroidPackageKitTool.Version, tooling.AndroidPackageKitTool.RequiredFor, tooling.AndroidPackageKitTool.Targets, tooling.AndroidPackageKitTool.Lookup},
+		{"bundletool", tooling.BundleTool.Version, tooling.BundleTool.RequiredFor, tooling.BundleTool.Targets, tooling.BundleTool.Lookup},
+		{"android.jar", tooling.Android.Version, tooling.Android.RequiredFor, tooling.Android.Targets, tooling.Android.Lookup},
+		{"upx", tooling.UltimatePackerForExecutables.Version, tooling.UltimatePackerForExecutables.RequiredFor, tooling.UltimatePackerForExecutables.Targets, tooling.UltimatePackerForExecutables.Lookup},
+		{"vpk", tooling.Velopack.Version, tooling.Velopack.RequiredFor, tooling.Velopack.Targets, tooling.Velopack.Lookup},
+		{"libgodot", tooling.LibGodot.Version, tooling.LibGodot.RequiredFor, tooling.LibGodot.Targets, tooling.LibGodot.Lookup},
+		{"libgodot-editor", tooling.LibGodotEditor.Version, tooling.LibGodotEditor.RequiredFor, tooling.LibGodotEditor.Targets, tooling.LibGodotEditor.Lookup},
+		{"ldd", tooling.ListDynamicDependencies.Version, tooling.ListDynamicDependencies.RequiredFor, tooling.ListDynamicDependencies.Targets, tooling.ListDynamicDependencies.Lookup},
 	}
 }
 
@@ -118,7 +139,14 @@ func toolchainCmd() *cli.Command {
 			},
 			{
 				Name:  "doctor",
-				Usage: "verify every toolchain is reachable; non-zero exit on any failure",
+				Usage: "verify every toolchain reachable; non-zero exit only on REQUIRED misses",
+				Description: "Lists every toolchain in the catalog and marks each as REQUIRED or OPTIONAL\n" +
+					"for the current target GOOS (taken from --goos or $GOOS, defaulting to the\n" +
+					"host's runtime.GOOS).\n" +
+					"Examples:\n" +
+					"  gdnext toolchain doctor                       # what's needed for this host\n" +
+					"  gdnext --goos android toolchain doctor        # what's needed to build for android\n" +
+					"  GOOS=ios gdnext toolchain doctor              # same, via the env var",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:  "fix",
@@ -134,22 +162,46 @@ func toolchainCmd() *cli.Command {
 					if cmd.Bool("fix") {
 						mode = tooling.ModeInstall
 					}
+
+					// Target GOOS comes from --goos / $GOOS (both handled
+					// by PromoteFlagsToEnv on the root command's Before
+					// hook, so by the time we get here os.Getenv is
+					// authoritative). Falls back to the host runtime.GOOS.
+					target := os.Getenv("GOOS")
+					if target == "" {
+						target = runtime.GOOS
+					}
+
+					fmt.Fprintf(os.Stdout, "checking toolchains for target: %s\n\n", target)
 					tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-					defer tw.Flush()
-					fmt.Fprintln(tw, "NAME\tSTATUS\tDETAIL")
-					var failed bool
+					fmt.Fprintln(tw, "NAME\tFOR\tSTATUS\tDETAIL")
+					var requiredFail int
+					var missing []string
 					for _, e := range toolchainCatalog() {
-						path, err := e.Lookup(mode)
-						if err != nil {
-							fmt.Fprintf(tw, "%s\tFAIL\t%s\n", e.Name, err)
-							failed = true
-							continue
+						required := e.IsRequiredFor(target)
+						for_ := strings.Join(e.Targets, ",")
+						if for_ == "" {
+							for_ = "-"
 						}
-						fmt.Fprintf(tw, "%s\tOK\t%s\n", e.Name, path)
+						path, err := e.Lookup(mode)
+						switch {
+						case err == nil:
+							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", e.Name, for_, "OK", path)
+						case required:
+							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", e.Name, for_, "FAIL", err)
+							requiredFail++
+							missing = append(missing, e.Name)
+						default:
+							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", e.Name, for_, "SKIP", "not installed (not required for target)")
+						}
 					}
-					if failed {
-						return fmt.Errorf("one or more toolchains could not be resolved (rerun with --fix to auto-download, or use `gdnext toolchain install`)")
+					tw.Flush()
+					fmt.Fprintln(os.Stdout)
+					if requiredFail > 0 {
+						return fmt.Errorf("%d required toolchain(s) missing for target %s: %s (rerun with --fix to auto-download, or use `gdnext toolchain install`)",
+							requiredFail, target, strings.Join(missing, ", "))
 					}
+					fmt.Fprintf(os.Stdout, "all required toolchains present for target %s\n", target)
 					return nil
 				},
 			},

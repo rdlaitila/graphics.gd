@@ -12,6 +12,7 @@ var Godot = toolchain{
 	Unzip:         "Godot_v$(VERSION)-stable_$(OS)",
 	IsApp:         true,
 	RequiredFor:   "graphics",
+	Targets:       []string{"all"},
 
 	ConvertArguments: map[string]string{
 		"-v":       "--verbose",
@@ -28,6 +29,7 @@ var LLVM = toolchain{
 	DownloadURL:   "https://release.graphics.gd/llvm.$(GOOS).$(GOARCH)$(EXT)",
 	DownloadEXT:   map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
 	RequiredFor:   "linking iOS builds",
+	Targets:       []string{"ios"},
 }
 
 var Zig = toolchain{
@@ -40,6 +42,7 @@ var Zig = toolchain{
 	DownloadARCH: map[string]string{"amd64": "x86_64", "arm64": "aarch64"},
 	DownloadEXT:  map[string]string{"windows": ".zip", "darwin": ".tar.xz", "linux": ".tar.xz"},
 	RequiredFor:  "cross-compiling",
+	Targets:      []string{"all"},
 }
 
 var Go = toolchain{
@@ -49,6 +52,7 @@ var Go = toolchain{
 	DownloadHint:  "https://go.dev/dl/",
 	VersionPrefix: "go version go1.26.",
 	RequiredFor:   "compiling",
+	Targets:       []string{"all"},
 
 	ConvertArguments: map[string]string{
 		"--verbose": "-v",
@@ -61,6 +65,8 @@ var Velopack = toolchain{
 	VersionFlags:  []string{"--help"},
 	VersionPrefix: "Description:\n  Velopack CLI 0.0.1298,",
 	RequiredFor:   "self-updating-bundles",
+	// Optional: not required by any gdnext build target. Used only when
+	// the user explicitly wants self-updating windows bundles.
 }
 
 var AndroidPackageSigner = toolchain{
@@ -70,6 +76,7 @@ var AndroidPackageSigner = toolchain{
 	DownloadURL:  "https://release.graphics.gd/apksigner.$(GOOS).$(GOARCH)$(EXT)",
 	DownloadEXT:  map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
 	RequiredFor:  "building the .apk",
+	Targets:      []string{"android", "metaquest"},
 }
 
 var AndroidDebugBridge = toolchain{
@@ -81,6 +88,7 @@ var AndroidDebugBridge = toolchain{
 	DownloadEXT:     map[string]string{"linux": "", "windows": ".zip", "darwin": ""},
 	RequiredFor:     "launching the project on a connected android device",
 	DarwinUniversal: true,
+	Targets:         []string{"android", "metaquest"},
 }
 
 var UltimatePackerForExecutables = toolchain{
@@ -98,6 +106,7 @@ var UltimatePackerForExecutables = toolchain{
 	DownloadOS:   map[string]string{"linux": "linux"},
 	DownloadARCH: map[string]string{"amd64": "amd64", "arm64": "arm64"},
 	RequiredFor:  "minifying builds",
+	// Optional: opt-in minifier, not required by any gdnext build target.
 }
 
 var AndroidPackageKitTool = toolchain{
@@ -108,6 +117,7 @@ var AndroidPackageKitTool = toolchain{
 	DownloadURL:   "https://release.graphics.gd/apktool.$(GOOS).$(GOARCH)$(EXT)",
 	DownloadEXT:   map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
 	RequiredFor:   "converting the exported .apk into an .aab",
+	Targets:       []string{"android", "metaquest"},
 }
 
 var AndroidAssetPackagingTool = toolchain{
@@ -119,6 +129,7 @@ var AndroidAssetPackagingTool = toolchain{
 	DownloadEXT:     map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
 	RequiredFor:     "converting the exported .apk into an .aab",
 	DarwinUniversal: true,
+	Targets:         []string{"android", "metaquest"},
 }
 
 var BundleTool = toolchain{
@@ -128,6 +139,7 @@ var BundleTool = toolchain{
 	DownloadURL:  "https://release.graphics.gd/bundletool.$(GOOS).$(GOARCH)$(EXT)",
 	DownloadEXT:  map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
 	RequiredFor:  "converting the exported .apk into an .aab",
+	Targets:      []string{"android", "metaquest"},
 }
 
 var Android = toolchain{
@@ -135,6 +147,7 @@ var Android = toolchain{
 	DownloadURL: "https://release.graphics.gd/android.jar",
 	RequiredFor: "converting the exported .apk into an .aab",
 	IsLibrary:   true,
+	Targets:     []string{"android", "metaquest"},
 }
 
 var LibGodotEditor = toolchain{
@@ -143,6 +156,7 @@ var LibGodotEditor = toolchain{
 	DownloadEXT: map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
 	RequiredFor: "launching the editor on musl systems",
 	IsLibrary:   true,
+	Targets:     []string{"musl"},
 }
 
 var LibGodot = toolchain{
@@ -151,10 +165,11 @@ var LibGodot = toolchain{
 	DownloadEXT: map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
 	RequiredFor: "musl systems & single binaries",
 	IsLibrary:   true,
+	Targets:     []string{"musl"},
 }
 
 var ListDynamicDependencies = toolchain{
 	Name:        "ldd",
 	RequiredFor: "musl detection",
+	Targets:     []string{"linux", "musl"},
 }
-

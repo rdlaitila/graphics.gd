@@ -13,6 +13,20 @@ goarch="${2:?usage: build-target.sh <goos> <goarch> <scratch_dir>}"
 scratch="${3:?usage: build-target.sh <goos> <goarch> <scratch_dir>}"
 
 cd "$scratch"
+
+# Per-target toolchain sanity check. `gdnext toolchain doctor` reads
+# $GOOS (set by --goos below at build time, or via GOOS env) to classify
+# each catalog entry REQUIRED / OPTIONAL / SKIP, and exits nonzero only
+# when something REQUIRED is missing. Running it just before the build
+# means a regression in catalog metadata or in a download URL surfaces
+# here with a clear "X missing for target Y" message instead of a
+# cryptic build failure deeper in the pipeline.
+#
+# --fix lets doctor populate $GDPATH (same workflow the build itself
+# would have done anyway); the actions/cache step preserves whatever it
+# downloads week-over-week.
+GOOS="$goos" GOARCH="$goarch" gdnext toolchain doctor --fix
+
 # Redirect stdin away from the parent shell so the optional AAB-signing
 # `Provide passphrase:` prompt in `gdnext build` reads EOF immediately
 # and the build returns cleanly. Without this, term.ReadPassword can
