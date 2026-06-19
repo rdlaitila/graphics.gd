@@ -2,7 +2,7 @@ name: cli-gdnext
 
 on:
   push:
-    branches: ["release", "staging"]
+    branches: ["release", "staging", "gdnext-cli"]
     paths:
       - "cmd/gdnext/**"
       - "ci/cli-gdnext/**"
