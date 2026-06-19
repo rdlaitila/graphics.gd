@@ -1,23 +1,25 @@
-name: cli-gdnext
+name: gdnext-ci
 
 on:
   push:
     branches: ["release", "staging", "gdnext-cli"]
     paths:
       - "cmd/gdnext/**"
-      - "ci/cli-gdnext/**"
+      - "cmd/gdnext-ci/**"
       - "examples/**"
-      - ".github/workflows/cli-gdnext.yml"
+      - "product/**"
+      - ".github/workflows/gdnext-ci.yml"
   pull_request:
     branches: ["release"]
     paths:
       - "cmd/gdnext/**"
-      - "ci/cli-gdnext/**"
+      - "cmd/gdnext-ci/**"
       - "examples/**"
-      - ".github/workflows/cli-gdnext.yml"
+      - "product/**"
+      - ".github/workflows/gdnext-ci.yml"
 
 jobs:
-  cli-gdnext:
+  gdnext-ci:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -55,35 +57,35 @@ jobs:
           key: ${{ runner.os }}-gdnext-weekly-${{ steps.week.outputs.week }}
           restore-keys: ${{ runner.os }}-gdnext-weekly-
 
-      - name: Build + vet + unit tests
-        shell: bash
-        run: ci/cli-gdnext/build-vet-test.sh
-
-      - name: Install gdnext into PATH
+      - name: Install gdnext + gdnext-ci into PATH
         shell: bash
         run: |
-          go install ./cmd/gdnext
+          go install ./cmd/gdnext ./cmd/gdnext-ci
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Build + vet + unit tests
+        shell: bash
+        run: gdnext-ci build-vet-test
 
       - name: Help text smoke
         shell: bash
-        run: ci/cli-gdnext/help-text.sh
+        run: gdnext-ci help-text
 
       - name: Diagnostic verbs (pre-install)
         shell: bash
-        run: ci/cli-gdnext/diagnostic-verbs.sh
+        run: gdnext-ci diagnostic-verbs
 
       - name: Go passthrough
         shell: bash
-        run: ci/cli-gdnext/go-passthrough.sh
+        run: gdnext-ci go-passthrough
 
       - name: Short-flag rewrite
         shell: bash
-        run: ci/cli-gdnext/short-flag-rewrite.sh
+        run: gdnext-ci short-flag-rewrite
 
       - name: Toolchain install (zig + godot)
         shell: bash
-        run: ci/cli-gdnext/toolchain-install.sh
+        run: gdnext-ci toolchain-install
 
       - name: Stage example (${{ matrix.example }})
         id: stage
@@ -92,51 +94,54 @@ jobs:
           set -euo pipefail
           tmp=$(mktemp -d)
           echo "tmp=$tmp" >> $GITHUB_OUTPUT
-          ci/cli-gdnext/stage-example.sh "${{ matrix.example }}" "$tmp"
+          gdnext-ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
 
       # -------------------------------------------------------------------
       # Build matrix — each step is gated to the runners that can actually
       # produce the artefact. Every step runs `gdnext build` for real
       # (no RUNNING_INSIDE_GODOT short-circuit) so the full pipeline
       # templates.Assert → BuildMain → godot --headless --export-release
-      # is exercised end-to-end.
+      # is exercised end-to-end. (goos, goarch) is validated against
+      # product.PlatformMatrix inside `gdnext-ci build-target`, so a
+      # typo'd target fails the step with a clear "unknown platform"
+      # message instead of a cryptic deeper error.
       # -------------------------------------------------------------------
 
       - name: Build linux/amd64
         shell: bash
-        run: ci/cli-gdnext/build-target.sh linux amd64 "${{ steps.stage.outputs.tmp }}"
+        run: gdnext-ci build-target --goos linux --goarch amd64 --scratch "${{ steps.stage.outputs.tmp }}"
 
       - name: Build linux/arm64 (ubuntu only — zig cross)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
-        run: ci/cli-gdnext/build-target.sh linux arm64 "${{ steps.stage.outputs.tmp }}"
+        run: gdnext-ci build-target --goos linux --goarch arm64 --scratch "${{ steps.stage.outputs.tmp }}"
 
       - name: Build windows/amd64
         shell: bash
-        run: ci/cli-gdnext/build-target.sh windows amd64 "${{ steps.stage.outputs.tmp }}"
+        run: gdnext-ci build-target --goos windows --goarch amd64 --scratch "${{ steps.stage.outputs.tmp }}"
 
       - name: Build darwin/arm64 (macos only — universal, unsigned)
         if: matrix.os == 'macos-latest'
         shell: bash
-        run: ci/cli-gdnext/build-target.sh darwin arm64 "${{ steps.stage.outputs.tmp }}"
+        run: gdnext-ci build-target --goos darwin --goarch arm64 --scratch "${{ steps.stage.outputs.tmp }}"
 
       - name: Build js/wasm
         shell: bash
-        run: ci/cli-gdnext/build-target.sh js wasm "${{ steps.stage.outputs.tmp }}"
+        run: gdnext-ci build-target --goos js --goarch wasm --scratch "${{ steps.stage.outputs.tmp }}"
 
       - name: Build android/arm64
         shell: bash
-        run: ci/cli-gdnext/build-target.sh android arm64 "${{ steps.stage.outputs.tmp }}"
+        run: gdnext-ci build-target --goos android --goarch arm64 --scratch "${{ steps.stage.outputs.tmp }}"
 
       - name: Build android/amd64
         shell: bash
-        run: ci/cli-gdnext/build-target.sh android amd64 "${{ steps.stage.outputs.tmp }}"
+        run: gdnext-ci build-target --goos android --goarch amd64 --scratch "${{ steps.stage.outputs.tmp }}"
 
       - name: Build musl/amd64 (ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
-        run: ci/cli-gdnext/build-target.sh musl amd64 "${{ steps.stage.outputs.tmp }}"
+        run: gdnext-ci build-target --goos musl --goarch amd64 --scratch "${{ steps.stage.outputs.tmp }}"
 
       - name: Headless test pipeline
         shell: bash
-        run: ci/cli-gdnext/test-headless.sh "${{ steps.stage.outputs.tmp }}"
+        run: gdnext-ci test-headless --scratch "${{ steps.stage.outputs.tmp }}"
