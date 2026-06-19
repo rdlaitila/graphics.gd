@@ -31,6 +31,12 @@ graphics
 # actual build outputs.
 !examples/
 !examples/**
+# Re-include the gdnext embed template — `//go:embed graphics/...` in
+# cmd/gdnext/internal/project/project.go must compile on a fresh
+# checkout, so the template files (including the .godot/ stub) must be
+# tracked.
+!cmd/gdnext/internal/project/graphics/
+!cmd/gdnext/internal/project/graphics/**
 /startup/internal/dlopen_old
 /internal/tool/trivial-methods/trivial_methods
 /results.jsonl
