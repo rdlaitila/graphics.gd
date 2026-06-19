@@ -52,15 +52,13 @@ func toolchainInstallCmd() *cli.Command {
 			"so this verb does NOT call doctor — it stays focused on the\n" +
 			"install verb's own contract.",
 		Action: func(_ context.Context, _ *cli.Command) error {
-			fmt.Println("=== gdnext toolchain install (full walk) ===")
+			// Phase 1 — argless walk. The announce banner from run()
+			// labels the command itself; no extra header needed.
 			if err := run("gdnext", "toolchain", "install"); err != nil {
 				return err
 			}
-
 			mandatory, optional := classifyInstallables()
 			for _, slug := range mandatory {
-				fmt.Println()
-				fmt.Printf("=== %s ===\n", slug)
 				if err := run("gdnext", "toolchain", "install", slug); err != nil {
 					return fmt.Errorf("toolchain install %s: %w", slug, err)
 				}
@@ -73,10 +71,7 @@ func toolchainInstallCmd() *cli.Command {
 				}
 				fmt.Println(path)
 			}
-
 			for _, slug := range optional {
-				fmt.Println()
-				fmt.Printf("=== %s (best-effort) ===\n", slug)
 				out, err := outputCombined("gdnext", "toolchain", "install", slug)
 				fmt.Print(out)
 				if !endsWithNewline(out) {

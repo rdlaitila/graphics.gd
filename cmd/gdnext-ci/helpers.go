@@ -11,10 +11,53 @@ import (
 	"strings"
 )
 
+// announce prints a copy-pasteable banner for the command about to run.
+// One blank line precedes the arrow so adjacent invocations stand apart
+// in CI log output without needing per-call fmt.Println bookkeeping.
+func announce(dir string, extraEnv []string, name string, args []string) {
+	var b strings.Builder
+	b.WriteString("\n==> ")
+	for _, kv := range extraEnv {
+		b.WriteString(kv)
+		b.WriteByte(' ')
+	}
+	b.WriteString(shellQuote(name))
+	for _, a := range args {
+		b.WriteByte(' ')
+		b.WriteString(shellQuote(a))
+	}
+	if dir != "" {
+		b.WriteString("   # in ")
+		b.WriteString(dir)
+	}
+	fmt.Fprintln(os.Stderr, b.String())
+}
+
+// shellQuote returns s wrapped in single quotes when it contains
+// whitespace or shell metacharacters, so the announcement can be copy-
+// pasted into a terminal. Plain alnum/`-_./:=` stay unquoted.
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '-', '_', '.', '/', ':', '=', ',', '@', '+':
+			continue
+		}
+		return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+	}
+	return s
+}
+
 // run executes cmd args... with stdout+stderr forwarded to ours and
 // stdin closed (so interactive prompts inside gdnext see EOF, just
 // like the shell scripts' `< /dev/null` redirect). Returns the first
-// error from exec.
+// error from exec. Prints a `==> cmd args` banner first so adjacent
+// invocations are distinguishable in CI logs.
 func run(name string, args ...string) error {
 	return runEnv(nil, name, args...)
 }
@@ -33,6 +76,7 @@ func runEnv(extraEnv []string, name string, args ...string) error {
 
 // runInEnv is the general form: extra env + working directory.
 func runInEnv(dir string, extraEnv []string, name string, args ...string) error {
+	announce(dir, extraEnv, name, args)
 	c := exec.Command(name, args...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -47,8 +91,11 @@ func runInEnv(dir string, extraEnv []string, name string, args ...string) error 
 }
 
 // output runs the command and returns trimmed stdout. Stderr is
-// inherited so failures still surface their diagnostics live.
+// inherited so failures still surface their diagnostics live. Also
+// announces the command so output-capturing calls show up in the log
+// alongside run() invocations.
 func output(name string, args ...string) (string, error) {
+	announce("", nil, name, args)
 	c := exec.Command(name, args...)
 	c.Stderr = os.Stderr
 	c.Stdin = nil
@@ -62,6 +109,7 @@ func output(name string, args ...string) (string, error) {
 // deciding whether the failure is acceptable (toolchain install of
 // optional tools is the only current user).
 func outputCombined(name string, args ...string) (string, error) {
+	announce("", nil, name, args)
 	c := exec.Command(name, args...)
 	c.Stdin = nil
 	var buf bytes.Buffer
