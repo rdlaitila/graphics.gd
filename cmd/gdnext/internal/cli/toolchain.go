@@ -9,58 +9,10 @@ import (
 	"text/tabwriter"
 
 	"graphics.gd/cmd/gdnext/internal/tooling"
+	"graphics.gd/product"
 
 	"github.com/urfave/cli/v3"
 )
-
-// toolchainEntry pairs a user-visible name with a snapshot of the toolchain
-// metadata. Storing function values rather than receiver-bound expressions
-// lets us use the catalog from any goroutine without aliasing concerns.
-type toolchainEntry struct {
-	Name    string
-	Version string
-	Purpose string
-	Targets []string
-	Lookup  func(...tooling.Mode) (string, error)
-}
-
-// IsRequiredFor reports whether this entry is needed when targeting any
-// of the supplied GOOS values. Mirrors tooling.toolchain.IsRequiredFor;
-// the duplication is here because toolchainEntry is the exported surface
-// the cli package uses.
-func (e toolchainEntry) IsRequiredFor(goos ...string) bool {
-	for _, t := range e.Targets {
-		if t == "all" {
-			return true
-		}
-		for _, g := range goos {
-			if t == g {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func toolchainCatalog() []toolchainEntry {
-	return []toolchainEntry{
-		{"godot", tooling.Godot.Version, tooling.Godot.RequiredFor, tooling.Godot.Targets, tooling.Godot.Lookup},
-		{"go", tooling.Go.Version, tooling.Go.RequiredFor, tooling.Go.Targets, tooling.Go.Lookup},
-		{"zig", tooling.Zig.Version, tooling.Zig.RequiredFor, tooling.Zig.Targets, tooling.Zig.Lookup},
-		{"llvm", tooling.LLVM.Version, tooling.LLVM.RequiredFor, tooling.LLVM.Targets, tooling.LLVM.Lookup},
-		{"adb", tooling.AndroidDebugBridge.Version, tooling.AndroidDebugBridge.RequiredFor, tooling.AndroidDebugBridge.Targets, tooling.AndroidDebugBridge.Lookup},
-		{"apksigner", tooling.AndroidPackageSigner.Version, tooling.AndroidPackageSigner.RequiredFor, tooling.AndroidPackageSigner.Targets, tooling.AndroidPackageSigner.Lookup},
-		{"aapt2", tooling.AndroidAssetPackagingTool.Version, tooling.AndroidAssetPackagingTool.RequiredFor, tooling.AndroidAssetPackagingTool.Targets, tooling.AndroidAssetPackagingTool.Lookup},
-		{"apktool", tooling.AndroidPackageKitTool.Version, tooling.AndroidPackageKitTool.RequiredFor, tooling.AndroidPackageKitTool.Targets, tooling.AndroidPackageKitTool.Lookup},
-		{"bundletool", tooling.BundleTool.Version, tooling.BundleTool.RequiredFor, tooling.BundleTool.Targets, tooling.BundleTool.Lookup},
-		{"android.jar", tooling.Android.Version, tooling.Android.RequiredFor, tooling.Android.Targets, tooling.Android.Lookup},
-		{"upx", tooling.UltimatePackerForExecutables.Version, tooling.UltimatePackerForExecutables.RequiredFor, tooling.UltimatePackerForExecutables.Targets, tooling.UltimatePackerForExecutables.Lookup},
-		{"vpk", tooling.Velopack.Version, tooling.Velopack.RequiredFor, tooling.Velopack.Targets, tooling.Velopack.Lookup},
-		{"libgodot", tooling.LibGodot.Version, tooling.LibGodot.RequiredFor, tooling.LibGodot.Targets, tooling.LibGodot.Lookup},
-		{"libgodot-editor", tooling.LibGodotEditor.Version, tooling.LibGodotEditor.RequiredFor, tooling.LibGodotEditor.Targets, tooling.LibGodotEditor.Lookup},
-		{"ldd", tooling.ListDynamicDependencies.Version, tooling.ListDynamicDependencies.RequiredFor, tooling.ListDynamicDependencies.Targets, tooling.ListDynamicDependencies.Lookup},
-	}
-}
 
 func toolchainCmd() *cli.Command {
 	return &cli.Command{
@@ -74,12 +26,12 @@ func toolchainCmd() *cli.Command {
 					tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 					defer tw.Flush()
 					fmt.Fprintln(tw, "NAME\tVERSION\tPURPOSE")
-					for _, e := range toolchainCatalog() {
+					for _, e := range tooling.Entries() {
 						v := e.Version
 						if v == "" {
 							v = "-"
 						}
-						fmt.Fprintf(tw, "%s\t%s\t%s\n", e.Name, v, e.Purpose)
+						fmt.Fprintf(tw, "%s\t%s\t%s\n", e.Slug, v, e.Purpose)
 					}
 					return nil
 				},
@@ -92,18 +44,16 @@ func toolchainCmd() *cli.Command {
 					if cmd.NArg() != 1 {
 						return fmt.Errorf("usage: gdnext toolchain path <name>")
 					}
-					name := cmd.Args().First()
-					for _, e := range toolchainCatalog() {
-						if e.Name == name {
-							path, err := e.Lookup()
-							if err != nil {
-								return err
-							}
-							fmt.Println(path)
-							return nil
-						}
+					e, ok := tooling.LookupBySlug(cmd.Args().First())
+					if !ok {
+						return fmt.Errorf("unknown toolchain %q (try: gdnext toolchain list)", cmd.Args().First())
 					}
-					return fmt.Errorf("unknown toolchain %q (try: gdnext toolchain list)", name)
+					path, err := e.Lookup()
+					if err != nil {
+						return err
+					}
+					fmt.Println(path)
+					return nil
 				},
 			},
 			{
@@ -112,8 +62,8 @@ func toolchainCmd() *cli.Command {
 				ArgsUsage: "[name]",
 				Action: func(_ context.Context, cmd *cli.Command) error {
 					if cmd.NArg() == 0 {
-						for _, e := range toolchainCatalog() {
-							fmt.Printf("→ %s ... ", e.Name)
+						for _, e := range tooling.Entries() {
+							fmt.Printf("→ %s ... ", e.Slug)
 							path, err := e.Lookup()
 							if err != nil {
 								fmt.Println("failed:", err)
@@ -123,30 +73,35 @@ func toolchainCmd() *cli.Command {
 						}
 						return nil
 					}
-					name := cmd.Args().First()
-					for _, e := range toolchainCatalog() {
-						if e.Name == name {
-							path, err := e.Lookup()
-							if err != nil {
-								return err
-							}
-							fmt.Println(path)
-							return nil
-						}
+					e, ok := tooling.LookupBySlug(cmd.Args().First())
+					if !ok {
+						return fmt.Errorf("unknown toolchain %q", cmd.Args().First())
 					}
-					return fmt.Errorf("unknown toolchain %q", name)
+					path, err := e.Lookup()
+					if err != nil {
+						return err
+					}
+					fmt.Println(path)
+					return nil
 				},
 			},
 			{
 				Name:  "doctor",
 				Usage: "verify every toolchain reachable; non-zero exit only on REQUIRED misses",
-				Description: "Lists every toolchain in the catalog and marks each as REQUIRED or OPTIONAL\n" +
-					"for the current target GOOS (taken from --goos or $GOOS, defaulting to the\n" +
-					"host's runtime.GOOS).\n" +
+				Description: "Lists every toolchain in the catalog and classifies each by whether it's\n" +
+					"REQUIRED for the build target (taken from --goos/--goarch or $GOOS/$GOARCH,\n" +
+					"falling back to runtime.GOOS/GOARCH) and AVAILABLE on the host.\n" +
+					"\n" +
+					"Statuses:\n" +
+					"  OK     present and resolvable\n" +
+					"  FAIL   required for this target but missing on this host (job fails)\n" +
+					"  N/A    required for this target but unobtainable on this host (job fails)\n" +
+					"  SKIP   not required for this target (or not available on this host)\n" +
+					"\n" +
 					"Examples:\n" +
-					"  gdnext toolchain doctor                       # what's needed for this host\n" +
-					"  gdnext --goos android toolchain doctor        # what's needed to build for android\n" +
-					"  GOOS=ios gdnext toolchain doctor              # same, via the env var",
+					"  gdnext toolchain doctor                              # host\n" +
+					"  gdnext --goos android --goarch arm64 toolchain doctor\n" +
+					"  GOOS=linux GOARCH=arm64 gdnext toolchain doctor      # same, via env",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:  "fix",
@@ -163,48 +118,92 @@ func toolchainCmd() *cli.Command {
 						mode = tooling.ModeInstall
 					}
 
-					// Target GOOS comes from --goos / $GOOS (both handled
-					// by PromoteFlagsToEnv on the root command's Before
-					// hook, so by the time we get here os.Getenv is
-					// authoritative). Falls back to the host runtime.GOOS.
-					target := os.Getenv("GOOS")
-					if target == "" {
-						target = runtime.GOOS
+					// (target GOOS/GOARCH, host GOOS/GOARCH) all come
+					// from env vars by the time we reach the action:
+					// PromoteFlagsToEnv on the root command's Before
+					// hook has already mirrored --goos/--goarch into
+					// $GOOS/$GOARCH. Host always reflects the binary.
+					targetGOOS := os.Getenv("GOOS")
+					if targetGOOS == "" {
+						targetGOOS = runtime.GOOS
 					}
+					targetGOARCH := os.Getenv("GOARCH")
+					if targetGOARCH == "" {
+						targetGOARCH = runtime.GOARCH
+					}
+					hostGOOS, hostGOARCH := runtime.GOOS, runtime.GOARCH
 
-					fmt.Fprintf(os.Stdout, "checking toolchains for target: %s\n\n", target)
+					fmt.Fprintf(os.Stdout, "host:   %s\ntarget: %s\n\n",
+						product.Tuple(hostGOOS, hostGOARCH),
+						product.Tuple(targetGOOS, targetGOARCH))
 					tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-					fmt.Fprintln(tw, "NAME\tFOR\tSTATUS\tDETAIL")
+					fmt.Fprintln(tw, "NAME\tNEEDED FOR\tRUNS ON\tSTATUS\tDETAIL")
 					var requiredFail int
 					var missing []string
-					for _, e := range toolchainCatalog() {
-						required := e.IsRequiredFor(target)
-						for_ := strings.Join(e.Targets, ",")
-						if for_ == "" {
-							for_ = "-"
+					for _, e := range tooling.Entries() {
+						required := e.IsRequiredFor(targetGOOS, targetGOARCH)
+						available := e.IsAvailableOn(hostGOOS, hostGOARCH)
+						neededFor := platformsString(e.Required)
+						runsOn := platformsString(e.Available)
+						if len(e.Available.GOOS) == 0 {
+							runsOn = "any"
 						}
+
+						// Tool is required by the target but the host
+						// can't run it: hard error, no point trying to
+						// install (downloads won't exist).
+						if required && !available {
+							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Slug, neededFor, runsOn,
+								"N/A", fmt.Sprintf("required for %s but cannot run on %s host",
+									product.Tuple(targetGOOS, targetGOARCH),
+									product.Tuple(hostGOOS, hostGOARCH)))
+							requiredFail++
+							missing = append(missing, e.Slug+"(unavailable)")
+							continue
+						}
+
 						path, err := e.Lookup(mode)
 						switch {
 						case err == nil:
-							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", e.Name, for_, "OK", path)
+							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Slug, neededFor, runsOn, "OK", path)
 						case required:
-							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", e.Name, for_, "FAIL", err)
+							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Slug, neededFor, runsOn, "FAIL", err)
 							requiredFail++
-							missing = append(missing, e.Name)
+							missing = append(missing, e.Slug)
 						default:
-							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", e.Name, for_, "SKIP", "not installed (not required for target)")
+							reason := "not installed (not required for target)"
+							if !available {
+								reason = "not installed (not available on host)"
+							}
+							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Slug, neededFor, runsOn, "SKIP", reason)
 						}
 					}
 					tw.Flush()
 					fmt.Fprintln(os.Stdout)
 					if requiredFail > 0 {
-						return fmt.Errorf("%d required toolchain(s) missing for target %s: %s (rerun with --fix to auto-download, or use `gdnext toolchain install`)",
-							requiredFail, target, strings.Join(missing, ", "))
+						return fmt.Errorf("%d required toolchain(s) missing for %s on %s host: %s (rerun with --fix to auto-download, or use `gdnext toolchain install`)",
+							requiredFail,
+							product.Tuple(targetGOOS, targetGOARCH),
+							product.Tuple(hostGOOS, hostGOARCH),
+							strings.Join(missing, ", "))
 					}
-					fmt.Fprintf(os.Stdout, "all required toolchains present for target %s\n", target)
+					fmt.Fprintf(os.Stdout, "all required toolchains present for %s\n", product.Tuple(targetGOOS, targetGOARCH))
 					return nil
 				},
 			},
 		},
 	}
+}
+
+// platformsString renders a Platforms set as "goos[/goarch,goarch]" with
+// multiple GOOS values comma-separated. Used by doctor's table.
+func platformsString(p product.Platforms) string {
+	if len(p.GOOS) == 0 {
+		return "-"
+	}
+	os := strings.Join(p.GOOS, ",")
+	if len(p.GOARCH) == 0 {
+		return os
+	}
+	return os + "/" + strings.Join(p.GOARCH, ",")
 }

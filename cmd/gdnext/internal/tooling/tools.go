@@ -1,175 +1,44 @@
 package tooling
 
-var Godot = toolchain{
-	Name:          "godot",
-	Version:       "4.6.2",
-	VersionFlags:  []string{"--version"},
-	VersionPrefix: "4.6.",
-	DownloadHint:  "https://godotengine.org/download",
-	DownloadURL:   "https://github.com/godotengine/godot/releases/download/$(VERSION)-stable/Godot_v$(VERSION)-stable_$(OS).zip",
-	DownloadOS:    map[string]string{"windows": "win64.exe", "linux": "linux.$(ARCH)", "darwin": "macos.universal"},
-	DownloadARCH:  map[string]string{"amd64": "x86_64", "arm64": "arm64"},
-	Unzip:         "Godot_v$(VERSION)-stable_$(OS)",
-	IsApp:         true,
-	RequiredFor:   "graphics",
-	Targets:       []string{"all"},
+import (
+	"fmt"
 
-	ConvertArguments: map[string]string{
-		"-v":       "--verbose",
-		"-x":       "",
-		"-gcflags": "",
-	},
-}
+	"graphics.gd/product"
+)
 
-var LLVM = toolchain{
-	Name:          "llvm",
-	Version:       "21.1.8",
-	VersionFlags:  []string{"clang", "--version"},
-	VersionPrefix: "clang version 21.",
-	DownloadURL:   "https://release.graphics.gd/llvm.$(GOOS).$(GOARCH)$(EXT)",
-	DownloadEXT:   map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
-	RequiredFor:   "linking iOS builds",
-	Targets:       []string{"ios"},
-}
+// The named vars below are the runtime handles for each entry in
+// product.ToolchainMatrix. They wrap the declarative product.Toolchain
+// record with a mutable Path cache and the Lookup / Exec / Action /
+// Output / CombinedOutput methods. Catalog (in catalog.go) holds the
+// pointer set in matrix order.
+//
+// To add a toolchain: append the record to product.ToolchainMatrix
+// (product/toolchains.go), then add a named var here for the slug and
+// list it in Catalog. The wrap() helper panics at init if the slug is
+// missing from the product matrix, so a typo surfaces immediately.
 
-var Zig = toolchain{
-	Name:         "zig",
-	Version:      "0.15.2",
-	VersionFlags: []string{"version"},
-	DownloadHint: "https://ziglang.org/download/",
-	DownloadURL:  "https://ziglang.org/download/$(VERSION)/zig-$(ARCH)-$(OS)-$(VERSION)$(EXT)",
-	DownloadOS:   map[string]string{"windows": "windows", "darwin": "macos", "linux": "linux"},
-	DownloadARCH: map[string]string{"amd64": "x86_64", "arm64": "aarch64"},
-	DownloadEXT:  map[string]string{"windows": ".zip", "darwin": ".tar.xz", "linux": ".tar.xz"},
-	RequiredFor:  "cross-compiling",
-	Targets:      []string{"all"},
-}
+var (
+	Godot                        = wrap("godot")
+	Go                           = wrap("go")
+	Zig                          = wrap("zig")
+	LLVM                         = wrap("llvm")
+	AndroidDebugBridge           = wrap("adb")
+	AndroidPackageSigner         = wrap("apksigner")
+	AndroidAssetPackagingTool    = wrap("aapt2")
+	AndroidPackageKitTool        = wrap("apktool")
+	BundleTool                   = wrap("bundletool")
+	Android                      = wrap("android.jar")
+	UltimatePackerForExecutables = wrap("upx")
+	Velopack                     = wrap("vpk")
+	LibGodot                     = wrap("libgodot")
+	LibGodotEditor               = wrap("libgodot-editor")
+	ListDynamicDependencies      = wrap("ldd")
+)
 
-var Go = toolchain{
-	Name:          "go",
-	VersionFlags:  []string{"version"},
-	Version:       "1.26.0",
-	DownloadHint:  "https://go.dev/dl/",
-	VersionPrefix: "go version go1.26.",
-	RequiredFor:   "compiling",
-	Targets:       []string{"all"},
-
-	ConvertArguments: map[string]string{
-		"--verbose": "-v",
-	},
-}
-
-var Velopack = toolchain{
-	Name:          "vpk",
-	Version:       "0.0.1298",
-	VersionFlags:  []string{"--help"},
-	VersionPrefix: "Description:\n  Velopack CLI 0.0.1298,",
-	RequiredFor:   "self-updating-bundles",
-	// Optional: not required by any gdnext build target. Used only when
-	// the user explicitly wants self-updating windows bundles.
-}
-
-var AndroidPackageSigner = toolchain{
-	Name:         "apksigner",
-	Version:      "0.9",
-	VersionFlags: []string{"--version"},
-	DownloadURL:  "https://release.graphics.gd/apksigner.$(GOOS).$(GOARCH)$(EXT)",
-	DownloadEXT:  map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
-	RequiredFor:  "building the .apk",
-	Targets:      []string{"android", "metaquest"},
-}
-
-var AndroidDebugBridge = toolchain{
-	Name:            "adb",
-	Version:         "1.0.41",
-	VersionFlags:    []string{"--version"},
-	VersionPrefix:   "Android Debug Bridge version 1.0.41",
-	DownloadURL:     "https://release.graphics.gd/adb.$(GOOS).$(GOARCH)$(EXT)",
-	DownloadEXT:     map[string]string{"linux": "", "windows": ".zip", "darwin": ""},
-	RequiredFor:     "launching the project on a connected android device",
-	DarwinUniversal: true,
-	Targets:         []string{"android", "metaquest"},
-}
-
-var UltimatePackerForExecutables = toolchain{
-	Name:          "upx",
-	Version:       "5.0.2",
-	VersionFlags:  []string{"--version"},
-	VersionPrefix: "upx 5.0.2",
-	DownloadHint:  "https://github.com/upx/upx/releases/latest",
-	Downloads: map[string]map[string]string{
-		"windows": {
-			"amd64": "https://github.com/upx/upx/releases/download/v$(VERSION)/upx-$(VERSION)-win64.zip",
-		},
-	},
-	DownloadURL:  "https://github.com/upx/upx/releases/download/v$(VERSION)/upx-$(VERSION)-$(ARCH)_$(OS).zip",
-	DownloadOS:   map[string]string{"linux": "linux"},
-	DownloadARCH: map[string]string{"amd64": "amd64", "arm64": "arm64"},
-	RequiredFor:  "minifying builds",
-	// Optional: opt-in minifier, not required by any gdnext build target.
-}
-
-var AndroidPackageKitTool = toolchain{
-	Name:          "apktool",
-	Version:       "2.12.1",
-	VersionPrefix: "2.12.1-",
-	VersionFlags:  []string{"v"},
-	DownloadURL:   "https://release.graphics.gd/apktool.$(GOOS).$(GOARCH)$(EXT)",
-	DownloadEXT:   map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
-	RequiredFor:   "converting the exported .apk into an .aab",
-	Targets:       []string{"android", "metaquest"},
-}
-
-var AndroidAssetPackagingTool = toolchain{
-	Name:            "aapt2",
-	Version:         "2.19-android-13.0.0_r6",
-	VersionPrefix:   "Android Asset Packaging Tool (aapt) 2.",
-	VersionFlags:    []string{"version"},
-	DownloadURL:     "https://release.graphics.gd/aapt2.$(GOOS).$(GOARCH)$(EXT)",
-	DownloadEXT:     map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
-	RequiredFor:     "converting the exported .apk into an .aab",
-	DarwinUniversal: true,
-	Targets:         []string{"android", "metaquest"},
-}
-
-var BundleTool = toolchain{
-	Name:         "bundletool",
-	Version:      "1.18.3",
-	VersionFlags: []string{"version"},
-	DownloadURL:  "https://release.graphics.gd/bundletool.$(GOOS).$(GOARCH)$(EXT)",
-	DownloadEXT:  map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
-	RequiredFor:  "converting the exported .apk into an .aab",
-	Targets:      []string{"android", "metaquest"},
-}
-
-var Android = toolchain{
-	Name:        "android.jar",
-	DownloadURL: "https://release.graphics.gd/android.jar",
-	RequiredFor: "converting the exported .apk into an .aab",
-	IsLibrary:   true,
-	Targets:     []string{"android", "metaquest"},
-}
-
-var LibGodotEditor = toolchain{
-	Name:        "libgodot.$(GOOS).editor.$(GOARCH).$(EXT)",
-	DownloadURL: "https://release.graphics.gd/libgodot.$(GOOS).editor.$(GOARCH).$(EXT)",
-	DownloadEXT: map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
-	RequiredFor: "launching the editor on musl systems",
-	IsLibrary:   true,
-	Targets:     []string{"musl"},
-}
-
-var LibGodot = toolchain{
-	Name:        "libgodot.$(GOOS).$(GOARCH).$(EXT)",
-	DownloadURL: "https://release.graphics.gd/libgodot.$(GOOS).$(GOARCH).$(EXT)",
-	DownloadEXT: map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
-	RequiredFor: "musl systems & single binaries",
-	IsLibrary:   true,
-	Targets:     []string{"musl"},
-}
-
-var ListDynamicDependencies = toolchain{
-	Name:        "ldd",
-	RequiredFor: "musl detection",
-	Targets:     []string{"linux", "musl"},
+func wrap(slug string) toolchain {
+	t, ok := product.LookupToolchain(slug)
+	if !ok {
+		panic(fmt.Sprintf("tooling: product.ToolchainMatrix is missing slug %q", slug))
+	}
+	return toolchain{Toolchain: t}
 }

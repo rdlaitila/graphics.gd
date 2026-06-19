@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 
+	"graphics.gd/product"
+
 	"github.com/schollz/progressbar/v3"
 	"runtime.link/api/xray"
 )
@@ -40,54 +42,30 @@ const (
 // Deprecated: prefer Mode arg on Lookup / LookupPlatform. The env var is
 // still honoured for backwards compatibility with scripts and NixOS users.
 
+// toolchain wraps a product.Toolchain record with the mutable runtime
+// state gdnext needs to drive it: the cached install Path. The embedded
+// product.Toolchain provides every declarative field
+// (Slug/Name/Version/Download*/Required/Available/...) via promotion;
+// methods on *toolchain read those fields and manage Path locally.
 type toolchain struct {
-	Name          string                       // as found in $PATH
-	Version       string                       // expected version
-	VersionFlags  []string                     // to extract version
-	VersionPrefix string                       // version prefix
-	Downloads     map[string]map[string]string // specific GOOS/GOARCH download URLs
-	DownloadURL   string                       // base Download URL with $(VERSION), $(OS), $(ARCH) variables
-	DownloadARCH  map[string]string            // to map GOARCH to $(ARCH)
-	DownloadOS    map[string]string            // to map GOOS to $(OS)
-	DownloadEXT   map[string]string            // to map GOOS to download file extension.
-	DownloadHint  string                       // where to get it
-	Unzip         string                       // rename the binary named this inside the zip to Name
-	IsApp         bool
-	Installations map[string]string // expected installations for specific GOOS (with $(HOME) variable)
-
-	RequiredFor string // description of why gd needs this toolchain dependency
-
-	ConvertArguments map[string]string
-
-	DarwinUniversal bool
-
-	IsLibrary bool
-
-	// Targets enumerates the GOOS strings this toolchain is required for.
-	// Special value "all" means "required no matter what we're building"
-	// (the base set: godot, go, zig). An empty Targets slice means the
-	// toolchain is purely optional — doctor will never fail on it being
-	// missing.
-	Targets []string
+	product.Toolchain
 
 	Path string // cached by [toolchain.Lookup]
 }
 
 // IsRequiredFor reports whether this toolchain is needed when targeting
-// any of the given GOOS values. "all" in Targets matches everything; an
-// empty Targets slice never matches (the tool is optional).
-func (exe toolchain) IsRequiredFor(goos ...string) bool {
-	for _, t := range exe.Targets {
-		if t == "all" {
-			return true
-		}
-		for _, g := range goos {
-			if t == g {
-				return true
-			}
-		}
+// the given (goos, goarch).
+func (exe toolchain) IsRequiredFor(goos, goarch string) bool {
+	return exe.Required.Matches(goos, goarch)
+}
+
+// IsAvailableOn reports whether this toolchain can be obtained on the
+// given host (goos, goarch). An empty Available is treated as "any".
+func (exe toolchain) IsAvailableOn(goos, goarch string) bool {
+	if len(exe.Available.GOOS) == 0 {
+		return true
 	}
-	return false
+	return exe.Available.Matches(goos, goarch)
 }
 
 func (exe toolchain) PathToCommand() string {
