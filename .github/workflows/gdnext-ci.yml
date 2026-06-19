@@ -19,13 +19,62 @@ on:
       - ".github/workflows/gdnext-ci.yml"
 
 jobs:
+  # Pre-job: enumerate the supported build targets from product data.
+  # The output drives the build matrix below, so adding a new row to
+  # product.PlatformMatrix lands in CI with zero workflow edits.
+  discover-targets:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.list.outputs.targets }}
+      experimental: ${{ steps.list.outputs.experimental }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.26"
+      - id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          # gdnext platforms is pure data + no toolchains, safe to `go run`.
+          # Both filters reject ios + metaquest (need Apple certs / android
+          # SDK respectively) and darwin/amd64 (folded into universal arm64).
+          rows=$(go run ./cmd/gdnext platforms targets --format json)
+          targets=$(jq -c '[ .[]
+              | select(.status | test("supported|experimental"))
+              | select(.status | test("broken") | not)
+              | select(.goos != "ios" and .goos != "metaquest" and (.goos != "darwin" or .goarch != "amd64"))
+              | "\(.goos)/\(.goarch)" ]' <<<"$rows")
+          experimental=$(jq -c '[ .[]
+              | select(.status | test("experimental"))
+              | select(.goos != "ios" and .goos != "metaquest" and (.goos != "darwin" or .goarch != "amd64"))
+              | "\(.goos)/\(.goarch)" ]' <<<"$rows")
+          echo "targets=$targets" >> $GITHUB_OUTPUT
+          echo "experimental=$experimental" >> $GITHUB_OUTPUT
+          echo "CI build targets:"
+          echo "$targets" | jq -r '.[]'
+          echo
+          echo "Experimental (continue-on-error):"
+          echo "$experimental" | jq -r '.[]'
+
   gdnext-ci:
+    needs: discover-targets
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         example: [canarybird]
+        target: ${{ fromJSON(needs.discover-targets.outputs.targets) }}
+        exclude:
+          # darwin builds natively only — no zig cross-compile path.
+          - {os: ubuntu-latest, target: darwin/arm64}
+          - {os: windows-latest, target: darwin/arm64}
+          # musl currently only supported on linux hosts.
+          - {os: windows-latest, target: musl/amd64}
+          - {os: macos-latest, target: musl/amd64}
+          - {os: windows-latest, target: musl/arm64}
+          - {os: macos-latest, target: musl/arm64}
     steps:
       - uses: actions/checkout@v4
 
@@ -96,51 +145,18 @@ jobs:
           echo "tmp=$tmp" >> $GITHUB_OUTPUT
           gdnext-ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
 
-      # -------------------------------------------------------------------
-      # Build matrix — each step is gated to the runners that can actually
-      # produce the artefact. Every step runs `gdnext build` for real
-      # (no RUNNING_INSIDE_GODOT short-circuit) so the full pipeline
-      # templates.Assert → BuildMain → godot --headless --export-release
-      # is exercised end-to-end. (goos, goarch) is validated against
+      # Build the matrix's target. (goos, goarch) is validated against
       # product.PlatformMatrix inside `gdnext-ci build-target`, so a
-      # typo'd target fails the step with a clear "unknown platform"
-      # message instead of a cryptic deeper error.
-      # -------------------------------------------------------------------
-
-      - name: Build linux/amd64
+      # typo'd target fails with a clear "unknown platform" message
+      # instead of a cryptic deeper error. Experimental targets carry
+      # continue-on-error so the job stays green when they break —
+      # the failure still shows up in the matrix UI as a yellow row.
+      - name: Build ${{ matrix.target }}
+        continue-on-error: ${{ contains(fromJSON(needs.discover-targets.outputs.experimental), matrix.target) }}
         shell: bash
-        run: gdnext-ci build-target --goos linux --goarch amd64 --scratch "${{ steps.stage.outputs.tmp }}"
-
-      - name: Build linux/arm64 (ubuntu only — zig cross)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: gdnext-ci build-target --goos linux --goarch arm64 --scratch "${{ steps.stage.outputs.tmp }}"
-
-      - name: Build windows/amd64
-        shell: bash
-        run: gdnext-ci build-target --goos windows --goarch amd64 --scratch "${{ steps.stage.outputs.tmp }}"
-
-      - name: Build darwin/arm64 (macos only — universal, unsigned)
-        if: matrix.os == 'macos-latest'
-        shell: bash
-        run: gdnext-ci build-target --goos darwin --goarch arm64 --scratch "${{ steps.stage.outputs.tmp }}"
-
-      - name: Build js/wasm
-        shell: bash
-        run: gdnext-ci build-target --goos js --goarch wasm --scratch "${{ steps.stage.outputs.tmp }}"
-
-      - name: Build android/arm64
-        shell: bash
-        run: gdnext-ci build-target --goos android --goarch arm64 --scratch "${{ steps.stage.outputs.tmp }}"
-
-      - name: Build android/amd64
-        shell: bash
-        run: gdnext-ci build-target --goos android --goarch amd64 --scratch "${{ steps.stage.outputs.tmp }}"
-
-      - name: Build musl/amd64 (ubuntu only)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: gdnext-ci build-target --goos musl --goarch amd64 --scratch "${{ steps.stage.outputs.tmp }}"
+        run: |
+          IFS=/ read -r goos goarch <<< "${{ matrix.target }}"
+          gdnext-ci build-target --goos "$goos" --goarch "$goarch" --scratch "${{ steps.stage.outputs.tmp }}"
 
       - name: Headless test pipeline
         shell: bash
