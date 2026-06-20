@@ -13,22 +13,6 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// androidKeystorePath returns the platform-specific path the legacy gd
-// command uses for the auto-generated debug.keystore (see the matching
-// switch in cmd/gdnext/internal/builder/android.go).
-func androidKeystorePath() (string, error) {
-	switch runtime.GOOS {
-	case "linux":
-		return filepath.Join(os.Getenv("HOME"), ".local", "share", "godot", "keystores", "debug.keystore"), nil
-	case "windows":
-		return filepath.Join(os.Getenv("APPDATA"), "Godot", "keystores", "debug.keystore"), nil
-	case "darwin":
-		return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "Godot", "keystores", "debug.keystore"), nil
-	default:
-		return "", fmt.Errorf("no known keystore path for %s", runtime.GOOS)
-	}
-}
-
 func androidCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "android",
@@ -143,5 +127,21 @@ func androidCmd() *cli.Command {
 				},
 			},
 		},
+	}
+}
+
+// androidKeystorePath returns the platform-specific path the legacy gd
+// command uses for the auto-generated debug.keystore (see the matching
+// switch in cmd/gdnext/internal/builder/android.go).
+func androidKeystorePath() (string, error) {
+	switch runtime.GOOS {
+	case "linux":
+		return filepath.Join(os.Getenv("HOME"), ".local", "share", "godot", "keystores", "debug.keystore"), nil
+	case "windows":
+		return filepath.Join(os.Getenv("APPDATA"), "Godot", "keystores", "debug.keystore"), nil
+	case "darwin":
+		return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "Godot", "keystores", "debug.keystore"), nil
+	default:
+		return "", fmt.Errorf("no known keystore path for %s", runtime.GOOS)
 	}
 }

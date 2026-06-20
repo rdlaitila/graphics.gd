@@ -88,20 +88,6 @@ func toolchainCmd() *cli.Command {
 			{
 				Name:  "doctor",
 				Usage: "verify every toolchain reachable; non-zero exit only on REQUIRED misses",
-				Description: "Lists every toolchain in the catalog and classifies each by whether it's\n" +
-					"REQUIRED for the build target (taken from --goos/--goarch or $GOOS/$GOARCH,\n" +
-					"falling back to runtime.GOOS/GOARCH) and AVAILABLE on the host.\n" +
-					"\n" +
-					"Statuses:\n" +
-					"  OK     present and resolvable\n" +
-					"  FAIL   required for this target but missing on this host (job fails)\n" +
-					"  N/A    required for this target but unobtainable on this host (job fails)\n" +
-					"  SKIP   not required for this target (or not available on this host)\n" +
-					"\n" +
-					"Examples:\n" +
-					"  gdnext toolchain doctor                              # host\n" +
-					"  gdnext --goos android --goarch arm64 toolchain doctor\n" +
-					"  GOOS=linux GOARCH=arm64 gdnext toolchain doctor      # same, via env",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:  "fix",
@@ -117,7 +103,6 @@ func toolchainCmd() *cli.Command {
 					if cmd.Bool("fix") {
 						mode = tooling.ModeInstall
 					}
-
 					// (target GOOS/GOARCH, host GOOS/GOARCH) all come
 					// from env vars by the time we reach the action:
 					// PromoteFlagsToEnv on the root command's Before
@@ -148,7 +133,6 @@ func toolchainCmd() *cli.Command {
 						if len(e.Available.GOOS) == 0 {
 							runsOn = "any"
 						}
-
 						// Tool is required by the target but the host
 						// can't run it: hard error, no point trying to
 						// install (downloads won't exist).
@@ -161,7 +145,6 @@ func toolchainCmd() *cli.Command {
 							missing = append(missing, e.Slug+"(unavailable)")
 							continue
 						}
-
 						path, err := e.Lookup(mode)
 						switch {
 						case err == nil:

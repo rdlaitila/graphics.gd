@@ -31,7 +31,7 @@ func Commands() []*cli.Command {
 		versionCmd(),
 		projectCmd(),
 		toolchainCmd(),
-		platformsCmd(),
+		platformCmd(),
 		androidCmd(),
 		iosCmd(),
 		macosCmd(),

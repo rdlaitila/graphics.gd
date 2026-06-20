@@ -16,23 +16,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func platformsCmd() *cli.Command {
+func platformCmd() *cli.Command {
 	return &cli.Command{
-		Name:      "platforms",
+		Name:      "platform",
 		Usage:     "show the graphics.gd platform / host / target matrix",
 		ArgsUsage: "[hosts | targets | <name>]",
-		Description: "Without arguments, prints every (GOOS, GOARCH) row graphics.gd\n" +
-			"supports together with its role (host, target, or both), support\n" +
-			"status, and known renderers.\n" +
-			"\n" +
-			"Filters:\n" +
-			"  hosts        only platforms gdnext itself can run on\n" +
-			"  targets      only platforms graphics.gd can build for\n" +
-			"  <name>       detail view for one row, accepts canonical GOOS or any alias\n" +
-			"\n" +
-			"--format selects the output encoding (table is the default human-\n" +
-			"readable form; the others produce machine-readable output suitable\n" +
-			"for docs generators and external tooling).",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "format",
