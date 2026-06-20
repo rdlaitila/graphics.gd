@@ -66,6 +66,14 @@ func (mq MetaQuest) BuildMain(args ...string) error {
 	if err := mq.Build(args...); err != nil {
 		return xray.New(err)
 	}
+	// MkdirAll the export destination before invoking godot — the
+	// preset's relative `export_path` resolves against the graphics
+	// dir's parent, and godot refuses to write into a directory that
+	// doesn't exist yet. Run() does the same; this used to be missing
+	// in BuildMain, so CI surfaced "Target folder does not exist".
+	if err := os.MkdirAll(filepath.Join(project.ReleasesDirectory, "metaquest"), 0o755); err != nil {
+		return xray.New(err)
+	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
