@@ -12,7 +12,7 @@ import (
 // rename there should fail this list and prompt an update.
 var helpVerbs = []string{
 	"build", "run", "test", "export", "doc", "fix", "version",
-	"project", "toolchain", "platforms",
+	"project", "toolchain", "platform",
 	"android", "ios", "macos", "web", "musl",
 }
 
