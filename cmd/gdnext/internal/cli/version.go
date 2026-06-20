@@ -19,7 +19,7 @@ func versionCmd() *cli.Command {
 				return err
 			}
 			fmt.Println("godot expected version", tooling.Godot.Version)
-			if path, err := tooling.Godot.Lookup(); err == nil {
+			if path, err := tooling.Godot.Lookup(tooling.ModeFind); err == nil {
 				if out, err := tooling.Godot.Output(tooling.Godot.VersionFlags...); err == nil {
 					fmt.Println("godot installed", out, "at", path)
 				}
