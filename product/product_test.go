@@ -114,6 +114,24 @@ func TestKindCoverage(t *testing.T) {
 	}
 }
 
+// TestBuildHostsPresent enforces that every Target row declares its
+// BuildHosts explicitly. Use AllPlatforms for zig-cross-compilable
+// targets; an explicit list for host-restricted ones. CI consumers
+// rely on this field, so a missing value would silently exclude the
+// target from every matrix expansion.
+func TestBuildHostsPresent(t *testing.T) {
+	for _, p := range PlatformMatrix {
+		if !p.Kind.Has(Target) {
+			continue
+		}
+		if len(p.BuildHosts.GOOS) == 0 {
+			t.Errorf("%s/%s is a Target but has empty BuildHosts; "+
+				"set AllPlatforms for cross-compilable targets or list specific hosts",
+				p.GOOS, p.GOARCH)
+		}
+	}
+}
+
 // TestResolveCanonical confirms the canonical GOOS string resolves to
 // at least one matrix row.
 func TestResolveCanonical(t *testing.T) {

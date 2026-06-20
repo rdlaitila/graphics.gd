@@ -10,15 +10,16 @@ import (
 // (GOOS, GOARCH) pair together with the metadata gdnext + downstream
 // tooling needs to reason about it.
 type Platform struct {
-	XMLName   xml.Name `json:"-"                   xml:"platform"                     yaml:"-"`
-	Title     string   `json:"title,omitempty"     xml:"title,attr,omitempty"         yaml:"title,omitempty"`
-	GOOS      string   `json:"goos"                xml:"goos"                         yaml:"goos"`
-	GOARCH    string   `json:"goarch"              xml:"goarch"                       yaml:"goarch"`
-	Aliases   []string `json:"aliases,omitempty"   xml:"aliases>alias,omitempty"      yaml:"aliases,omitempty"`
-	Kind      Kind     `json:"kind"                xml:"kind,attr"                    yaml:"kind"`
-	Status    Status   `json:"status"              xml:"status,attr"                  yaml:"status"`
-	Renderers []string `json:"renderers,omitempty" xml:"renderers>renderer,omitempty" yaml:"renderers,omitempty"`
-	Notes     string   `json:"notes,omitempty"     xml:"notes,omitempty"              yaml:"notes,omitempty"`
+	XMLName    xml.Name  `json:"-"                     xml:"platform"                     yaml:"-"`
+	Title      string    `json:"title,omitempty"       xml:"title,attr,omitempty"         yaml:"title,omitempty"`
+	GOOS       string    `json:"goos"                  xml:"goos"                         yaml:"goos"`
+	GOARCH     string    `json:"goarch"                xml:"goarch"                       yaml:"goarch"`
+	Aliases    []string  `json:"aliases,omitempty"     xml:"aliases>alias,omitempty"      yaml:"aliases,omitempty"`
+	Kind       Kind      `json:"kind"                  xml:"kind,attr"                    yaml:"kind"`
+	Status     Status    `json:"status"                xml:"status,attr"                  yaml:"status"`
+	BuildHosts Platforms `json:"build_hosts,omitempty" xml:"build_hosts,omitempty"        yaml:"build_hosts,omitempty"`
+	Renderers  []string  `json:"renderers,omitempty"   xml:"renderers>renderer,omitempty" yaml:"renderers,omitempty"`
+	Notes      string    `json:"notes,omitempty"       xml:"notes,omitempty"              yaml:"notes,omitempty"`
 }
 
 // DisplayTitle returns the human-friendly label suitable for user-facing
@@ -149,6 +150,18 @@ func (p Platform) Names() []string {
 	out = append(out, p.GOOS)
 	out = append(out, p.Aliases...)
 	return out
+}
+
+// CanBuildOn reports whether this target can be built from the host
+// (hostGOOS, hostGOARCH). An empty BuildHosts is treated as "any host",
+// which is the right default for zig-cross-compilable targets. Set
+// BuildHosts when a target genuinely needs a specific host — darwin
+// (no zig cross path), musl (linux-only build chain), etc.
+func (p Platform) CanBuildOn(hostGOOS, hostGOARCH string) bool {
+	if len(p.BuildHosts.GOOS) == 0 {
+		return true
+	}
+	return p.BuildHosts.Matches(hostGOOS, hostGOARCH)
 }
 
 // Targets returns the subset of Matrix that can be built for.
