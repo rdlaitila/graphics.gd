@@ -62,30 +62,6 @@ jobs:
         with:
           go-version: "1.26"
 
-      - name: Compute week key
-        id: week
-        shell: bash
-        run: echo "week=$(date +%Y-%W)" >> $GITHUB_OUTPUT
-
-      - name: Resolve Godot export-templates dir
-        id: templates
-        shell: bash
-        run: |
-          case "${{ runner.os }}" in
-            Linux)   echo "dir=$HOME/.local/share/godot/export_templates" >> $GITHUB_OUTPUT ;;
-            macOS)   echo "dir=$HOME/Library/Application Support/Godot/export_templates" >> $GITHUB_OUTPUT ;;
-            Windows) echo "dir=$APPDATA/Godot/export_templates" >> $GITHUB_OUTPUT ;;
-          esac
-
-      - name: Cache ~/gd and Godot export templates
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ~/gd
-            ${{ steps.templates.outputs.dir }}
-          key: ${{ runner.os }}-gdnext-weekly-${{ steps.week.outputs.week }}
-          restore-keys: ${{ runner.os }}-gdnext-weekly-
-
       - name: Install gdnext + gdnext-ci into PATH
         shell: bash
         run: |
@@ -131,30 +107,6 @@ jobs:
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.26"
-
-      - name: Compute week key
-        id: week
-        shell: bash
-        run: echo "week=$(date +%Y-%W)" >> $GITHUB_OUTPUT
-
-      - name: Resolve Godot export-templates dir
-        id: templates
-        shell: bash
-        run: |
-          case "${{ runner.os }}" in
-            Linux)   echo "dir=$HOME/.local/share/godot/export_templates" >> $GITHUB_OUTPUT ;;
-            macOS)   echo "dir=$HOME/Library/Application Support/Godot/export_templates" >> $GITHUB_OUTPUT ;;
-            Windows) echo "dir=$APPDATA/Godot/export_templates" >> $GITHUB_OUTPUT ;;
-          esac
-
-      - name: Cache ~/gd and Godot export templates
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ~/gd
-            ${{ steps.templates.outputs.dir }}
-          key: ${{ runner.os }}-gdnext-weekly-${{ steps.week.outputs.week }}
-          restore-keys: ${{ runner.os }}-gdnext-weekly-
 
       - name: Install gdnext + gdnext-ci into PATH
         shell: bash

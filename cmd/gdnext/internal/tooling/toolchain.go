@@ -37,10 +37,15 @@ const (
 	ModeFind
 )
 
-// GOTOOLCHAIN=local will disable automatic toolchain downloads.
+// GDTOOLCHAIN=local will disable automatic toolchain downloads.
 //
 // Deprecated: prefer Mode arg on Lookup / LookupPlatform. The env var is
 // still honoured for backwards compatibility with scripts and NixOS users.
+//
+// Note: GOTOOLCHAIN is reserved by the Go toolchain itself (and is set
+// to "local" by actions/setup-go to pin the runtime Go version); we
+// must not piggy-back on it for gdnext's download gating because that
+// would surprise CI users who only meant to pin go.
 
 // toolchain wraps a product.Toolchain record with the mutable runtime
 // state gdnext needs to drive it: the cached install Path. The embedded
@@ -241,7 +246,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	// some users (ie. NixOS) don't want things to be automatically installed, they
 	// can set their toolchain to local and download/install everything themselves.
 	// Mode==Find produces the same effect explicitly at the call site.
-	if m == ModeFind || os.Getenv("GOTOOLCHAIN") == "local" || os.Getenv("GDTOOLCHAIN") == "local" || GDPATH == "" {
+	if m == ModeFind || os.Getenv("GDTOOLCHAIN") == "local" || GDPATH == "" {
 		path, err := exec.LookPath(name)
 		if err != nil {
 			return "", fmt.Errorf(

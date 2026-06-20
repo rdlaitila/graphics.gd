@@ -18,7 +18,10 @@ import (
 
 var debug = os.Getenv("DEBUG_CMD") != ""
 
-// GOTOOLCHAIN=local will disable automatic toolchain downloads.
+// GDTOOLCHAIN=local will disable automatic toolchain downloads.
+// (GOTOOLCHAIN is reserved by the Go toolchain itself and is set to
+// "local" by actions/setup-go to pin the runtime Go version, so we do
+// not piggy-back on it here.)
 
 type toolchain struct {
 	Name          string                       // as found in $PATH
@@ -227,7 +230,7 @@ func (exe *toolchain) LookupPlatform(GOOS, GOARCH string) (string, error) {
 	}
 	// some users (ie. NixOS) don't want things to be automatically installed, they
 	// can set their toolchain to local and download/install everything themselves.
-	if os.Getenv("GOTOOLCHAIN") == "local" || os.Getenv("GDTOOLCHAIN") == "local" || GDPATH == "" {
+	if os.Getenv("GDTOOLCHAIN") == "local" || GDPATH == "" {
 		path, err := exec.LookPath(name)
 		if err != nil {
 			return "", fmt.Errorf(
