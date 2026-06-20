@@ -22,8 +22,7 @@ type Toolchain struct {
 	VersionFlags     []string                     `json:"version_flags,omitempty"     xml:"version_flags>flag,omitempty"    yaml:"version_flags,omitempty"`
 	VersionPrefix    string                       `json:"version_prefix,omitempty"    xml:"version_prefix,omitempty"        yaml:"version_prefix,omitempty"`
 	RequiredFor      string                       `json:"required_for,omitempty"      xml:"required_for,omitempty"          yaml:"required_for,omitempty"`
-	Required         Platforms                    `json:"required"                    xml:"required"                        yaml:"required"`
-	Available        Platforms                    `json:"available,omitempty"         xml:"available,omitempty"             yaml:"available,omitempty"`
+	AvailableHosts   []BuildHost                  `json:"available_hosts,omitempty"   xml:"available_hosts>host,omitempty" yaml:"available_hosts,omitempty"`
 	Downloads        map[string]map[string]string `json:"downloads,omitempty"         xml:"-"                               yaml:"downloads,omitempty"`
 	DownloadURL      string                       `json:"download_url,omitempty"      xml:"download_url,omitempty"          yaml:"download_url,omitempty"`
 	DownloadARCH     map[string]string            `json:"download_arch,omitempty"     xml:"-"                               yaml:"download_arch,omitempty"`
@@ -38,23 +37,8 @@ type Toolchain struct {
 	DarwinUniversal  bool                         `json:"darwin_universal,omitempty"  xml:"darwin_universal,attr,omitempty" yaml:"darwin_universal,omitempty"`
 }
 
-// IsRequiredFor reports whether this toolchain is needed when targeting
-// (goos, goarch).
-func (t Toolchain) IsRequiredFor(goos, goarch string) bool {
-	return t.Required.Matches(goos, goarch)
-}
-
-// IsAvailableOn reports whether this toolchain can be obtained on host
-// (goos, goarch). A zero Available is treated as "any host".
-func (t Toolchain) IsAvailableOn(goos, goarch string) bool {
-	if len(t.Available.GOOS) == 0 {
-		return true
-	}
-	return t.Available.Matches(goos, goarch)
-}
-
-// LookupToolchain returns the matrix entry whose Slug matches slug.
-func LookupToolchain(slug string) (Toolchain, bool) {
+// FindToolchainBySlug returns the matrix entry whose Slug matches slug.
+func FindToolchainBySlug(slug string) (Toolchain, bool) {
 	for _, t := range ToolchainMatrix {
 		if t.Slug == slug {
 			return t, true
@@ -63,14 +47,14 @@ func LookupToolchain(slug string) (Toolchain, bool) {
 	return Toolchain{}, false
 }
 
-// ToolchainsRequiredFor returns the subset of ToolchainMatrix needed to
-// build for (targetGOOS, targetGOARCH).
-func ToolchainsRequiredFor(targetGOOS, targetGOARCH string) []Toolchain {
-	out := make([]Toolchain, 0, len(ToolchainMatrix))
-	for _, t := range ToolchainMatrix {
-		if t.IsRequiredFor(targetGOOS, targetGOARCH) {
-			out = append(out, t)
+// CanInstallOn reports whether this toolchain has a download / install
+// path for the given host. An empty AvailableHosts list means the tool
+// has no installer for any host (caller should treat as "not installable").
+func (t Toolchain) CanInstallOn(host BuildHost) bool {
+	for _, h := range t.AvailableHosts {
+		if h.GOOS == host.GOOS && h.GOARCH == host.GOARCH {
+			return true
 		}
 	}
-	return out
+	return false
 }

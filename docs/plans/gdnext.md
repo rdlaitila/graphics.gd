@@ -75,6 +75,14 @@ separate decision for after parity is proven in the wild.
   layout). Other agent entry points (`CLAUDE.md`,
   `.github/copilot-instructions.md`, …) symlink to the same file so
   there is exactly one source of truth.
+- **LinkMode — third platform axis.** Every target row carries a
+  `LinkMode` bitfield (`GDExtension | LibGodot`) declaring which
+  linking recipes the platform supports. Replaces the legacy
+  `musl/*` rows: linux/* gains `GDExtension | LibGodot`; the user
+  picks via a new `--link` flag. Unblocks per-target library
+  artefacts (`libgodot.linux.amd64.a`, future libgodot variants)
+  resolving correctly in `toolchain install` / `doctor` without
+  needing to know about musl specifically. See *LinkMode* below.
 
 ## Out of scope
 
@@ -86,3 +94,112 @@ separate decision for after parity is proven in the wild.
   that can't live in a public repo.
 - **No `gdnext run` in CI.** Needs a windowed GPU session;
   `gdnext test` exercises the same setup pipeline headlessly.
+
+## LinkMode
+
+Today the build pipeline supports two fundamentally different ways of
+producing a Godot-driven binary, and the platform matrix doesn't
+distinguish them. That mismatch is why `toolchain install` asks for
+`libgodot.linux.amd64.a` (404) instead of `libgodot.musl.amd64.a` (the
+artefact that actually exists) when libgodot is in scope. Adding
+`LinkMode` as a first-class platform axis fixes the modelling.
+
+### The two linking models
+
+**GDExtension — the legacy path.** Build output is a shared library
+(`.so` / `.dll` / `.dylib`, or `.a` on iOS) loaded by Godot at runtime
+via `library.gdextension`. Godot is a separate process installed on
+the user's machine; the build needs no `libgodot.*` artefact at all.
+Covers linux, windows, darwin, android, ios, web, metaquest as they
+ship today.
+
+**LibGodot — the single-static-binary path.** Build output is one
+statically-linked executable that embeds Godot itself. Compiles the
+Go code with `-buildmode=c-archive` then links it against a per-target
+`libgodot.$(GOOS).$(GOARCH).$(EXT)` archive. Used today only by the
+musl-based static-linux flow, but the recipe is general — any (GOOS,
+GOARCH) for which the project publishes a `libgodot.*` artefact can
+support it.
+
+### Schema changes
+
+- `product.LinkMode` bitfield with `GDExtension` and `LibGodot`
+  values; `String`, `MarshalText`, `Has` parallel to `Kind`/`Status`.
+- `Platform.LinkModes LinkMode` declares which modes each target
+  supports (bit-OR of one or both).
+- `GOOSLinkModeDefaults map[string]LinkMode` picks the default mode
+  per GOOS when the user doesn't pass `--link`. Today every entry is
+  `GDExtension`; the table is the single change point when the
+  default ever flips.
+- `BuildEnv.Target.LinkMode` carries the resolved value through every
+  downstream consumer; `BuildEnv.Validate` checks it.
+
+### Matrix consequences
+
+- `PlatformLinuxMuslAmd64` / `PlatformLinuxMuslArm64` collapse into
+  `PlatformLinuxAmd64` / `PlatformLinuxArm64` with `LinkModes =
+  GDExtension | LibGodot`. The `musl` GOOS becomes an alias that
+  resolves to `linux` + `LinkMode=LibGodot` so existing `GOOS=musl`
+  invocations keep working.
+- `MuslToolchains` (currently `LLVM, libgodot, libgodot-editor, ldd`)
+  becomes `LibGodotToolchains`. Only platforms whose `LinkModes`
+  includes `LibGodot` declare it in `BuildTools`.
+- The CI matrix tuple-keying becomes `(target.GOOS, target.GOARCH,
+  LinkMode)` to keep `linux/amd64+GDExtension` and
+  `linux/amd64+LibGodot` distinct cells.
+
+### CLI surface
+
+- New global `--linkmode`, bridged via
+  `GOLINK`. Values `gdextension` / `libgodot` populated from the
+  catalog so the help text stays in sync with `product.LinkMode`.
+- `gdnext platform` adds a `LINK` column showing each row's supported
+  modes.
+- `gdnext toolchain doctor` adds a `LINK` column and walks per-
+  `(target, tool)` pair. Tools whose `IsLibrary` is true resolve via
+  `LookupPlatform(target.GOOS, target.GOARCH, ...)` so per-target
+  archives (`libgodot`, `libgodot-editor`, `android.jar`) fetch the
+  right artefact instead of defaulting to the host tuple.
+
+### Builder dispatch
+
+- `platform.For(env)` routes on `(env.Target.GOOS, env.Target.LinkMode)`.
+  `(*, GDExtension)` reaches the existing per-OS builders;
+  `(*, LibGodot)` reaches a single `libgodot` builder (current
+  `musl.go` re-mounted under the new dispatch key). Future per-host
+  libgodot recipes (glibc-static linux, static-windows, …) slot in
+  beside it without touching the GDExtension path.
+- Until additional libgodot recipes exist, the libgodot builder
+  emits the same `libgodot.musl.$(GOARCH).a` request the catalog
+  publishes today. A `DownloadOS` override on `ToolchainLibGodot`
+  keeps the URL substitution producing `libgodot.musl.<arch>.a` when
+  target GOOS is `linux`. The override drops the day a per-libc
+  variant is published.
+
+### Backwards compatibility
+
+`GOOS=musl gdnext build` keeps working: `FindBuildEnv("musl", "")`
+remaps to `linux` + `LinkMode=LibGodot` and the spawned `go build`
+sees `GOOS=linux` (which Go understands; it never understood `musl`).
+Scripts that pass `--goos musl` continue to dispatch to the libgodot
+builder. The CI matrix gains a `link` axis; rows that previously
+emitted `target=musl/amd64` now emit `target=linux/amd64
+link=libgodot`.
+
+### Phased rollout
+
+1. **Schema + resolver** — add `LinkMode`, `Platform.LinkModes`,
+   `GOOSLinkModeDefaults`, `BuildEnv.Target.LinkMode`,
+   `FindBuildEnv` extension. No consumer changes yet.
+2. **CLI + matrix collapse** — `--link` flag + bridge, drop the
+   musl-specific Platform rows, add the alias remap, surface the new
+   column in `platform` and `doctor`.
+3. **Install / doctor loop rewrite** — walk per-`(target, tool)` pair,
+   honour `IsLibrary` for per-target downloads.
+4. **Builder dispatch + catalog tidy-up** — re-mount musl.go under
+   `(*, LibGodot)`, drop libgodot from `MuslToolchains` (now gone),
+   add the `DownloadOS` override.
+5. **Verify** — `gdnext toolchain install` resolves
+   `libgodot.musl.amd64.a` end-to-end; `gdnext build --goos=musl` and
+   `gdnext build --goos=linux --link=libgodot` both still produce a
+   working musl binary.

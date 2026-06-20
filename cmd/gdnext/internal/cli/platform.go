@@ -20,8 +20,16 @@ func platformCmd() *cli.Command {
 	return &cli.Command{
 		Name:      "platform",
 		Usage:     "show the graphics.gd platform / host / target matrix",
-		ArgsUsage: "[hosts | targets | <name>]",
+		ArgsUsage: "[<name>]",
 		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "hosts",
+				Usage: "show only platforms that can run gdnext (build hosts)",
+			},
+			&cli.BoolFlag{
+				Name:  "targets",
+				Usage: "show only platforms gdnext can build for",
+			},
 			&cli.StringFlag{
 				Name:    "format",
 				Aliases: []string{"f"},
@@ -37,30 +45,36 @@ func platformCmd() *cli.Command {
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			format := strings.ToLower(cmd.String("format"))
 			vertical := cmd.Bool("vertical")
-			// Resolve the row set or single row from the positional arg.
+			hostsOnly := cmd.Bool("hosts")
+			targetsOnly := cmd.Bool("targets")
+			if hostsOnly && targetsOnly {
+				return fmt.Errorf("--hosts and --targets are mutually exclusive")
+			}
+			// Resolve the row set or single row.
 			var (
 				rows   []product.Platform
 				single bool
 				title  string
 			)
-			switch arg := strings.ToLower(cmd.Args().First()); arg {
-			case "":
-				rows = product.PlatformMatrix
-				title = "all platforms"
-			case "host", "hosts":
-				rows = product.Hosts()
-				title = "hosts"
-			case "target", "targets":
-				rows = product.Targets()
-				title = "targets"
-			default:
-				p, ok := product.Resolve(arg)
+			switch {
+			case cmd.NArg() > 0:
+				arg := strings.ToLower(cmd.Args().First())
+				p, ok := product.FindPlatformByName(arg)
 				if !ok {
-					return fmt.Errorf("unknown platform %q (try `gdnext platforms` for the full list)", arg)
+					return fmt.Errorf("unknown platform %q (try `gdnext platform` for the full list)", arg)
 				}
 				rows = []product.Platform{p}
 				single = true
 				title = "platform " + p.Tuple()
+			case hostsOnly:
+				rows = product.Hosts()
+				title = "hosts"
+			case targetsOnly:
+				rows = product.Targets()
+				title = "targets"
+			default:
+				rows = product.PlatformMatrix
+				title = "all platforms"
 			}
 			switch format {
 			case "table":
@@ -101,11 +115,11 @@ func printTable(title string, rows []product.Platform) {
 		title, product.Tuple(runtime.GOOS, runtime.GOARCH))
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer tw.Flush()
-	fmt.Fprintln(tw, "TITLE\tPLATFORM\tKIND\tSTATUS\tALIASES\tNOTES")
+	fmt.Fprintln(tw, "PLATFORM\tKIND\tSTATUS\tLINK\tALIASES\tNOTES")
 	for _, p := range rows {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			p.DisplayTitle(),
 			p.Tuple(), p.Kind, p.Status,
+			linkModeOrDash(p.LinkModes),
 			joinOrDash(p.Aliases),
 			p.Notes,
 		)
@@ -203,11 +217,10 @@ func printVertical(title string, rows []product.Platform) {
 // notes are escaped so they don't break the cell structure.
 func printMarkdown(title string, rows []product.Platform) {
 	fmt.Fprintf(os.Stdout, "# graphics.gd %s\n\n", title)
-	fmt.Fprintln(os.Stdout, "| Title | Platform | Kind | Status | Aliases | Renderers | Notes |")
-	fmt.Fprintln(os.Stdout, "|-------|----------|------|--------|---------|-----------|-------|")
+	fmt.Fprintln(os.Stdout, "| Platform | Kind | Status | Aliases | Renderers | Notes |")
+	fmt.Fprintln(os.Stdout, "|----------|------|--------|---------|-----------|-------|")
 	for _, p := range rows {
-		fmt.Fprintf(os.Stdout, "| %s | %s | %s | %s | %s | %s | %s |\n",
-			p.DisplayTitle(),
+		fmt.Fprintf(os.Stdout, "| %s | %s | %s | %s | %s | %s |\n",
 			p.Tuple(), p.Kind, p.Status,
 			joinOrDashMD(p.Aliases),
 			joinOrDashMD(p.Renderers),
@@ -221,6 +234,15 @@ func joinOrDash(s []string) string {
 		return "-"
 	}
 	return strings.Join(s, ", ")
+}
+
+// linkModeOrDash renders a Platform.LinkModes bitfield for the LINK
+// column, returning "-" when the row hasn't been annotated.
+func linkModeOrDash(m product.LinkMode) string {
+	if m == 0 {
+		return "-"
+	}
+	return m.String()
 }
 
 // printMarkdownVertical is the --vertical form of printMarkdown:

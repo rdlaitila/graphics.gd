@@ -5,22 +5,26 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+
+	"github.com/samber/lo"
 )
 
 // Platform is one row in the graphics.gd support matrix: a canonical
 // (GOOS, GOARCH) pair together with the metadata gdnext + downstream
 // tooling needs to reason about it.
 type Platform struct {
-	XMLName    xml.Name  `json:"-"                     xml:"platform"                     yaml:"-"`
-	Title      string    `json:"title,omitempty"       xml:"title,attr,omitempty"         yaml:"title,omitempty"`
-	GOOS       string    `json:"goos"                  xml:"goos"                         yaml:"goos"`
-	GOARCH     string    `json:"goarch"                xml:"goarch"                       yaml:"goarch"`
-	Aliases    []string  `json:"aliases,omitempty"     xml:"aliases>alias,omitempty"      yaml:"aliases,omitempty"`
-	Kind       Kind      `json:"kind"                  xml:"kind,attr"                    yaml:"kind"`
-	Status     Status    `json:"status"                xml:"status,attr"                  yaml:"status"`
-	BuildHosts Platforms `json:"build_hosts,omitempty" xml:"build_hosts,omitempty"        yaml:"build_hosts,omitempty"`
-	Renderers  []string  `json:"renderers,omitempty"   xml:"renderers>renderer,omitempty" yaml:"renderers,omitempty"`
-	Notes      string    `json:"notes,omitempty"       xml:"notes,omitempty"              yaml:"notes,omitempty"`
+	XMLName    xml.Name    `json:"-"                     xml:"platform"                     yaml:"-"`
+	Title      string      `json:"title,omitempty"       xml:"title,attr,omitempty"         yaml:"title,omitempty"`
+	GOOS       string      `json:"goos"                  xml:"goos"                         yaml:"goos"`
+	GOARCH     string      `json:"goarch"                xml:"goarch"                       yaml:"goarch"`
+	Aliases    []string    `json:"aliases,omitempty"     xml:"aliases>alias,omitempty"      yaml:"aliases,omitempty"`
+	Kind       Kind        `json:"kind"                  xml:"kind,attr"                    yaml:"kind"`
+	Status     Status      `json:"status"                xml:"status,attr"                  yaml:"status"`
+	LinkModes  LinkMode    `json:"link_modes,omitempty"  xml:"link_modes,attr,omitempty"    yaml:"link_modes,omitempty"`
+	BuildHosts []BuildHost `json:"build_hosts,omitempty" xml:"build_hosts,omitempty"        yaml:"build_hosts,omitempty"`
+	BuildTools []Toolchain `json:"build_tools,omitempty" xml:"build_tools,omitempty" yaml:"build_tools,omitempty"`
+	Renderers  []string    `json:"renderers,omitempty"   xml:"renderers>renderer,omitempty" yaml:"renderers,omitempty"`
+	Notes      string      `json:"notes,omitempty"       xml:"notes,omitempty"              yaml:"notes,omitempty"`
 }
 
 // DisplayTitle returns the human-friendly label suitable for user-facing
@@ -51,89 +55,165 @@ func Tuple(goos, goarch string) string {
 	return goos + "/" + goarch
 }
 
+// / BuildHost represents a host machine capable of running gdnext, including
+// / its OS, architecture, and key directory paths for the gdnext toolchain.
+type BuildHost struct {
+	GOOS   string
+	GOARCH string
+	// GD* paths are populated by the CLI's prepareBuildEnv from $GDPATH
+	// (default ~/gd). Internal code should consume these directly rather
+	// than re-resolving GDPATH.
+	GDRootPath string
+	GDLibPath  string
+	GDBinPath  string
+	// User* roots are the host's per-user data anchors. UserHomeRoot is
+	// os.UserHomeDir(); UserAppdataRoot is $APPDATA on Windows (where it
+	// differs from HOME) and equal to UserHomeRoot elsewhere. Deep
+	// per-tool paths (godot user data, Android SDK, ...) compose these
+	// with their own conventional sub-paths.
+	UserHomeRoot    string
+	UserAppdataRoot string
+}
+
+// Tuple returns the host as a "goos/goarch" string ("linux/amd64").
+func (t BuildHost) Tuple() string { return Tuple(t.GOOS, t.GOARCH) }
+
+// TargetHost represents a host machine that is the intended target for a build,
+// including its OS and architecture.
+type TargetHost struct {
+	GOOS     string
+	GOARCH   string
+	LinkMode LinkMode
+}
+
+// Tuple returns the target as a "goos/goarch" string ("android/arm64").
+func (t TargetHost) Tuple() string { return Tuple(t.GOOS, t.GOARCH) }
+
 // BuildEnv is a (host, target) pair: the platform gdnext itself is
 // running on, and the platform a build is producing artefacts for.
 // Used by every verb in the toolchain / build pipeline that needs
 // both — the pattern was repeated inline across ~20 sites before this
 // lifted out.
 type BuildEnv struct {
-	HostGOOS, HostGOARCH     string
-	TargetGOOS, TargetGOARCH string
+	Host   BuildHost
+	Target TargetHost
 }
 
-// NewBuildEnv returns a BuildEnv whose host AND target are
-// runtime.GOOS / runtime.GOARCH — the right starting point for a
-// no-args invocation before any --goos / --goarch flag is folded in.
-func NewBuildEnv() BuildEnv {
-	return BuildEnv{
-		HostGOOS:     runtime.GOOS,
-		HostGOARCH:   runtime.GOARCH,
-		TargetGOOS:   runtime.GOOS,
-		TargetGOARCH: runtime.GOARCH,
-	}
-}
-
-// ResolveEnv returns a BuildEnv for the runtime host targeting
-// (goos, goarch). Empty target strings fall back to the host, so
-// ResolveEnv("", "") == NewBuildEnv().
-func ResolveEnv(goos, goarch string) BuildEnv {
-	env := NewBuildEnv()
-	if goos != "" {
-		env.TargetGOOS = goos
-	}
-	if goarch != "" {
-		env.TargetGOARCH = goarch
-	}
-	return env
-}
-
-// HostTuple returns the host as a Platforms-friendly tuple ("linux/amd64").
-func (e BuildEnv) HostTuple() string { return Tuple(e.HostGOOS, e.HostGOARCH) }
-
-// TargetTuple returns the target as a tuple ("android/arm64").
-func (e BuildEnv) TargetTuple() string { return Tuple(e.TargetGOOS, e.TargetGOARCH) }
-
-// Platforms is an OR-set of (GOOS, GOARCH) constraints. Used wherever a
-// caller needs to express "this subset of the matrix" — most notably by
-// Toolchain (Required: which build targets need this tool; Available:
-// which hosts can obtain it).
-//
-// An empty Platforms matches nothing. GOOS containing "all" is the
-// shorthand for "every GOOS"; an empty GOARCH list inside a non-empty
-// GOOS means "any architecture".
-type Platforms struct {
-	GOOS   []string `json:"goos,omitempty"   xml:"goos,omitempty"   yaml:"goos,omitempty"`
-	GOARCH []string `json:"goarch,omitempty" xml:"goarch,omitempty" yaml:"goarch,omitempty"`
-}
-
-// AllPlatforms is shorthand for a Platforms set that matches every host
-// or target. Used by entries that have no restriction (go, zig, godot).
-var AllPlatforms = Platforms{GOOS: []string{"all"}}
-
-// Matches reports whether (goos, goarch) is in the constraint set.
-func (p Platforms) Matches(goos, goarch string) bool {
-	if len(p.GOOS) == 0 {
-		return false
-	}
-	var osMatch bool
-	for _, o := range p.GOOS {
-		if o == "all" || o == goos {
-			osMatch = true
+// FindBuildEnv locates the BuildEnv corresponding to the current runtime host
+// and applies the provided target GOOS, GOARCH, and LinkMode, falling back
+// to defaults when necessary. Returns an error if the host is not
+// recognized in HostMatrix, the target tokens are unknown, or the
+// requested link mode is not supported by the resolved Platform row.
+func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, error) {
+	var env BuildEnv
+	// Look up the current runtime host in the HostMatrix to find the corresponding BuildEnv.
+	for _, host := range HostMatrix {
+		if host.GOOS == runtime.GOOS && host.GOARCH == runtime.GOARCH {
+			env.Host = host
 			break
 		}
 	}
-	if !osMatch {
-		return false
+	if env.Host.GOOS == "" {
+		return env, fmt.Errorf(
+			"host '%s' is not a supported gdnext host (see gdnext platform)",
+			Tuple(runtime.GOOS, runtime.GOARCH),
+		)
 	}
-	if len(p.GOARCH) == 0 {
-		return true
+	// Validate the provided target GOOS and GOARCH against the known matrices.
+	if targetGOOS != "" && !lo.Contains(GOOSMatrix, targetGOOS) {
+		return env, fmt.Errorf(
+			"target GOOS '%s' is not recognized",
+			targetGOOS,
+		)
 	}
-	for _, a := range p.GOARCH {
-		if a == goarch {
-			return true
+	if targetGOARCH != "" && !lo.Contains(GOARCHMatrix, targetGOARCH) {
+		return env, fmt.Errorf(
+			"target GOARCH '%s' is not recognized",
+			targetGOARCH,
+		)
+	}
+	// Some GOOS aliases imply a specific LinkMode (e.g. "musl" really
+	// means "linux + LinkMode=LibGodot"). Capture the implied mode
+	// before remapping the GOOS, so the user doesn't have to pass
+	// --link=libgodot in addition to GOOS=musl.
+	impliedMode, hasImplied := GOOSAliasLinkMode[targetGOOS]
+	// Normalize certain GOOS values to their canonical forms used internally.
+	if remap, ok := GOOSRemaps[targetGOOS]; ok {
+		targetGOOS = remap
+	}
+	// Override the target GOOS/GOARCH if explicitly provided.
+	if targetGOOS != "" {
+		env.Target.GOOS = targetGOOS
+	}
+	if targetGOARCH != "" {
+		env.Target.GOARCH = targetGOARCH
+	}
+	// Apply default target GOARCH based on the target GOOS if not explicitly set.
+	if env.Target.GOOS != "" && env.Target.GOARCH == "" {
+		if def, ok := GOOSArchDefaults[env.Target.GOOS]; ok {
+			env.Target.GOARCH = def
 		}
 	}
-	return false
+	// Default the target GOOS/GOARCH to the host if not explicitly set.
+	if env.Target.GOOS == "" {
+		env.Target.GOOS = env.Host.GOOS
+	}
+	if env.Target.GOARCH == "" {
+		env.Target.GOARCH = env.Host.GOARCH
+	}
+	// Resolve LinkMode. Precedence: explicit --link flag > GOOS-alias
+	// implied mode > GOOSLinkModeDefaults > GDExtension fallback.
+	mode, err := ParseLinkMode(targetLinkMode)
+	if err != nil {
+		return env, err
+	}
+	switch {
+	case mode != 0:
+		env.Target.LinkMode = mode
+	case hasImplied:
+		env.Target.LinkMode = impliedMode
+	default:
+		if def, ok := GOOSLinkModeDefaults[env.Target.GOOS]; ok {
+			env.Target.LinkMode = def
+		} else {
+			env.Target.LinkMode = GDExtension
+		}
+	}
+	// Validate the requested mode is one this platform supports.
+	if plat, ok := FindPlatformByTargetEnv(env.Target.GOOS, env.Target.GOARCH); ok {
+		if plat.LinkModes != 0 && !plat.LinkModes.Has(env.Target.LinkMode) {
+			return env, fmt.Errorf(
+				"target %s does not support --link=%s (supports: %s)",
+				env.Target.Tuple(), env.Target.LinkMode, plat.LinkModes,
+			)
+		}
+	}
+	return env, nil
+}
+
+// Validate reports whether every field internal callers (builders,
+// tooling, setup) rely on is populated. The CLI is expected to call this
+// once after assembling BuildEnv so that downstream code can read
+// Target.GOOS / Target.GOARCH / Host.GD*Path without defensive
+// fallbacks. A non-nil return is always a bug in the CLI assembly path,
+// not user input — surface it loudly.
+func (e BuildEnv) Validate() error {
+	if e.Host.GOOS == "" || e.Host.GOARCH == "" {
+		return fmt.Errorf("product.BuildEnv: Host (GOOS, GOARCH) is not populated")
+	}
+	if e.Target.GOOS == "" || e.Target.GOARCH == "" {
+		return fmt.Errorf("product.BuildEnv: Target (GOOS, GOARCH) is not populated")
+	}
+	if e.Target.LinkMode == 0 {
+		return fmt.Errorf("product.BuildEnv: Target.LinkMode is not populated")
+	}
+	if e.Host.GDRootPath == "" || e.Host.GDBinPath == "" || e.Host.GDLibPath == "" {
+		return fmt.Errorf("product.BuildEnv: Host GD*Path values are not populated")
+	}
+	if e.Host.UserHomeRoot == "" || e.Host.UserAppdataRoot == "" {
+		return fmt.Errorf("product.BuildEnv: Host User*Root values are not populated")
+	}
+	return nil
 }
 
 // Kind is a bitmask of platform roles. Use Has to test for membership.
@@ -201,19 +281,56 @@ func (p Platform) Names() []string {
 // BuildHosts when a target genuinely needs a specific host — darwin
 // (no zig cross path), musl (linux-only build chain), etc.
 func (p Platform) CanBuildOn(hostGOOS, hostGOARCH string) bool {
-	if len(p.BuildHosts.GOOS) == 0 {
-		return true
+	if len(p.BuildHosts) == 0 {
+		return false
 	}
-	return p.BuildHosts.Matches(hostGOOS, hostGOARCH)
+	for _, host := range p.BuildHosts {
+		if host.GOOS == hostGOOS && host.GOARCH == hostGOARCH {
+			return true
+		}
+	}
+	return false
 }
 
 // Targets returns the subset of Matrix that can be built for.
 func Targets() []Platform {
 	out := make([]Platform, 0, len(PlatformMatrix))
-	for _, p := range PlatformMatrix {
-		if p.Kind.Has(Target) {
-			out = append(out, p)
+	for _, platform := range PlatformMatrix {
+		if platform.Kind.Has(Target) {
+			out = append(out, platform)
 		}
+	}
+	return out
+}
+
+// PlatformGOOSes returns the unique canonical GOOS values declared by
+// PlatformMatrix, in iteration order. Aliases (web, macos, iphone, ...)
+// are not included — those are accepted by FindPlatformByName but not
+// listed here.
+func PlatformGOOSes() []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(PlatformMatrix))
+	for _, p := range PlatformMatrix {
+		if seen[p.GOOS] {
+			continue
+		}
+		seen[p.GOOS] = true
+		out = append(out, p.GOOS)
+	}
+	return out
+}
+
+// PlatformGOARCHes returns the unique GOARCH values declared by
+// PlatformMatrix, in iteration order.
+func PlatformGOARCHes() []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(PlatformMatrix))
+	for _, p := range PlatformMatrix {
+		if seen[p.GOARCH] {
+			continue
+		}
+		seen[p.GOARCH] = true
+		out = append(out, p.GOARCH)
 	}
 	return out
 }
@@ -221,34 +338,34 @@ func Targets() []Platform {
 // Hosts returns the subset of Matrix where gdnext can run.
 func Hosts() []Platform {
 	out := make([]Platform, 0, len(PlatformMatrix))
-	for _, p := range PlatformMatrix {
-		if p.Kind.Has(Host) {
-			out = append(out, p)
+	for _, platform := range PlatformMatrix {
+		if platform.Kind.Has(Host) {
+			out = append(out, platform)
 		}
 	}
 	return out
 }
 
-// Lookup returns the first Matrix row whose (GOOS, GOARCH) matches the
+// FindPlatformByTargetEnv returns the first Matrix row whose (GOOS, GOARCH) matches the
 // pair exactly. An empty GOARCH matches any architecture for the same
 // GOOS — useful when the caller only knows the operating system.
-func Lookup(goos, goarch string) (Platform, bool) {
-	for _, p := range PlatformMatrix {
-		if p.GOOS != goos {
+func FindPlatformByTargetEnv(goos, goarch string) (Platform, bool) {
+	for _, platform := range PlatformMatrix {
+		if platform.GOOS != goos {
 			continue
 		}
-		if goarch == "" || p.GOARCH == goarch {
-			return p, true
+		if goarch == "" || platform.GOARCH == goarch {
+			return platform, true
 		}
 	}
 	return Platform{}, false
 }
 
-// Resolve maps a user-supplied alias (case-insensitive) to its canonical
+// FindPlatformByName maps a user-supplied alias (case-insensitive) to its canonical
 // row. The match space is the union of every Platform's Names. Returns
 // the first matching row; aliases are required to be unique across the
 // matrix (enforced by TestAliasesUnique).
-func Resolve(alias string) (Platform, bool) {
+func FindPlatformByName(alias string) (Platform, bool) {
 	alias = strings.ToLower(alias)
 	for _, p := range PlatformMatrix {
 		for _, n := range p.Names() {

@@ -31,7 +31,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -52,11 +51,9 @@ func (mq MetaQuest) Build(env product.BuildEnv, args ...string) error {
 	// Force android/arm64 — Quest has no other targets — and delegate
 	// to the regular Android compile path. Post-processing is only
 	// done in BuildMain / Run after Godot has produced the APK.
-	env.TargetGOOS = "android"
-	env.TargetGOARCH = "arm64"
-	if os.Getenv("GOARCH") == "" {
-		os.Setenv("GOARCH", "arm64")
-	}
+	env.Target.GOOS = "android"
+	env.Target.GOARCH = "arm64"
+	os.Setenv("GOARCH", "arm64")
 	os.Setenv("GOOS", "android")
 	return mq.Android.Build(env, args...)
 }
@@ -92,7 +89,7 @@ func (mq MetaQuest) BuildMain(env product.BuildEnv, args ...string) error {
 	if err := injectMetaQuest(apk); err != nil {
 		return xray.New(err)
 	}
-	return signAPK(apk, releaseKeystore())
+	return signAPK(apk, releaseKeystore(env.Host))
 }
 
 func (mq MetaQuest) Run(env product.BuildEnv, args ...string) error {
@@ -124,7 +121,7 @@ func (mq MetaQuest) Run(env product.BuildEnv, args ...string) error {
 	if err := injectMetaQuest(apk); err != nil {
 		return xray.New(err)
 	}
-	if err := signAPK(apk, debugKeystore()); err != nil {
+	if err := signAPK(apk, debugKeystore(env.Host)); err != nil {
 		return xray.New(err)
 	}
 
@@ -675,23 +672,24 @@ func signAPK(apkPath, keystore string) error {
 	)
 }
 
-func debugKeystore() string {
-	switch runtime.GOOS {
+func debugKeystore(host product.BuildHost) string {
+	var godot string
+	switch host.GOOS {
 	case "linux":
-		return filepath.Join(os.Getenv("HOME"), ".local", "share", "godot", "keystores", "debug.keystore")
-	case "windows":
-		return filepath.Join(os.Getenv("APPDATA"), "Godot", "keystores", "debug.keystore")
-	case "darwin":
-		return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "Godot", "keystores", "debug.keystore")
+		godot = "godot"
+	case "windows", "darwin":
+		godot = "Godot"
+	default:
+		return ""
 	}
-	return ""
+	return filepath.Join(host.UserAppdataRoot, godot, "keystores", "debug.keystore")
 }
 
 // releaseKeystore is currently identical to debug — graphics.gd doesn't
 // yet have a separate signing flow for Meta Quest release builds.
 // Sideloading + Meta Store both accept debug-signed APKs in dev mode,
 // and a real release flow can be added when needed.
-func releaseKeystore() string { return debugKeystore() }
+func releaseKeystore(host product.BuildHost) string { return debugKeystore(host) }
 
 // Compile-time guard: ensure MetaQuest satisfies the Builder interface
 // declared in platform/platform.go.

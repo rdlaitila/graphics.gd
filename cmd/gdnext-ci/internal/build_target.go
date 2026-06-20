@@ -28,18 +28,18 @@ func BuildTargetCmd() *cli.Command {
 			goos := cmd.String("goos")
 			goarch := cmd.String("goarch")
 			scratchArg := cmd.String("scratch")
-			plat, ok := product.Lookup(goos, goarch)
+			platform, ok := product.FindPlatformByTargetEnv(goos, goarch)
 			if !ok {
-				if p, ok := product.Resolve(goos); ok && (goarch == "" || p.GOARCH == goarch) {
-					plat = p
+				if p, ok := product.FindPlatformByName(goos); ok && (goarch == "" || p.GOARCH == goarch) {
+					platform = p
 					goos, goarch = p.GOOS, p.GOARCH
 				} else {
 					return fmt.Errorf("unknown platform %s (try `gdnext platforms` for the matrix)",
 						product.Tuple(goos, goarch))
 				}
 			}
-			if !plat.Kind.Has(product.Target) {
-				return fmt.Errorf("%s is registered but not a build target", plat.Tuple())
+			if !platform.Kind.Has(product.Target) {
+				return fmt.Errorf("%s is registered but not a build target", platform.Tuple())
 			}
 			scratch, err := filepath.Abs(scratchArg)
 			if err != nil {
@@ -61,14 +61,14 @@ func BuildTargetCmd() *cli.Command {
 			if err := runIn(scratch, "gdnext", "-goos", goos, "-goarch", goarch, "build"); err != nil {
 				return err
 			}
-			if err := assertSharedLibrary(scratch, plat); err != nil {
+			if err := assertSharedLibrary(scratch, platform); err != nil {
 				return err
 			}
-			if err := assertDistributable(scratch, plat); err != nil {
+			if err := assertDistributable(scratch, platform); err != nil {
 				return err
 			}
-			if plat.GOOS == "android" {
-				if err := signAndVerifyApk(scratch, plat); err != nil {
+			if platform.GOOS == "android" {
+				if err := signAndVerifyApk(scratch, platform); err != nil {
 					return err
 				}
 			}

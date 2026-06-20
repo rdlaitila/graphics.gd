@@ -18,12 +18,12 @@ func (Linux) Build(env product.BuildEnv, args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	if env.HostGOOS != "linux" || env.HostGOARCH != env.TargetGOARCH {
+	if env.Host.GOOS != "linux" || env.Host.GOARCH != env.Target.GOARCH {
 		zig, err := tooling.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
 		}
-		switch env.TargetGOARCH {
+		switch env.Target.GOARCH {
 		case "amd64":
 			if err := os.Setenv("CC", zig+" cc -target x86_64-linux-gnu"); err != nil {
 				return xray.New(err)
@@ -33,10 +33,10 @@ func (Linux) Build(env product.BuildEnv, args ...string) error {
 				return xray.New(err)
 			}
 		default:
-			return fmt.Errorf("gd build: cannot cross-compile linux %v on %v", env.TargetGOARCH, env.HostGOOS)
+			return fmt.Errorf("gd build: cannot cross-compile linux %v on %v", env.Target.GOARCH, env.Host.GOOS)
 		}
 	}
-	return tooling.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", env.TargetGOARCH)))
+	return tooling.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", env.Target.GOARCH)))
 }
 
 func (linux Linux) BuildMain(env product.BuildEnv, args ...string) error {
@@ -44,13 +44,13 @@ func (linux Linux) BuildMain(env product.BuildEnv, args ...string) error {
 		return xray.New(err)
 	}
 	var export []string
-	switch env.TargetGOARCH {
+	switch env.Target.GOARCH {
 	case "amd64":
 		export = []string{"--headless", "--export-release", "Linux x86_64"}
 	case "arm64":
 		export = []string{"--headless", "--export-release", "Linux arm64"}
 	default:
-		return fmt.Errorf("gd export: cannot export linux %v", env.TargetGOARCH)
+		return fmt.Errorf("gd export: cannot export linux %v", env.Target.GOARCH)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
@@ -62,8 +62,8 @@ func (linux Linux) BuildMain(env product.BuildEnv, args ...string) error {
 }
 
 func (linux Linux) Run(env product.BuildEnv, args ...string) error {
-	if env.HostGOOS != "linux" || env.HostGOARCH != env.TargetGOARCH {
-		return fmt.Errorf("gd run: cannot run linux/%v executable on %s", env.TargetGOARCH, env.HostTuple())
+	if env.Host.GOOS != "linux" || env.Host.GOARCH != env.Target.GOARCH {
+		return fmt.Errorf("gd run: cannot run linux/%v executable on %s", env.Target.GOARCH, env.Host.Tuple())
 	}
 	if err := linux.Build(env, args...); err != nil {
 		return xray.New(err)
@@ -75,10 +75,10 @@ func (linux Linux) Run(env product.BuildEnv, args ...string) error {
 }
 
 func (Linux) Test(env product.BuildEnv, args ...string) error {
-	if env.HostGOOS != "linux" || env.HostGOARCH != env.TargetGOARCH {
-		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", env.TargetGOARCH, env.HostTuple())
+	if env.Host.GOOS != "linux" || env.Host.GOARCH != env.Target.GOARCH {
+		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", env.Target.GOARCH, env.Host.Tuple())
 	}
-	if err := tooling.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", env.TargetGOARCH))); err != nil {
+	if err := tooling.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", env.Target.GOARCH))); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {

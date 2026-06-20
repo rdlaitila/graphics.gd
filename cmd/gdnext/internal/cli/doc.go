@@ -37,6 +37,8 @@ func docCmd() *cli.Command {
 			if len(matches) == 0 {
 				return tooling.Go.Exec(append([]string{"doc"}, args...)...)
 			}
+			var lastErr error
+			var failures int
 			for i, match := range matches {
 				if i > 0 {
 					fmt.Println()
@@ -46,7 +48,12 @@ func docCmd() *cli.Command {
 				docArgs := append([]string{"doc", match.goDocPath}, remaining...)
 				if err := tooling.Go.Exec(docArgs...); err != nil {
 					fmt.Fprintf(os.Stderr, "warning: could not get doc for %s: %v\n", match.goDocPath, err)
+					lastErr = err
+					failures++
 				}
+			}
+			if failures == len(matches) {
+				return lastErr
 			}
 			return nil
 		},

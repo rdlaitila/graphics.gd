@@ -37,7 +37,7 @@ func (MacOS) Build(env product.BuildEnv, args ...string) error {
 	if err := os.Setenv("CGO_ENABLED", "1"); err != nil {
 		return xray.New(err)
 	}
-	if env.HostGOOS != "darwin" {
+	if env.Host.GOOS != "darwin" {
 		zig, err := tooling.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
@@ -57,7 +57,7 @@ func (MacOS) Build(env product.BuildEnv, args ...string) error {
 	if err := tooling.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, "darwin_arm64.dylib")); err != nil {
 		return xray.New(err)
 	}
-	if env.HostGOOS != "darwin" {
+	if env.Host.GOOS != "darwin" {
 		zig, err := tooling.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
@@ -105,16 +105,16 @@ func (macos MacOS) BuildMain(env product.BuildEnv, _ ...string) error {
 }
 
 func (macos MacOS) Run(env product.BuildEnv, args ...string) error {
-	if env.HostGOOS != "darwin" {
-		return fmt.Errorf("gd run: cannot run darwin/universal executable on %s", env.HostTuple())
+	if env.Host.GOOS != "darwin" {
+		return fmt.Errorf("gd run: cannot run darwin/universal executable on %s", env.Host.Tuple())
 	}
-	if err := tooling.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("darwin_%v.dylib", env.HostGOARCH))); err != nil {
+	if err := tooling.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("darwin_%v.dylib", env.Host.GOARCH))); err != nil {
 		return xray.New(err)
 	}
 	err := lipo.Execute(os.Stdout, os.Stderr,
 		[]string{
 			"-create",
-			filepath.Join(project.GraphicsDirectory, "darwin_"+env.HostGOARCH+".dylib"),
+			filepath.Join(project.GraphicsDirectory, "darwin_"+env.Host.GOARCH+".dylib"),
 			"-output",
 			filepath.Join(project.GraphicsDirectory, "darwin_universal.dylib"),
 		},
@@ -129,16 +129,16 @@ func (macos MacOS) Run(env product.BuildEnv, args ...string) error {
 }
 
 func (MacOS) Test(env product.BuildEnv, args ...string) error {
-	if env.HostGOOS != "darwin" {
-		return fmt.Errorf("gd test: cannot run darwin/universal tests on %s", env.HostTuple())
+	if env.Host.GOOS != "darwin" {
+		return fmt.Errorf("gd test: cannot run darwin/universal tests on %s", env.Host.Tuple())
 	}
-	if err := tooling.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("darwin_%v.dylib", env.HostGOARCH))); err != nil {
+	if err := tooling.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("darwin_%v.dylib", env.Host.GOARCH))); err != nil {
 		return xray.New(err)
 	}
 	err := lipo.Execute(os.Stdout, os.Stderr,
 		[]string{
 			"-create",
-			filepath.Join(project.GraphicsDirectory, "darwin_"+env.HostGOARCH+".dylib"),
+			filepath.Join(project.GraphicsDirectory, "darwin_"+env.Host.GOARCH+".dylib"),
 			"-output",
 			filepath.Join(project.GraphicsDirectory, "darwin_universal.dylib"),
 		},

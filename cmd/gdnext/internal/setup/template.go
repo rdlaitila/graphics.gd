@@ -1,7 +1,4 @@
-// Package templates downloads and unpacks the Godot export templates
-// archive that "gdnext build" depends on. Ported verbatim from
-// cmd/gd/export_templates.go.
-package templates
+package setup
 
 import (
 	"fmt"
@@ -9,29 +6,28 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/schollz/progressbar/v3"
 	"graphics.gd/cmd/gdnext/internal/tooling"
+	"graphics.gd/product"
 	"runtime.link/api/xray"
 )
 
-// Assert ensures the Godot export templates for the supplied version are
+// AssertTemplate ensures the Godot export templates for the supplied version are
 // present at the platform-specific install location, downloading them from
 // GitHub releases if not. Returns nil immediately on platforms without a
 // known install location (so e.g. android hosts skip the check).
-func Assert(version string) error {
-	var location string
-	switch runtime.GOOS {
-	case "linux":
-		location = filepath.Join(os.Getenv("HOME"), ".local", "share", "godot", "export_templates", version+".stable")
-	case "windows":
-		location = filepath.Join(os.Getenv("APPDATA"), "Godot", "export_templates", version+".stable")
-	case "darwin":
-		location = filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "Godot", "export_templates", version+".stable")
+func AssertTemplate(env product.BuildEnv, version string) error {
+	var godot string
+	switch env.Host.GOOS {
+	case product.GOOSLinux:
+		godot = "godot"
+	case product.GOOSWindows, product.GOOSDarwin:
+		godot = "Godot"
 	default:
 		return nil
 	}
+	location := filepath.Join(env.Host.UserAppdataRoot, godot, "export_templates", version+".stable")
 	url := "https://github.com/godotengine/godot/releases/download/" + version + "-stable/Godot_v" + version + "-stable_export_templates.tpz"
 	if _, err := os.Stat(location); err == nil {
 		return nil

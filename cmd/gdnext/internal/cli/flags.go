@@ -12,24 +12,32 @@ import (
 	"strconv"
 	"strings"
 
+	"graphics.gd/product"
+
 	"github.com/urfave/cli/v3"
 )
 
-// Global returns the flag slice attached to the root command. Every flag
+// Flags returns the flag slice attached to the root command. Every flag
 // is bound to one or more environment variables so scripts that already
 // export GOOS / GOARCH / CC / CGO_ENABLED / GDPATH / RUNNING_INSIDE_GODOT
 // continue to work without modification.
-func Global() []cli.Flag {
+func Flags() []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{
 			Name:    "goos",
-			Usage:   "target operating system (linux, windows, macos, android, ios, web, musl, metaquest)",
+			Usage:   "target operating system (" + strings.Join(product.PlatformGOOSes(), ", ") + ")",
 			Sources: cli.EnvVars("GOOS"),
 		},
 		&cli.StringFlag{
 			Name:    "goarch",
-			Usage:   "target architecture (amd64, arm64, wasm)",
+			Usage:   "target architecture (" + strings.Join(product.PlatformGOARCHes(), ", ") + ")",
 			Sources: cli.EnvVars("GOARCH"),
+		},
+		&cli.StringFlag{
+			Name:    "link",
+			Aliases: []string{"linkmode"},
+			Usage:   "linking recipe (" + strings.Join(product.LinkModeMatrix, ", ") + "); defaults per-target",
+			Sources: cli.EnvVars("GOLINK"),
 		},
 		&cli.StringFlag{
 			Name:    "cc",
@@ -61,7 +69,7 @@ func Global() []cli.Flag {
 	}
 }
 
-// PromoteFlagsToEnv is the recommended Before hook for the root command.
+// promoteFlagsToEnv is the recommended Before hook for the root command.
 // It walks every flag on the supplied cli.Command and, for any flag the
 // user explicitly set on the command line, mirrors the resolved value back
 // into the first env-var listed in that flag's Sources.
@@ -74,7 +82,7 @@ func Global() []cli.Flag {
 // An unrecognised flag type that DOES bind env-var Sources is a hard
 // error: silently dropping the env-var update would leave downstream code
 // observing stale state. Add the new flag type to envKey / valueOf below.
-func PromoteFlagsToEnv(_ context.Context, cmd *cli.Command) (context.Context, error) {
+func promoteFlagsToEnv(_ context.Context, cmd *cli.Command) (context.Context, error) {
 	for _, f := range cmd.Flags {
 		env, ok, err := envKey(f)
 		if err != nil {

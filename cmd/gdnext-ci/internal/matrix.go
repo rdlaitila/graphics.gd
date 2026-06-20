@@ -12,15 +12,20 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// gha is the GHA host-OS table: maps each product GOOS we run CI on to
-// the matching actions/runner-images label. Order is preserved in the
-// emitted matrix so the GHA UI lays jobs out predictably.
+// gha is the GHA host-OS table: maps each canonical product BuildHost we
+// run CI on to the matching actions/runner-images label. Order is
+// preserved in the emitted matrix so the GHA UI lays jobs out
+// predictably. The (GOOS, GOARCH) pair is the real shape of the runner —
+// ubuntu-latest and windows-latest are amd64; macos-latest is arm64 (M1
+// pool since 2024). Keep this in sync with whichever runner labels the
+// workflow `runs-on` is willing to schedule.
 var gha = []struct {
-	GOOS, Runner string
+	Host   product.BuildHost
+	Runner string
 }{
-	{"linux", "ubuntu-latest"},
-	{"windows", "windows-latest"},
-	{"darwin", "macos-latest"},
+	{product.HostLinuxAmd64, "ubuntu-latest"},
+	{product.HostWindowsAmd64, "windows-latest"},
+	{product.HostDarwinArm64, "macos-latest"},
 }
 
 // excludedTargets are CI-policy exclusions: rows that exist in
@@ -66,7 +71,11 @@ func MatrixCmd() *cli.Command {
 					if r.Experimental {
 						tag = "  (experimental)"
 					}
-					fmt.Fprintf(os.Stderr, "  %-14s × %-14s × %s%s\n", r.OS, r.Example, r.Target, tag)
+					link := r.Link
+					if link == "" {
+						link = "-"
+					}
+					fmt.Fprintf(os.Stderr, "  %-14s × %-14s × %-16s × %s%s\n", r.OS, r.Example, r.Target, link, tag)
 				}
 			}
 			return nil
@@ -78,12 +87,15 @@ type matrixRow struct {
 	OS           string `json:"os"`
 	Example      string `json:"example"`
 	Target       string `json:"target"`
+	Link         string `json:"link,omitempty"`
 	Experimental bool   `json:"experimental"`
 }
 
 // buildMatrix runs the same selection rules `gdnext-ci matrix` describes
 // and returns the resulting include: entries in deterministic order
-// (host axis outer, then matrix axis, then example axis).
+// (host axis outer, then matrix axis, then example axis). Each
+// (platform, linkMode) combination becomes its own row so the CI surface
+// stays correctly tagged when a target supports multiple link recipes.
 func buildMatrix(examples []string) []matrixRow {
 	var out []matrixRow
 	for _, host := range gha {
@@ -100,21 +112,44 @@ func buildMatrix(examples []string) []matrixRow {
 			if _, excluded := excludedTargets[platform.Tuple()]; excluded {
 				continue
 			}
-			if !platform.CanBuildOn(host.GOOS, "") {
+			if !platform.CanBuildOn(host.Host.GOOS, host.Host.GOARCH) {
 				continue
 			}
 			experimental := platform.Status.Has(product.Experimental)
-			for _, ex := range examples {
-				ex = strings.TrimSpace(ex)
-				if ex == "" {
-					continue
+			// One row per supported LinkMode. If LinkModes is empty
+			// (legacy / not yet annotated) fall back to a single row
+			// without the link axis so the CI keeps emitting it.
+			modes := []product.LinkMode{0}
+			if platform.LinkModes != 0 {
+				modes = modes[:0]
+				if platform.LinkModes.Has(product.GDExtension) {
+					modes = append(modes, product.GDExtension)
 				}
-				out = append(out, matrixRow{
-					OS:           host.Runner,
-					Example:      ex,
-					Target:       platform.Tuple(),
-					Experimental: experimental,
-				})
+				if platform.LinkModes.Has(product.LibGodot) {
+					modes = append(modes, product.LibGodot)
+				}
+			}
+			for _, mode := range modes {
+				// LibGodot is experimental everywhere today even
+				// when the host platform isn't.
+				rowExp := experimental || mode == product.LibGodot
+				link := ""
+				if mode != 0 {
+					link = mode.String()
+				}
+				for _, ex := range examples {
+					ex = strings.TrimSpace(ex)
+					if ex == "" {
+						continue
+					}
+					out = append(out, matrixRow{
+						OS:           host.Runner,
+						Example:      ex,
+						Target:       platform.Tuple(),
+						Link:         link,
+						Experimental: rowExp,
+					})
+				}
 			}
 		}
 	}

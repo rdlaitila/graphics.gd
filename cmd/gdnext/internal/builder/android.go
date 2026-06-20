@@ -15,7 +15,6 @@ import (
 	"math/big"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -45,21 +44,16 @@ type Android struct {
 }
 
 func (Android) Build(env product.BuildEnv, args ...string) error {
-	HOME, err := os.UserHomeDir()
-	if err != nil {
-		return xray.New(err)
-	}
-	var debug_keystore string
-	switch env.HostGOOS {
+	var godot string
+	switch env.Host.GOOS {
 	case "linux":
-		debug_keystore = filepath.Join(os.Getenv("HOME"), ".local", "share", "godot", "keystores", "debug.keystore")
-	case "windows":
-		debug_keystore = filepath.Join(os.Getenv("APPDATA"), "Godot", "keystores", "debug.keystore")
-	case "darwin":
-		debug_keystore = filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "Godot", "keystores", "debug.keystore")
+		godot = "godot"
+	case "windows", "darwin":
+		godot = "Godot"
 	default:
 		return nil
 	}
+	debug_keystore := filepath.Join(env.Host.UserAppdataRoot, godot, "keystores", "debug.keystore")
 	if err := os.MkdirAll(filepath.Dir(debug_keystore), 0755); err != nil {
 		return xray.New(err)
 	}
@@ -128,22 +122,17 @@ func (Android) Build(env product.BuildEnv, args ...string) error {
 			return xray.New(err)
 		}
 	}
-
-	var GDPATH = os.Getenv("GDPATH")
-	if GDPATH == "" {
-		GDPATH = filepath.Join(HOME, "gd")
-	}
 	var exe string
-	if env.HostGOOS == "windows" {
+	if env.Host.GOOS == "windows" {
 		exe = ".exe"
 	}
-	if err := os.WriteFile(filepath.Join(GDPATH, "bin", "java"+exe), []byte("java stub"), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(env.Host.GDBinPath, "java"+exe), []byte("java stub"), 0755); err != nil {
 		return xray.New(err)
 	}
 	var default_sdk_path string
-	switch env.HostGOOS {
+	switch env.Host.GOOS {
 	case "linux":
-		default_sdk_path = filepath.Join(HOME, "Android", "Sdk")
+		default_sdk_path = filepath.Join(env.Host.UserHomeRoot, "Android", "Sdk")
 	case "windows":
 		default_sdk_path = filepath.Join(os.Getenv("LOCALAPPDATA"), "Android", "Sdk")
 		if _, err := tooling.AndroidDebugBridge.Lookup(); err != nil {
@@ -153,7 +142,7 @@ func (Android) Build(env product.BuildEnv, args ...string) error {
 			return xray.New(err)
 		}
 	case "darwin":
-		default_sdk_path = filepath.Join(HOME, "Library", "Android", "Sdk")
+		default_sdk_path = filepath.Join(env.Host.UserHomeRoot, "Library", "Android", "Sdk")
 	}
 	if default_sdk_path != "" {
 		if _, err := os.Stat(default_sdk_path); os.IsNotExist(err) {
@@ -163,27 +152,27 @@ func (Android) Build(env product.BuildEnv, args ...string) error {
 			if err := os.MkdirAll(filepath.Join(default_sdk_path, "build-tools", "35"), 0755); err != nil {
 				return xray.New(err)
 			}
-			if env.HostGOOS == "windows" {
-				if err := project.CopyFile(filepath.Join(GDPATH, "bin", "AdbWinApi.dll"), filepath.Join(default_sdk_path, "platform-tools", "AdbWinApi.dll")); err != nil {
+			if env.Host.GOOS == "windows" {
+				if err := project.CopyFile(filepath.Join(env.Host.GDBinPath, "AdbWinApi.dll"), filepath.Join(default_sdk_path, "platform-tools", "AdbWinApi.dll")); err != nil {
 					return xray.New(err)
 				}
-				if err := project.CopyFile(filepath.Join(GDPATH, "bin", "AdbWinUsbApi.dll"), filepath.Join(default_sdk_path, "platform-tools", "AdbWinUsbApi.dll")); err != nil {
+				if err := project.CopyFile(filepath.Join(env.Host.GDBinPath, "AdbWinUsbApi.dll"), filepath.Join(default_sdk_path, "platform-tools", "AdbWinUsbApi.dll")); err != nil {
 					return xray.New(err)
 				}
-				if err := project.CopyFile(filepath.Join(GDPATH, "bin", "adb.exe"), filepath.Join(default_sdk_path, "platform-tools", "adb.exe")); err != nil {
+				if err := project.CopyFile(filepath.Join(env.Host.GDBinPath, "adb.exe"), filepath.Join(default_sdk_path, "platform-tools", "adb.exe")); err != nil {
 					return xray.New(err)
 				}
 			} else {
-				if err := os.Symlink(filepath.Join(GDPATH, "bin", "adb"), filepath.Join(default_sdk_path, "platform-tools", "adb")); err != nil {
+				if err := os.Symlink(filepath.Join(env.Host.GDBinPath, "adb"), filepath.Join(default_sdk_path, "platform-tools", "adb")); err != nil {
 					return xray.New(err)
 				}
 			}
-			if env.HostGOOS == "windows" {
-				if err := project.CopyFile(filepath.Join(GDPATH, "bin", "apksigner.exe"), filepath.Join(default_sdk_path, "build-tools", "35", "apksigner.bat")); err != nil {
+			if env.Host.GOOS == "windows" {
+				if err := project.CopyFile(filepath.Join(env.Host.GDBinPath, "apksigner.exe"), filepath.Join(default_sdk_path, "build-tools", "35", "apksigner.bat")); err != nil {
 					return xray.New(err)
 				}
 			} else {
-				if err := os.Symlink(filepath.Join(GDPATH, "bin", "apksigner"), filepath.Join(default_sdk_path, "build-tools", "35", "apksigner")); err != nil {
+				if err := os.Symlink(filepath.Join(env.Host.GDBinPath, "apksigner"), filepath.Join(default_sdk_path, "build-tools", "35", "apksigner")); err != nil {
 					return xray.New(err)
 				}
 			}
@@ -192,11 +181,8 @@ func (Android) Build(env product.BuildEnv, args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	GOARCH := env.TargetGOARCH
-	if GOARCH == "" {
-		GOARCH = "arm64"
-	}
-	if env.HostGOOS != "android" || env.HostGOARCH != GOARCH {
+	GOARCH := env.Target.GOARCH
+	if env.Host.GOOS != "android" || env.Host.GOARCH != GOARCH {
 		zig, err := tooling.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
@@ -237,31 +223,27 @@ func (Android) Build(env product.BuildEnv, args ...string) error {
 				return xray.New(err)
 			}
 		default:
-			return fmt.Errorf("gd build: cannot cross-compile android/%v on %s", GOARCH, env.HostTuple())
+			return fmt.Errorf("gd build: cannot cross-compile android/%v on %s", GOARCH, env.Host.Tuple())
 		}
 	}
 	return tooling.Go.Action("build", args, "-ldflags=-checklinkname=0", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("libandroid_%v.so", GOARCH)))
 }
 
 func (android Android) Run(env product.BuildEnv, args ...string) error {
-	var debug_keystore string
-	switch env.HostGOOS {
+	var godot string
+	switch env.Host.GOOS {
 	case "linux":
-		debug_keystore = filepath.Join(os.Getenv("HOME"), ".local", "share", "godot", "keystores", "debug.keystore")
-	case "windows":
-		debug_keystore = filepath.Join(os.Getenv("APPDATA"), "Godot", "keystores", "debug.keystore")
-	case "darwin":
-		debug_keystore = filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "Godot", "keystores", "debug.keystore")
+		godot = "godot"
+	case "windows", "darwin":
+		godot = "Godot"
 	default:
 		return nil
 	}
+	debug_keystore := filepath.Join(env.Host.UserAppdataRoot, godot, "keystores", "debug.keystore")
 	if err := android.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
-	GOARCH := "arm64"
-	if env := os.Getenv("GOARCH"); env != "" {
-		GOARCH = env
-	}
+	GOARCH := env.Target.GOARCH
 	adb, err := tooling.AndroidDebugBridge.Lookup()
 	if err != nil {
 		return xray.New(err)
@@ -354,10 +336,7 @@ func (android Android) BuildMain(env product.BuildEnv, _ ...string) error {
 	if err := android.Build(env); err != nil {
 		return xray.New(err)
 	}
-	GOARCH := env.TargetGOARCH
-	if GOARCH == "" {
-		GOARCH = "arm64"
-	}
+	GOARCH := env.Target.GOARCH
 	_, err := tooling.AndroidDebugBridge.Lookup()
 	if err != nil {
 		return xray.New(err)
@@ -365,20 +344,11 @@ func (android Android) BuildMain(env product.BuildEnv, _ ...string) error {
 	if _, err := tooling.AndroidPackageSigner.Lookup(); err != nil {
 		return xray.New(err)
 	}
-	my, err := user.Current()
-	if err != nil {
-		return xray.New(err)
-	}
-	HOME := my.HomeDir
-	GDPATH := os.Getenv("GDPATH")
-	if GDPATH == "" {
-		GDPATH = filepath.Join(HOME, "gd")
-	}
 	var exe string
-	if env.HostGOOS == "windows" {
+	if env.Host.GOOS == "windows" {
 		exe = ".exe"
 	}
-	if err := os.WriteFile(filepath.Join(GDPATH, "bin", "java"+exe), []byte("java stub"), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(env.Host.GDBinPath, "java"+exe), []byte("java stub"), 0755); err != nil {
 		return xray.New(err)
 	}
 	presetName, exportPath, err := pickAndroidPreset(GOARCH)

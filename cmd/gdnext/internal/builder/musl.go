@@ -5,11 +5,9 @@ import (
 	"embed"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 
-	"graphics.gd/cmd/gdnext/internal/gdpaths"
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
@@ -43,10 +41,7 @@ func (musl Musl) Build(env product.BuildEnv, args ...string) (err error) {
 	if !project.IncludesGo {
 		return nil
 	}
-	GOARCH := env.TargetGOARCH
-	if GOARCH == "" {
-		GOARCH = env.HostGOARCH
-	}
+	GOARCH := env.Target.GOARCH
 	zig, err := tooling.Zig.Lookup()
 	if err != nil {
 		return xray.New(err)
@@ -60,7 +55,7 @@ func (musl Musl) Build(env product.BuildEnv, args ...string) (err error) {
 	}
 	if musl.out == "" {
 		musl.out = filepath.Join(project.GraphicsDirectory, "musl_"+GOARCH+".editor")
-		if env.HostGOOS == "linux" {
+		if env.Host.GOOS == "linux" {
 			version, _ := tooling.ListDynamicDependencies.CombinedOutput("--version")
 			if strings.HasPrefix(version, "musl") {
 				defer func() {
@@ -71,21 +66,22 @@ func (musl Musl) Build(env product.BuildEnv, args ...string) (err error) {
 			}
 		}
 	}
-	if err := project.SetupFiles(musl_sdk, "bundled/musl", filepath.Join(gdpaths.Lib(), "musl")); err != nil {
+	muslLibPath := filepath.Join(env.Host.GDLibPath, "musl")
+	if err := project.SetupFiles(musl_sdk, "bundled/musl", muslLibPath); err != nil {
 		return xray.New(err)
 	}
-	if err := musl.patch(); err != nil {
+	if err := musl.patch(env); err != nil {
 		return xray.New(err)
 	}
 	GOROOT, err := tooling.Go.Output("env", "GOROOT")
 	if err != nil {
 		return xray.New(err)
 	}
-	var overlay = filepath.Join(gdpaths.Lib(), "musl.json")
+	overlay := filepath.Join(env.Host.GDLibPath, "musl.json")
 	if err := os.WriteFile(overlay, []byte(`{
 		"Replace": {
-			"`+filepath.Join(GOROOT, "src", "runtime", "runtime1.go")+`": "`+filepath.Join(gdpaths.Lib(), "musl", "runtime1.go.overlay")+`",
-			"`+filepath.Join(GOROOT, "src", "runtime", "os_linux.go")+`": "`+filepath.Join(gdpaths.Lib(), "musl", "os_linux.go.overlay")+`"
+			"`+filepath.Join(GOROOT, "src", "runtime", "runtime1.go")+`": "`+filepath.Join(env.Host.GDLibPath, "musl", "runtime1.go.overlay")+`",
+			"`+filepath.Join(GOROOT, "src", "runtime", "os_linux.go")+`": "`+filepath.Join(env.Host.GDLibPath, "musl", "os_linux.go.overlay")+`"
 		}
 	}`), 0755); err != nil {
 		return xray.New(err)
@@ -103,7 +99,7 @@ func (musl Musl) Build(env product.BuildEnv, args ...string) (err error) {
 			return xray.New(err)
 		}
 	default:
-		return fmt.Errorf("gd build: cannot cross-compile linux %v on %s", GOARCH, env.HostTuple())
+		return fmt.Errorf("gd build: cannot cross-compile linux %v on %s", GOARCH, env.Host.Tuple())
 	}
 	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("musl_%v.a", GOARCH))
 	if err := tooling.Go.Action("build", args, "-tags", "musl", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {
@@ -115,17 +111,8 @@ func (musl Musl) Build(env product.BuildEnv, args ...string) (err error) {
 	return nil
 }
 
-func (musl Musl) patch() error {
-	my, err := user.Current()
-	if err != nil {
-		return xray.New(err)
-	}
-	HOME := my.HomeDir
-	var GDPATH = os.Getenv("GDPATH")
-	if GDPATH == "" {
-		GDPATH = filepath.Join(HOME, "gd")
-	}
-	musl_malloc := filepath.Join(GDPATH, "bin", "lib", "libc", "musl", "src", "malloc", "mallocng", "malloc.c")
+func (musl Musl) patch(env product.BuildEnv) error {
+	musl_malloc := filepath.Join(env.Host.GDBinPath, "lib", "libc", "musl", "src", "malloc", "mallocng", "malloc.c")
 	file, err := os.ReadFile(musl_malloc)
 	if err != nil {
 		return xray.New(err)
@@ -141,10 +128,7 @@ func (musl Musl) patch() error {
 
 func (musl Musl) BuildMain(env product.BuildEnv, args ...string) error {
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
-	GOARCH := env.TargetGOARCH
-	if GOARCH == "" {
-		GOARCH = env.HostGOARCH
-	}
+	GOARCH := env.Target.GOARCH
 	var err error
 	musl.out = filepath.Join(project.GraphicsDirectory, ".godot", "godot.musl.template_release.x86_64")
 	musl.lib, err = tooling.LibGodot.LookupPlatform("musl", GOARCH)
@@ -174,12 +158,9 @@ func (musl Musl) BuildMain(env product.BuildEnv, args ...string) error {
 }
 
 func (musl Musl) Run(env product.BuildEnv, args ...string) error {
-	GOARCH := env.TargetGOARCH
-	if GOARCH == "" {
-		GOARCH = env.HostGOARCH
-	}
-	if env.HostGOOS != "linux" || env.HostGOARCH != GOARCH {
-		return fmt.Errorf("gd run: cannot run linux/%v executable on %s", GOARCH, env.HostTuple())
+	GOARCH := env.Target.GOARCH
+	if env.Host.GOOS != "linux" || env.Host.GOARCH != GOARCH {
+		return fmt.Errorf("gd run: cannot run linux/%v executable on %s", GOARCH, env.Host.Tuple())
 	}
 	if err := musl.Build(env, args...); err != nil {
 		return xray.New(err)
@@ -201,32 +182,30 @@ func (musl Musl) Test(env product.BuildEnv, args ...string) error {
 	goos := os.Getenv("GOOS")
 	os.Setenv("GOOS", "linux")
 	defer os.Setenv("GOOS", goos)
-	GOARCH := env.TargetGOARCH
-	if GOARCH == "" {
-		GOARCH = env.HostGOARCH
-	}
-	if env.HostGOOS != "linux" || env.HostGOARCH != GOARCH {
-		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", GOARCH, env.HostTuple())
+	GOARCH := env.Target.GOARCH
+	if env.Host.GOOS != "linux" || env.Host.GOARCH != GOARCH {
+		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", GOARCH, env.Host.Tuple())
 	}
 	zig, err := tooling.Zig.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
-	if err := project.SetupFiles(musl_sdk, "bundled/musl", filepath.Join(gdpaths.Lib(), "musl")); err != nil {
+	muslLibPath := filepath.Join(env.Host.GDLibPath, "musl")
+	if err := project.SetupFiles(musl_sdk, "bundled/musl", muslLibPath); err != nil {
 		return xray.New(err)
 	}
-	if err := musl.patch(); err != nil {
+	if err := musl.patch(env); err != nil {
 		return xray.New(err)
 	}
 	GOROOT, err := tooling.Go.Output("env", "GOROOT")
 	if err != nil {
 		return xray.New(err)
 	}
-	var overlay = filepath.Join(gdpaths.Lib(), "musl.json")
+	overlay := filepath.Join(env.Host.GDLibPath, "musl.json")
 	if err := os.WriteFile(overlay, []byte(`{
 		"Replace": {
-			"`+filepath.Join(GOROOT, "src", "runtime", "runtime1.go")+`": "`+filepath.Join(gdpaths.Lib(), "musl", "runtime1.go.overlay")+`",
-			"`+filepath.Join(GOROOT, "src", "runtime", "os_linux.go")+`": "`+filepath.Join(gdpaths.Lib(), "musl", "os_linux.go.overlay")+`"
+			"`+filepath.Join(GOROOT, "src", "runtime", "runtime1.go")+`": "`+filepath.Join(env.Host.GDLibPath, "musl", "runtime1.go.overlay")+`",
+			"`+filepath.Join(GOROOT, "src", "runtime", "os_linux.go")+`": "`+filepath.Join(env.Host.GDLibPath, "musl", "os_linux.go.overlay")+`"
 		}
 	}`), 0755); err != nil {
 		return xray.New(err)
@@ -244,7 +223,7 @@ func (musl Musl) Test(env product.BuildEnv, args ...string) error {
 			return xray.New(err)
 		}
 	default:
-		return fmt.Errorf("gd build: cannot cross-compile linux %v on %s", GOARCH, env.HostTuple())
+		return fmt.Errorf("gd build: cannot cross-compile linux %v on %s", GOARCH, env.Host.Tuple())
 	}
 	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("musl_%v.a", GOARCH))
 	if err := tooling.Go.Action("test", args, "-c", "-tags", "musl", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {

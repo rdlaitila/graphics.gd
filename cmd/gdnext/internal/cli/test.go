@@ -21,14 +21,14 @@ func testCmd() *cli.Command {
 				return cli.ShowSubcommandHelp(cmd)
 			}
 			extra := cmd.Args().Slice()
-			platform, env, err := setup.ForBuild(cmd, true, extra)
+			platform, err := setup.ForBuild(buildEnv, true, extra)
 			if err != nil {
 				return err
 			}
 			if !project.IncludesGo {
 				return errors.New("cannot run 'gdnext test' on a project that does not include Go code")
 			}
-			return platform.Test(env, setup.TestArgs(extra)...)
+			return platform.Test(buildEnv, setup.TestArgs(extra)...)
 		},
 	}
 }

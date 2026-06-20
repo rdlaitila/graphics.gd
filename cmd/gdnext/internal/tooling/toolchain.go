@@ -52,21 +52,6 @@ type Tool struct {
 	Path string // cached by [toolchain.Lookup]
 }
 
-// IsRequiredFor reports whether this toolchain is needed when targeting
-// the given (goos, goarch).
-func (exe Tool) IsRequiredFor(goos, goarch string) bool {
-	return exe.Required.Matches(goos, goarch)
-}
-
-// IsAvailableOn reports whether this toolchain can be obtained on the
-// given host (goos, goarch). An empty Available is treated as "any".
-func (exe Tool) IsAvailableOn(goos, goarch string) bool {
-	if len(exe.Available.GOOS) == 0 {
-		return true
-	}
-	return exe.Available.Matches(goos, goarch)
-}
-
 func (exe Tool) PathToCommand() string {
 	if exe.Path == "" {
 		panic("toolchain.PathToCommand: toolchain not yet looked up")

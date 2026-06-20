@@ -7,7 +7,6 @@ import (
 
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/setup"
-	"graphics.gd/cmd/gdnext/internal/templates"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 
 	"github.com/urfave/cli/v3"
@@ -38,18 +37,18 @@ func buildAction(_ context.Context, cmd *cli.Command) error {
 		return cli.ShowSubcommandHelp(cmd)
 	}
 	extra := cmd.Args().Slice()
-	platform, env, err := setup.ForBuild(cmd, false, extra)
+	platform, err := setup.ForBuild(buildEnv, false, extra)
 	if err != nil {
 		return err
 	}
 	if err := os.Chdir(project.Directory); err != nil {
 		return xray.New(err)
 	}
-	if err := templates.Assert(tooling.Godot.Version); err != nil {
+	if err := setup.AssertTemplate(buildEnv, tooling.Godot.Version); err != nil {
 		return xray.New(err)
 	}
-	if err := os.MkdirAll(filepath.Join(project.ReleasesDirectory, env.TargetGOOS, env.TargetGOARCH), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(project.ReleasesDirectory, buildEnv.Target.GOOS, buildEnv.Target.GOARCH), 0755); err != nil {
 		return xray.New(err)
 	}
-	return platform.BuildMain(env, append([]string{"-ldflags=-s -w"}, extra...)...)
+	return platform.BuildMain(buildEnv, append([]string{"-ldflags=-s -w"}, extra...)...)
 }

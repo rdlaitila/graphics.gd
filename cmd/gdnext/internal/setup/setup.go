@@ -14,13 +14,11 @@ import (
 	"strings"
 
 	"graphics.gd/cmd/gdnext/internal/builder"
-	"graphics.gd/cmd/gdnext/internal/platform"
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/internal/docgen"
 	"graphics.gd/product"
 
-	"github.com/urfave/cli/v3"
 	"runtime.link/api/xray"
 )
 
@@ -35,68 +33,71 @@ import (
 // handled by cli.PromoteFlagsToEnv on the root command's Before hook, so
 // by the time ForBuild runs every legacy os.Getenv read sees the right
 // values.
-func ForBuild(cmd *cli.Command, testing bool, extraArgs []string) (platform.Builder, product.BuildEnv, error) {
-	env := product.ResolveEnv(os.Getenv("GOOS"), os.Getenv("GOARCH"))
-	if env.TargetGOARCH != "amd64" && env.TargetGOARCH != "arm64" && env.TargetGOARCH != "wasm" {
-		return nil, env, errors.New("gdnext requires an amd64, wasm, or arm64 GOARCH")
+func ForBuild(env product.BuildEnv, testing bool, extraArgs []string) (builder.Builder, error) {
+	if env.Target.GOARCH != product.GOARCHAmd64 &&
+		env.Target.GOARCH != product.GOARCHArm64 &&
+		env.Target.GOARCH != product.GOARCHWasm {
+		return nil, errors.New("gdnext requires an amd64, wasm, or arm64 GOARCH")
 	}
 	build_godot := func() error { return nil }
-	if env.HostGOOS == "linux" {
+	if env.Host.GOOS == product.GOOSLinux {
 		version, err := tooling.ListDynamicDependencies.CombinedOutput("--version")
-		if strings.HasPrefix(version, "musl") {
+		if strings.HasPrefix(version, product.GOOSMusl) {
 			if testing {
-				build_godot = muslTestClosure(env.TargetGOOS, extraArgs)
+				build_godot = muslTestClosure(env, extraArgs)
 			} else {
-				build_godot = muslBuildClosure()
+				build_godot = muslBuildClosure(env)
 			}
-			if os.Getenv("GOOS") == "" {
-				env.TargetGOOS = "musl"
+			// Musl host = we're statically linking against libgodot
+			// regardless of what the user asked for, so flip the
+			// LinkMode bit unless the user explicitly chose one.
+			if os.Getenv("GOLINK") == "" {
+				env.Target.LinkMode |= product.LibGodot
 			}
 		} else if err != nil {
-			return nil, env, xray.New(err)
+			return nil, xray.New(err)
 		}
 	}
-	plat := platform.For(env.TargetGOOS)
-	// platform.For may have canonicalised GOOS/GOARCH in the env vars
-	// (e.g. "iphone" -> "ios", or defaulting GOARCH=arm64 for android).
-	// Re-read to pick up those normalisations.
-	env = product.ResolveEnv(os.Getenv("GOOS"), os.Getenv("GOARCH"))
-	if env.TargetGOOS != "js" {
+	build, err := builder.For(env)
+	if err != nil {
+		return nil, xray.New(err)
+	}
+	if env.Target.GOOS != product.GOOSJS {
 		if err := os.Setenv("CGO_ENABLED", "1"); err != nil {
-			return nil, env, xray.New(err)
+			return nil, xray.New(err)
 		}
 	}
-	if env.TargetGOOS == "windows" && os.Getenv("CC") == "" {
+	if env.Target.GOOS == product.GOOSWindows && os.Getenv("CC") == "" {
 		zig, err := tooling.Zig.Lookup()
 		if err != nil {
-			return nil, env, xray.New(err)
+			return nil, xray.New(err)
 		}
 		if err := os.Setenv("CC", zig+" cc"); err != nil {
-			return nil, env, xray.New(err)
+			return nil, xray.New(err)
 		}
 	} else if zig, _ := exec.LookPath("zig"); zig != "" && os.Getenv("CC") == "" {
-		if env.HostGOOS == "darwin" {
+		if env.Host.GOOS == product.GOOSDarwin {
 			if err := os.Setenv("CC", "clang"); err != nil {
-				return nil, env, xray.New(err)
+				return nil, xray.New(err)
 			}
 		} else {
 			if err := os.Setenv("CC", "zig cc"); err != nil {
-				return nil, env, xray.New(err)
+				return nil, xray.New(err)
 			}
 		}
 	}
 	if err := project.Setup(build_godot); err != nil {
-		return nil, env, err
+		return nil, xray.New(err)
 	}
 	if project.IncludesGo {
 		if err := docgen.Process(project.Directory); err != nil {
-			return nil, env, xray.New(err)
+			return nil, xray.New(err)
 		}
 	}
-	return plat, env, nil
+	return build, nil
 }
 
-func muslBuildClosure() func() error {
+func muslBuildClosure(env product.BuildEnv) func() error {
 	return func() error {
 		GOARCH := os.Getenv("GOARCH")
 		os.Setenv("GOARCH", runtime.GOARCH)
@@ -107,11 +108,11 @@ func muslBuildClosure() func() error {
 		}
 		os.Chdir(project.Directory)
 		defer os.Chdir(current)
-		return builder.Musl{}.Build(product.NewBuildEnv(), "-gcflags=graphics.gd/classdb/...=-N -l")
+		return builder.Musl{}.Build(env, "-gcflags=graphics.gd/classdb/...=-N -l")
 	}
 }
 
-func muslTestClosure(GOOS string, testArgsAll []string) func() error {
+func muslTestClosure(env product.BuildEnv, testArgsAll []string) func() error {
 	return func() error {
 		current, err := os.Getwd()
 		if err != nil {
@@ -124,9 +125,9 @@ func muslTestClosure(GOOS string, testArgsAll []string) func() error {
 			faster_compile = nil
 		}
 		args := testArgsAll
-		if GOOS != "musl" && GOOS != "" {
+		if !env.Target.LinkMode.Has(product.LibGodot) {
 			args = []string{"-test.skip", "."}
 		}
-		return builder.Musl{}.Test(product.NewBuildEnv(), append(faster_compile, TestArgs(args)...)...)
+		return builder.Musl{}.Test(env, append(faster_compile, TestArgs(args)...)...)
 	}
 }

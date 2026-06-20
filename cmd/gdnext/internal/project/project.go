@@ -52,8 +52,7 @@ var (
 	GraphicsDirectory string // Graphics directory.
 	ReleasesDirectory string // Releases directory (Directory + "/releases"
 	Version           string // extracted from project.godot config/version
-
-	IncludesGo bool
+	IncludesGo        bool
 )
 
 func AndroidSafePackageName(name string) string {
@@ -76,13 +75,6 @@ func SetupVersion() {
 			return
 		}
 	}
-}
-
-type Builder interface {
-	Run(...string) error       // go run
-	Build(...string) error     // go build -buildmode=c-shared
-	BuildMain(...string) error // go build
-	Test(...string) error      // go test
 }
 
 func Setup(build_godot func() error) error {

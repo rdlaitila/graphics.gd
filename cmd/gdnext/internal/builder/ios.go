@@ -59,10 +59,7 @@ extern int32_t __isPlatformVersionAtLeast(uint32_t platform, uint32_t major, uin
 type IOS struct{}
 
 func (IOS) Build(env product.BuildEnv, args ...string) error {
-	GOARCH := env.TargetGOARCH
-	if GOARCH == "" {
-		GOARCH = "arm64"
-	}
+	GOARCH := env.Target.GOARCH
 	zig, err := tooling.Zig.Lookup()
 	if err != nil {
 		return xray.New(err)
@@ -79,11 +76,7 @@ func (IOS) Build(env product.BuildEnv, args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	GDPATH := os.Getenv("GOPATH")
-	if GDPATH == "" {
-		GDPATH = filepath.Join(os.Getenv("HOME"), "gd")
-	}
-	ZIG_INCLUDES := filepath.Join(GDPATH, "bin", "lib", "libc", "include", "any-macos-any")
+	ZIG_INCLUDES := filepath.Join(env.Host.GDBinPath, "lib", "libc", "include", "any-macos-any")
 	switch GOARCH {
 	case "arm64":
 		if err := os.Setenv("CC", zig+" cc -target aarch64-ios -F "+DARWIN_SDK+"/Frameworks -L"+DARWIN_SDK+"/lib -I"+DARWIN_SDK+"/include -I"+ZIG_INCLUDES+" -Wno-nullability-completeness"); err != nil {
@@ -93,7 +86,7 @@ func (IOS) Build(env product.BuildEnv, args ...string) error {
 			return xray.New(err)
 		}
 	default:
-		return fmt.Errorf("gd build: cannot cross-compile ios %v on %s", GOARCH, env.HostTuple())
+		return fmt.Errorf("gd build: cannot cross-compile ios %v on %s", GOARCH, env.Host.Tuple())
 	}
 	if err := tooling.Go.Action("build", args, "-tags=ios", "-buildmode=c-archive", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("darwin_%v.a", GOARCH))); err != nil {
 		return xray.New(err)
@@ -144,11 +137,6 @@ func (ios IOS) BuildMain(env product.BuildEnv, args ...string) error {
 	// Copy the new go.xcframework
 	if err := project.CopyDir(filepath.Join(project.GraphicsDirectory, "go.xcframework"), filepath.Join(project.ReleasesDirectory, "ios", "arm64", project.Name, "dylibs", "go.xcframework")); err != nil {
 		return xray.New(err)
-	}
-
-	GDPATH := os.Getenv("GOPATH")
-	if GDPATH == "" {
-		GDPATH = filepath.Join(os.Getenv("HOME"), "gd")
 	}
 
 	apple_name := project.AppleSafePackageName(project.Name)
