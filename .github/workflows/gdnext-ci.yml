@@ -92,6 +92,10 @@ jobs:
         shell: bash
         run: gdnext-ci toolchain-install
 
+      - name: Toolchain doctor (post-install)
+        shell: bash
+        run: gdnext toolchain doctor
+
   # Per-target build matrix. The matrix is supplied by discover-targets
   # as a fully-expanded include: list — host × target gating lives in
   # product.Platform.BuildHosts, not in the workflow.

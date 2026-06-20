@@ -335,11 +335,15 @@ var AndroidToolchains = []Toolchain{
 // LibGodot-mode builds need on top of SharedToolchains. The doctor /
 // install loop appends these for every Platform whose LinkModes
 // includes LibGodot.
+//
+// NOTE: ldd is intentionally NOT listed here. It is a Linux-host-only
+// musl-detection helper used by setup.go and the musl builder behind an
+// `env.Host.GOOS == linux` guard, so non-linux hosts must not be asked
+// to install it just because they can cross-build a LibGodot target.
 var LibGodotToolchains = []Toolchain{
 	ToolchainLLVM,
 	ToolchainLibGodot,
 	ToolchainLibGodotEditor,
-	ToolchainLDD,
 }
 
 var (
