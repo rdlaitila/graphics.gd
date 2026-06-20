@@ -75,7 +75,7 @@ var PlatformMatrix = []Platform{
 		Aliases:    []string{"iphone"},
 		Kind:       Target,
 		Status:     Supported,
-		BuildHosts: AllPlatforms,
+		BuildHosts: Platforms{GOOS: []string{"darwin", "linux"}},
 		Renderers:  []string{"metal", "gl_compatibility"},
 		Notes:      "requires llvm; signing needs a macOS host + Apple cert",
 	},
