@@ -39,6 +39,7 @@ func main() {
 			internal.BuildTargetCmd(),
 			internal.TestHeadlessCmd(),
 			internal.MatrixCmd(),
+			internal.WorkflowSummaryCmd(),
 		},
 	}
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
