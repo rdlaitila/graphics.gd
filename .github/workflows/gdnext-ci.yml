@@ -112,7 +112,7 @@ jobs:
         shell: bash
         run: gdnext-ci short-flag-rewrite
 
-      - name: Toolchain install (zig + godot)
+      - name: Toolchain install
         shell: bash
         run: gdnext-ci toolchain-install
 
