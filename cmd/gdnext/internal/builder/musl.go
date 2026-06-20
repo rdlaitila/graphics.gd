@@ -140,13 +140,19 @@ func (musl Musl) BuildMain(env product.BuildEnv, args ...string) error {
 		return xray.New(err)
 	}
 	var export []string
+	var releaseDir string
 	switch GOARCH {
 	case "amd64":
-		export = []string{"--headless", "--export-release", "Musl x86_64"}
+		export = []string{"--headless", "--export-release", "Linux x86_64 (libgodot)"}
+		releaseDir = filepath.Join(project.ReleasesDirectory, "linux", "amd64")
 	case "arm64":
-		export = []string{"--headless", "--export-release", "Musl arm64"}
+		export = []string{"--headless", "--export-release", "Linux arm64 (libgodot)"}
+		releaseDir = filepath.Join(project.ReleasesDirectory, "linux", "arm64")
 	default:
-		return fmt.Errorf("gd export: cannot export musl %v", GOARCH)
+		return fmt.Errorf("gd export: cannot export libgodot %v", GOARCH)
+	}
+	if err := os.MkdirAll(releaseDir, 0o755); err != nil {
+		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
