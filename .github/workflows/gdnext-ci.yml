@@ -143,18 +143,35 @@ jobs:
           echo "tmp=$tmp" >> $GITHUB_OUTPUT
           gdnext-ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
 
+      # Confirm the cache restore brought ~/gd in fully. --fix runs
+      # install for whatever's missing, so a cold cache still works
+      # (just slower) and a stale cache self-heals.
+      - name: Toolchain doctor
+        shell: bash
+        run: gdnext toolchain doctor --fix
+
       # Build the matrix's target. (goos, goarch) is validated against
       # product.PlatformMatrix inside `gdnext-ci build-target`, so a
       # typo'd target fails with a clear "unknown platform" message
       # instead of a cryptic deeper error. Experimental targets carry
       # continue-on-error so the job stays green when they break —
       # the failure still shows up in the matrix UI as a yellow row.
-      - name: Build ${{ matrix.target }}
+      - name: Build ${{ matrix.target }} [${{ matrix.link || 'default' }}]${{ matrix.experimental && ' (experimental)' || '' }}
         continue-on-error: ${{ matrix.experimental }}
         shell: bash
         run: |
           IFS=/ read -r goos goarch <<< "${{ matrix.target }}"
-          gdnext-ci build-target --goos "$goos" --goarch "$goarch" --scratch "${{ steps.stage.outputs.tmp }}"
+          gdnext-ci build-target --goos "$goos" --goarch "$goarch" --link "${{ matrix.link }}" --scratch "${{ steps.stage.outputs.tmp }}"
+
+      - name: Tree ${{ matrix.target }} [${{ matrix.link || 'default' }}]
+        if: always()
+        shell: bash
+        run: |
+          set -eu
+          tmp="${{ steps.stage.outputs.tmp }}"
+          echo "::group::file tree of $tmp"
+          find "$tmp" \( -type f -o -type l \) | sort
+          echo "::endgroup::"
 
       - name: Headless test pipeline
         shell: bash

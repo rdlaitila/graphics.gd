@@ -155,7 +155,7 @@ var (
 		BuildHosts: HostMatrix,
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
-		Notes:      "libgodot mode (--link=libgodot or GOOS=musl alias) is experimental; currently fetches the .musl. artefact",
+		Notes:      "libgodot mode (--link=libgodot or GOOS=musl alias) currently fetches the .musl. artefact",
 	}
 	PlatformLinuxArm64 = Platform{
 		Title:      "Linux ARM64",
@@ -167,7 +167,7 @@ var (
 		BuildHosts: HostMatrix,
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
-		Notes:      "cross-compiled from any host via zig; libgodot mode (--link=libgodot) is experimental",
+		Notes:      "cross-compiled from any host via zig",
 	}
 	// --- Windows --------------------------------------------------------
 	PlatformWindowsAmd64 = Platform{

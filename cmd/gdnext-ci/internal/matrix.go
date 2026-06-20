@@ -119,8 +119,6 @@ func buildMatrix(examples []string) []matrixRow {
 				}
 			}
 			for _, mode := range modes {
-				// LibGodot is experimental everywhere today.
-				rowExp := experimental || mode == product.LibGodot
 				link := ""
 				if mode != 0 {
 					link = mode.String()
@@ -135,7 +133,7 @@ func buildMatrix(examples []string) []matrixRow {
 						Example:      ex,
 						Target:       platform.Tuple(),
 						Link:         link,
-						Experimental: rowExp,
+						Experimental: experimental,
 					})
 				}
 			}

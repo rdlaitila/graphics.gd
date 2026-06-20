@@ -22,11 +22,13 @@ func BuildTargetCmd() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "goos", Usage: "target GOOS (or alias)", Required: true},
 			&cli.StringFlag{Name: "goarch", Usage: "target GOARCH", Required: true},
+			&cli.StringFlag{Name: "link", Usage: "link mode (gdextension|libgodot); blank = platform default"},
 			&cli.StringFlag{Name: "scratch", Usage: "staged example directory to build in", Required: true},
 		},
 		Action: func(_ context.Context, cmd *cli.Command) error {
 			goos := cmd.String("goos")
 			goarch := cmd.String("goarch")
+			link := cmd.String("link")
 			scratchArg := cmd.String("scratch")
 			platform, ok := product.FindPlatformByTargetEnv(goos, goarch)
 			if !ok {
@@ -48,17 +50,15 @@ func BuildTargetCmd() *cli.Command {
 			if st, err := os.Stat(scratch); err != nil || !st.IsDir() {
 				return fmt.Errorf("scratch dir does not exist: %s", scratch)
 			}
-			// Doctor warms the toolchain cache for this target. A missing
-			// REQUIRED tool surfaces here with a clear message instead of
-			// as a cryptic build failure deeper in the pipeline.
-			env := []string{"GOOS=" + goos, "GOARCH=" + goarch}
-			if err := runInEnv(scratch, env, "gdnext", "toolchain", "doctor", "--fix"); err != nil {
-				return err
-			}
 			// Actual build. Stdin closed so the optional AAB-signing
 			// `Provide passphrase:` prompt reads EOF immediately rather
 			// than consuming the next CI step's output.
-			if err := runIn(scratch, "gdnext", "-goos", goos, "-goarch", goarch, "build"); err != nil {
+			args := []string{"-goos", goos, "-goarch", goarch}
+			if link != "" {
+				args = append(args, "-link", link)
+			}
+			args = append(args, "build")
+			if err := runIn(scratch, "gdnext", args...); err != nil {
 				return err
 			}
 			if err := assertSharedLibrary(scratch, platform); err != nil {
