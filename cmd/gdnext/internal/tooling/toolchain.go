@@ -46,29 +46,28 @@ const (
 // state gdnext needs to drive it: the cached install Path. The embedded
 // product.Toolchain provides every declarative field
 // (Slug/Name/Version/Download*/Required/Available/...) via promotion;
-// methods on *toolchain read those fields and manage Path locally.
-type toolchain struct {
+// methods on *Tool read those fields and manage Path locally.
+type Tool struct {
 	product.Toolchain
-
 	Path string // cached by [toolchain.Lookup]
 }
 
 // IsRequiredFor reports whether this toolchain is needed when targeting
 // the given (goos, goarch).
-func (exe toolchain) IsRequiredFor(goos, goarch string) bool {
+func (exe Tool) IsRequiredFor(goos, goarch string) bool {
 	return exe.Required.Matches(goos, goarch)
 }
 
 // IsAvailableOn reports whether this toolchain can be obtained on the
 // given host (goos, goarch). An empty Available is treated as "any".
-func (exe toolchain) IsAvailableOn(goos, goarch string) bool {
+func (exe Tool) IsAvailableOn(goos, goarch string) bool {
 	if len(exe.Available.GOOS) == 0 {
 		return true
 	}
 	return exe.Available.Matches(goos, goarch)
 }
 
-func (exe toolchain) PathToCommand() string {
+func (exe Tool) PathToCommand() string {
 	if exe.Path == "" {
 		panic("toolchain.PathToCommand: toolchain not yet looked up")
 	}
@@ -78,7 +77,7 @@ func (exe toolchain) PathToCommand() string {
 	return exe.Path
 }
 
-func (exe toolchain) Exec(args ...string) error {
+func (exe Tool) Exec(args ...string) error {
 	var converted []string
 	for _, arg := range args {
 		// Only the key portion (before "=") participates in the
@@ -114,7 +113,7 @@ func (exe toolchain) Exec(args ...string) error {
 	return cmd.Run()
 }
 
-func (exe toolchain) Action(name string, suffix_args []string, args ...string) error {
+func (exe Tool) Action(name string, suffix_args []string, args ...string) error {
 	var suffix = make([]string, 0, len(suffix_args))
 	for _, arg := range suffix_args {
 		suffix = append(suffix, arg)
@@ -144,7 +143,7 @@ func (exe toolchain) Action(name string, suffix_args []string, args ...string) e
 	return cmd.Run()
 }
 
-func (exe toolchain) Output(args ...string) (string, error) {
+func (exe Tool) Output(args ...string) (string, error) {
 	path, err := exe.Lookup()
 	if err != nil {
 		return "", err
@@ -159,7 +158,7 @@ func (exe toolchain) Output(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func (exe toolchain) CombinedOutput(args ...string) (string, error) {
+func (exe Tool) CombinedOutput(args ...string) (string, error) {
 	path, err := exe.Lookup()
 	if err != nil {
 		return "", err
@@ -177,11 +176,11 @@ func (exe toolchain) CombinedOutput(args ...string) (string, error) {
 // Lookup resolves the toolchain to a runnable path. Pass ModeFind to skip
 // the download step (diagnostic / dry-run); pass nothing or ModeInstall to
 // auto-download when missing.
-func (exe *toolchain) Lookup(mode ...Mode) (string, error) {
+func (exe *Tool) Lookup(mode ...Mode) (string, error) {
 	return exe.LookupPlatform(runtime.GOOS, runtime.GOARCH, mode...)
 }
 
-func (exe *toolchain) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, error) {
+func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, error) {
 	m := ModeInstall
 	if len(mode) > 0 {
 		m = mode[0]

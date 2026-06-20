@@ -7,12 +7,12 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"graphics.gd/cmd/gdnext/internal/gdpaths"
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
+	"graphics.gd/product"
 
 	"runtime.link/api/xray"
 )
@@ -29,7 +29,7 @@ type Musl struct {
 	out string
 }
 
-func (musl Musl) Build(args ...string) (err error) {
+func (musl Musl) Build(env product.BuildEnv, args ...string) (err error) {
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
 	goos := os.Getenv("GOOS")
 	os.Setenv("GOOS", "linux")
@@ -43,9 +43,9 @@ func (musl Musl) Build(args ...string) (err error) {
 	if !project.IncludesGo {
 		return nil
 	}
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
+	GOARCH := env.TargetGOARCH
+	if GOARCH == "" {
+		GOARCH = env.HostGOARCH
 	}
 	zig, err := tooling.Zig.Lookup()
 	if err != nil {
@@ -60,7 +60,7 @@ func (musl Musl) Build(args ...string) (err error) {
 	}
 	if musl.out == "" {
 		musl.out = filepath.Join(project.GraphicsDirectory, "musl_"+GOARCH+".editor")
-		if runtime.GOOS == "linux" {
+		if env.HostGOOS == "linux" {
 			version, _ := tooling.ListDynamicDependencies.CombinedOutput("--version")
 			if strings.HasPrefix(version, "musl") {
 				defer func() {
@@ -103,7 +103,7 @@ func (musl Musl) Build(args ...string) (err error) {
 			return xray.New(err)
 		}
 	default:
-		return fmt.Errorf("gd build: cannot cross-compile linux %v on %v", GOARCH, runtime.GOOS)
+		return fmt.Errorf("gd build: cannot cross-compile linux %v on %s", GOARCH, env.HostTuple())
 	}
 	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("musl_%v.a", GOARCH))
 	if err := tooling.Go.Action("build", args, "-tags", "musl", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {
@@ -139,11 +139,11 @@ func (musl Musl) patch() error {
 	return nil
 }
 
-func (musl Musl) BuildMain(args ...string) error {
+func (musl Musl) BuildMain(env product.BuildEnv, args ...string) error {
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
+	GOARCH := env.TargetGOARCH
+	if GOARCH == "" {
+		GOARCH = env.HostGOARCH
 	}
 	var err error
 	musl.out = filepath.Join(project.GraphicsDirectory, ".godot", "godot.musl.template_release.x86_64")
@@ -152,7 +152,7 @@ func (musl Musl) BuildMain(args ...string) error {
 		return xray.New(err)
 	}
 	built_musl = false
-	if err := musl.Build(args...); err != nil {
+	if err := musl.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 	var export []string
@@ -173,15 +173,15 @@ func (musl Musl) BuildMain(args ...string) error {
 	return nil
 }
 
-func (musl Musl) Run(args ...string) error {
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
+func (musl Musl) Run(env product.BuildEnv, args ...string) error {
+	GOARCH := env.TargetGOARCH
+	if GOARCH == "" {
+		GOARCH = env.HostGOARCH
 	}
-	if runtime.GOOS != "linux" || runtime.GOARCH != GOARCH {
-		return fmt.Errorf("gd run: cannot run linux/%v executable on %v/%v", GOARCH, runtime.GOOS, runtime.GOARCH)
+	if env.HostGOOS != "linux" || env.HostGOARCH != GOARCH {
+		return fmt.Errorf("gd run: cannot run linux/%v executable on %s", GOARCH, env.HostTuple())
 	}
-	if err := musl.Build(args...); err != nil {
+	if err := musl.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
@@ -190,7 +190,7 @@ func (musl Musl) Run(args ...string) error {
 	return tooling.Godot.Exec(args...)
 }
 
-func (musl Musl) Test(args ...string) error {
+func (musl Musl) Test(env product.BuildEnv, args ...string) error {
 	if built_musl {
 		return nil
 	}
@@ -201,12 +201,12 @@ func (musl Musl) Test(args ...string) error {
 	goos := os.Getenv("GOOS")
 	os.Setenv("GOOS", "linux")
 	defer os.Setenv("GOOS", goos)
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
+	GOARCH := env.TargetGOARCH
+	if GOARCH == "" {
+		GOARCH = env.HostGOARCH
 	}
-	if runtime.GOOS != "linux" || runtime.GOARCH != GOARCH {
-		return fmt.Errorf("gd test: cannot run linux/%v tests on %v/%v", GOARCH, runtime.GOOS, runtime.GOARCH)
+	if env.HostGOOS != "linux" || env.HostGOARCH != GOARCH {
+		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", GOARCH, env.HostTuple())
 	}
 	zig, err := tooling.Zig.Lookup()
 	if err != nil {
@@ -244,7 +244,7 @@ func (musl Musl) Test(args ...string) error {
 			return xray.New(err)
 		}
 	default:
-		return fmt.Errorf("gd build: cannot cross-compile linux %v on %v", GOARCH, runtime.GOOS)
+		return fmt.Errorf("gd build: cannot cross-compile linux %v on %s", GOARCH, env.HostTuple())
 	}
 	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("musl_%v.a", GOARCH))
 	if err := tooling.Go.Action("test", args, "-c", "-tags", "musl", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {

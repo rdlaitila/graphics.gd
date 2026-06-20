@@ -14,6 +14,7 @@ import (
 
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
+	"graphics.gd/product"
 
 	"runtime.link/api/xray"
 )
@@ -29,7 +30,7 @@ func (browser Browser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	browser.handler.ServeHTTP(w, r)
 }
 
-func (browser Browser) Build(args ...string) error {
+func (browser Browser) Build(_ product.BuildEnv, args ...string) error {
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
 	if err := os.MkdirAll(filepath.Join(project.ReleasesDirectory, "js", "wasm"), 0755); err != nil {
 		return xray.New(err)
@@ -49,9 +50,9 @@ func (browser Browser) Build(args ...string) error {
 	return tooling.Go.Action("build", args, "-o", filepath.Join(project.ReleasesDirectory, "js", "wasm", "library.wasm"))
 }
 
-func (browser Browser) Run(args ...string) error {
+func (browser Browser) Run(env product.BuildEnv, args ...string) error {
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
-	if err := browser.Build(args...); err != nil {
+	if err := browser.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
@@ -88,8 +89,8 @@ func (browser Browser) Run(args ...string) error {
 	return xray.New(http.ListenAndServe(":"+PORT, nil))
 }
 
-func (browser Browser) BuildMain(args ...string) error {
-	if err := browser.Build(args...); err != nil {
+func (browser Browser) BuildMain(env product.BuildEnv, args ...string) error {
+	if err := browser.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
@@ -98,7 +99,7 @@ func (browser Browser) BuildMain(args ...string) error {
 	return tooling.Godot.Exec("--headless", "--export-release", "Web")
 }
 
-func (browser Browser) Test(args ...string) error {
+func (browser Browser) Test(env product.BuildEnv, args ...string) error {
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
 	browser.testing = true
 	converted := []string{}
@@ -117,7 +118,7 @@ func (browser Browser) Test(args ...string) error {
 			converted = append(converted, arg)
 		}
 	}
-	return browser.Run(converted...)
+	return browser.Run(env, converted...)
 }
 
 func (Browser) AssertExportTemplate() error {

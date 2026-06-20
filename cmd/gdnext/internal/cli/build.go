@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/setup"
@@ -39,7 +38,7 @@ func buildAction(_ context.Context, cmd *cli.Command) error {
 		return cli.ShowSubcommandHelp(cmd)
 	}
 	extra := cmd.Args().Slice()
-	platform, err := setup.ForBuild(cmd, false, extra)
+	platform, env, err := setup.ForBuild(cmd, false, extra)
 	if err != nil {
 		return err
 	}
@@ -49,16 +48,8 @@ func buildAction(_ context.Context, cmd *cli.Command) error {
 	if err := templates.Assert(tooling.Godot.Version); err != nil {
 		return xray.New(err)
 	}
-	GOOS := runtime.GOOS
-	GOARCH := runtime.GOARCH
-	if v := os.Getenv("GOOS"); v != "" {
-		GOOS = v
-	}
-	if v := os.Getenv("GOARCH"); v != "" {
-		GOARCH = v
-	}
-	if err := os.MkdirAll(filepath.Join(project.ReleasesDirectory, GOOS, GOARCH), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(project.ReleasesDirectory, env.TargetGOOS, env.TargetGOARCH), 0755); err != nil {
 		return xray.New(err)
 	}
-	return platform.BuildMain(append([]string{"-ldflags=-s -w"}, extra...)...)
+	return platform.BuildMain(env, append([]string{"-ldflags=-s -w"}, extra...)...)
 }

@@ -10,17 +10,18 @@ import (
 	"os"
 
 	"graphics.gd/cmd/gdnext/internal/builder"
+	"graphics.gd/product"
 )
 
 // Builder is the union of every method any of the per-platform Builder types
-// expose to gdnext. It mirrors the legacy interface defined in
-// cmd/gd/main.go so the existing builder/* implementations satisfy it
-// without modification.
+// expose to gdnext. Each method takes a product.BuildEnv up front so the
+// (host, target) pair is explicit at the API boundary — the methods do not
+// re-read $GOOS / $GOARCH for their own decisions.
 type Builder interface {
-	Run(...string) error
-	Build(...string) error
-	BuildMain(...string) error
-	Test(...string) error
+	Run(env product.BuildEnv, args ...string) error
+	Build(env product.BuildEnv, args ...string) error
+	BuildMain(env product.BuildEnv, args ...string) error
+	Test(env product.BuildEnv, args ...string) error
 }
 
 // Compile-time assertions
@@ -37,9 +38,9 @@ var (
 
 // For returns the Builder responsible for the supplied GOOS-or-alias string.
 // As a side effect it canonicalises the GOOS / GOARCH environment variables
-// because the downstream builder.* implementations read them directly via
-// os.Getenv. Returns a nil Builder and exits the process when goos is not
-// recognised — this preserves the legacy behaviour of cmd/gd's builderFor.
+// because spawned subprocesses (go build, godot, etc.) read them directly.
+// Returns a nil Builder and exits the process when goos is not recognised —
+// this preserves the legacy behaviour of cmd/gd's builderFor.
 func For(goos string) Builder {
 	switch goos {
 	case "linux", "ubuntu", "arch", "debian", "nix", "musl":

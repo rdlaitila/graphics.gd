@@ -22,14 +22,14 @@ func runCmd() *cli.Command {
 				return cli.ShowSubcommandHelp(cmd)
 			}
 			extra := cmd.Args().Slice()
-			platform, err := setup.ForBuild(cmd, false, extra)
+			platform, env, err := setup.ForBuild(cmd, false, extra)
 			if err != nil {
 				return err
 			}
 			if err := os.Chdir(project.Directory); err != nil {
 				return xray.New(err)
 			}
-			return platform.Run(append([]string{"-gcflags=graphics.gd/classdb/...=-N -l"}, extra...)...)
+			return platform.Run(env, append([]string{"-gcflags=graphics.gd/classdb/...=-N -l"}, extra...)...)
 		},
 	}
 }

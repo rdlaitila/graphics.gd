@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 	"text/tabwriter"
 
@@ -20,166 +19,181 @@ func toolchainCmd() *cli.Command {
 		Usage: "manage the external programs gdnext drives",
 		Commands: []*cli.Command{
 			{
-				Name:  "list",
-				Usage: "list every toolchain gdnext can manage",
-				Action: func(_ context.Context, _ *cli.Command) error {
-					tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-					defer tw.Flush()
-					fmt.Fprintln(tw, "NAME\tVERSION\tPURPOSE")
-					for _, e := range tooling.Entries() {
-						v := e.Version
-						if v == "" {
-							v = "-"
-						}
-						fmt.Fprintf(tw, "%s\t%s\t%s\n", e.Slug, v, e.Purpose)
-					}
-					return nil
-				},
+				Name:   "list",
+				Usage:  "list every toolchain gdnext can manage",
+				Action: toolchainList,
 			},
 			{
 				Name:      "path",
-				Usage:     "print the absolute install path of a toolchain (downloads if missing)",
+				Usage:     "print the absolute install path of a toolchain (lookup only, no download)",
 				ArgsUsage: "<name>",
-				Action: func(_ context.Context, cmd *cli.Command) error {
-					if cmd.NArg() != 1 {
-						return fmt.Errorf("usage: gdnext toolchain path <name>")
-					}
-					e, ok := tooling.LookupBySlug(cmd.Args().First())
-					if !ok {
-						return fmt.Errorf("unknown toolchain %q (try: gdnext toolchain list)", cmd.Args().First())
-					}
-					path, err := e.Lookup()
-					if err != nil {
-						return err
-					}
-					fmt.Println(path)
-					return nil
-				},
+				Action:    toolchainPath,
 			},
 			{
 				Name:      "install",
-				Usage:     "force-install one or every toolchain by triggering its Lookup hook",
+				Usage:     "install one named toolchain, or every tool required for the current target",
 				ArgsUsage: "[name]",
-				Action: func(_ context.Context, cmd *cli.Command) error {
-					if cmd.NArg() == 0 {
-						for _, e := range tooling.Entries() {
-							fmt.Printf("→ %s ... ", e.Slug)
-							path, err := e.Lookup()
-							if err != nil {
-								fmt.Println("failed:", err)
-								continue
-							}
-							fmt.Println(path)
-						}
-						return nil
-					}
-					e, ok := tooling.LookupBySlug(cmd.Args().First())
-					if !ok {
-						return fmt.Errorf("unknown toolchain %q", cmd.Args().First())
-					}
-					path, err := e.Lookup()
-					if err != nil {
-						return err
-					}
-					fmt.Println(path)
-					return nil
-				},
+				Action:    toolchainInstall,
 			},
 			{
 				Name:  "doctor",
-				Usage: "verify every toolchain reachable; non-zero exit only on REQUIRED misses",
+				Usage: "report toolchain status for the current host + target; --fix auto-installs missing requireds",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:  "fix",
-						Usage: "auto-download any toolchain that's missing (defaults to diagnostic-only)",
+						Usage: "after reporting, run `toolchain install` for the current target and re-report",
 					},
 				},
-				Action: func(_ context.Context, cmd *cli.Command) error {
-					// Doctor defaults to diagnostic-only — Lookup(ModeFind)
-					// skips the auto-download path entirely so a drive-by
-					// `toolchain doctor` never silently fetches 100s of MB.
-					// `--fix` opts back in to the install behaviour.
-					mode := tooling.ModeFind
-					if cmd.Bool("fix") {
-						mode = tooling.ModeInstall
-					}
-					// (target GOOS/GOARCH, host GOOS/GOARCH) all come
-					// from env vars by the time we reach the action:
-					// PromoteFlagsToEnv on the root command's Before
-					// hook has already mirrored --goos/--goarch into
-					// $GOOS/$GOARCH. Host always reflects the binary.
-					targetGOOS := os.Getenv("GOOS")
-					if targetGOOS == "" {
-						targetGOOS = runtime.GOOS
-					}
-					targetGOARCH := os.Getenv("GOARCH")
-					if targetGOARCH == "" {
-						targetGOARCH = runtime.GOARCH
-					}
-					hostGOOS, hostGOARCH := runtime.GOOS, runtime.GOARCH
-
-					fmt.Fprintf(os.Stdout, "host:   %s\ntarget: %s\n\n",
-						product.Tuple(hostGOOS, hostGOARCH),
-						product.Tuple(targetGOOS, targetGOARCH))
-					tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-					fmt.Fprintln(tw, "NAME\tNEEDED FOR\tRUNS ON\tSTATUS\tDETAIL")
-					var requiredFail int
-					var missing []string
-					for _, e := range tooling.Entries() {
-						required := e.IsRequiredFor(targetGOOS, targetGOARCH)
-						available := e.IsAvailableOn(hostGOOS, hostGOARCH)
-						neededFor := platformsString(e.Required)
-						runsOn := platformsString(e.Available)
-						if len(e.Available.GOOS) == 0 {
-							runsOn = "any"
-						}
-						// Tool is required by the target but the host
-						// can't run it: hard error, no point trying to
-						// install (downloads won't exist).
-						if required && !available {
-							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Slug, neededFor, runsOn,
-								"N/A", fmt.Sprintf("required for %s but cannot run on %s host",
-									product.Tuple(targetGOOS, targetGOARCH),
-									product.Tuple(hostGOOS, hostGOARCH)))
-							requiredFail++
-							missing = append(missing, e.Slug+"(unavailable)")
-							continue
-						}
-						path, err := e.Lookup(mode)
-						switch {
-						case err == nil:
-							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Slug, neededFor, runsOn, "OK", path)
-						case required:
-							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Slug, neededFor, runsOn, "FAIL", err)
-							requiredFail++
-							missing = append(missing, e.Slug)
-						default:
-							reason := "not installed (not required for target)"
-							if !available {
-								reason = "not installed (not available on host)"
-							}
-							fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Slug, neededFor, runsOn, "SKIP", reason)
-						}
-					}
-					tw.Flush()
-					fmt.Fprintln(os.Stdout)
-					if requiredFail > 0 {
-						return fmt.Errorf("%d required toolchain(s) missing for %s on %s host: %s (rerun with --fix to auto-download, or use `gdnext toolchain install`)",
-							requiredFail,
-							product.Tuple(targetGOOS, targetGOARCH),
-							product.Tuple(hostGOOS, hostGOARCH),
-							strings.Join(missing, ", "))
-					}
-					fmt.Fprintf(os.Stdout, "all required toolchains present for %s\n", product.Tuple(targetGOOS, targetGOARCH))
-					return nil
-				},
+				Action: toolchainDoctor,
 			},
 		},
 	}
 }
 
+func toolchainList(_ context.Context, _ *cli.Command) error {
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	defer tw.Flush()
+	fmt.Fprintln(tw, "NAME\tVERSION\tPURPOSE")
+	for _, t := range tooling.Catalog {
+		v := t.Version
+		if v == "" {
+			v = "-"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", t.Slug, v, t.RequiredFor)
+	}
+	return nil
+}
+
+func toolchainPath(_ context.Context, cmd *cli.Command) error {
+	if cmd.NArg() != 1 {
+		return fmt.Errorf("usage: gdnext toolchain path <name>")
+	}
+	t := tooling.BySlug(cmd.Args().First())
+	if t == nil {
+		return fmt.Errorf("unknown toolchain %q (try: gdnext toolchain list)", cmd.Args().First())
+	}
+	path, err := t.Lookup(tooling.ModeFind)
+	if err != nil {
+		return err
+	}
+	fmt.Println(path)
+	return nil
+}
+
+// toolchainInstall installs one named toolchain (when given a positional
+// arg) or every tool required by the current host/target (when bare).
+// Target-blind installs are intentionally not offered: the previous
+// "install everything regardless" walk was a footgun that pulled
+// hundreds of MB the user didn't need.
+func toolchainInstall(_ context.Context, cmd *cli.Command) error {
+	if cmd.NArg() == 0 {
+		return installForTarget(product.ResolveEnv(os.Getenv("GOOS"), os.Getenv("GOARCH")))
+	}
+	t := tooling.BySlug(cmd.Args().First())
+	if t == nil {
+		return fmt.Errorf("unknown toolchain %q", cmd.Args().First())
+	}
+	path, err := t.Lookup()
+	if err != nil {
+		return err
+	}
+	fmt.Println(path)
+	return nil
+}
+
+// toolchainDoctor renders the host/target report. With --fix, any
+// REQUIRED tool that's missing is fed through `toolchain install` and
+// the report is reprinted so the caller sees the final state.
+func toolchainDoctor(_ context.Context, cmd *cli.Command) error {
+	env := product.ResolveEnv(os.Getenv("GOOS"), os.Getenv("GOARCH"))
+	fail := reportToolchainStatus(env)
+
+	if cmd.Bool("fix") && fail > 0 {
+		fmt.Fprintln(os.Stdout, "\n→ installing missing requirements...")
+		if err := installForTarget(env); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stdout)
+		fail = reportToolchainStatus(env)
+	}
+
+	if fail > 0 {
+		return fmt.Errorf("%d required toolchain(s) missing for %s on %s host (rerun with --fix to auto-download)",
+			fail, env.TargetTuple(), env.HostTuple())
+	}
+	fmt.Fprintf(os.Stdout, "all required toolchains present for %s\n", env.TargetTuple())
+	return nil
+}
+
+// reportToolchainStatus prints the host/target header + per-tool status
+// table to stdout (ModeFind, no downloads) and returns the count of
+// REQUIRED tools that are missing or unavailable. Used by doctor; also
+// re-called after `--fix` runs to show the final state.
+func reportToolchainStatus(env product.BuildEnv) (requiredFail int) {
+	fmt.Fprintf(os.Stdout, "host:   %s\ntarget: %s\n\n", env.HostTuple(), env.TargetTuple())
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	defer tw.Flush()
+	fmt.Fprintln(tw, "NAME\tNEEDED FOR\tRUNS ON\tSTATUS\tDETAIL")
+	for _, t := range tooling.Catalog {
+		required := t.IsRequiredFor(env.TargetGOOS, env.TargetGOARCH)
+		available := t.IsAvailableOn(env.HostGOOS, env.HostGOARCH)
+		neededFor := platformsString(t.Required)
+		runsOn := platformsString(t.Available)
+		if len(t.Available.GOOS) == 0 {
+			runsOn = "any"
+		}
+		// Tool required by the target but host can't run it: hard
+		// error, no point trying to install (downloads won't exist).
+		if required && !available {
+			fmt.Fprintf(tw, "%s\t%s\t%s\tN/A\trequired for %s but cannot run on %s host\n",
+				t.Slug, neededFor, runsOn, env.TargetTuple(), env.HostTuple())
+			requiredFail++
+			continue
+		}
+		path, err := t.Lookup(tooling.ModeFind)
+		switch {
+		case err == nil:
+			fmt.Fprintf(tw, "%s\t%s\t%s\tOK\t%s\n", t.Slug, neededFor, runsOn, path)
+		case required:
+			fmt.Fprintf(tw, "%s\t%s\t%s\tFAIL\t%s\n", t.Slug, neededFor, runsOn, err)
+			requiredFail++
+		default:
+			reason := "not installed (not required for target)"
+			if !available {
+				reason = "not installed (not available on host)"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\tSKIP\t%s\n", t.Slug, neededFor, runsOn, reason)
+		}
+	}
+	return requiredFail
+}
+
+// installForTarget walks Catalog and installs every tool that is
+// required by env's target AND obtainable on env's host. Prints
+// `→ slug ... path` per tool. Install attempts are independent so one
+// tool failing (e.g. upstream 404) doesn't abort the rest.
+func installForTarget(env product.BuildEnv) error {
+	for _, t := range tooling.Catalog {
+		if !t.IsRequiredFor(env.TargetGOOS, env.TargetGOARCH) {
+			continue
+		}
+		if !t.IsAvailableOn(env.HostGOOS, env.HostGOARCH) {
+			fmt.Printf("→ %s ... skipped (not available on %s host)\n", t.Slug, env.HostTuple())
+			continue
+		}
+		fmt.Printf("→ %s ... ", t.Slug)
+		path, err := t.Lookup(tooling.ModeInstall)
+		if err != nil {
+			fmt.Println("failed:", err)
+			continue
+		}
+		fmt.Println(path)
+	}
+	return nil
+}
+
 // platformsString renders a Platforms set as "goos[/goarch,goarch]" with
-// multiple GOOS values comma-separated. Used by doctor's table.
+// multiple GOOS values comma-separated. Used by the doctor table.
 func platformsString(p product.Platforms) string {
 	if len(p.GOOS) == 0 {
 		return "-"

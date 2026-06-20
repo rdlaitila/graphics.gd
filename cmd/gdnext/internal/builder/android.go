@@ -17,7 +17,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -31,6 +30,7 @@ import (
 	"graphics.gd/cmd/gdnext/internal/cryptic/zipslicer"
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
+	"graphics.gd/product"
 
 	"runtime.link/api/xray"
 )
@@ -44,13 +44,13 @@ type Android struct {
 	Graphics string
 }
 
-func (Android) Build(args ...string) error {
+func (Android) Build(env product.BuildEnv, args ...string) error {
 	HOME, err := os.UserHomeDir()
 	if err != nil {
 		return xray.New(err)
 	}
 	var debug_keystore string
-	switch runtime.GOOS {
+	switch env.HostGOOS {
 	case "linux":
 		debug_keystore = filepath.Join(os.Getenv("HOME"), ".local", "share", "godot", "keystores", "debug.keystore")
 	case "windows":
@@ -134,14 +134,14 @@ func (Android) Build(args ...string) error {
 		GDPATH = filepath.Join(HOME, "gd")
 	}
 	var exe string
-	if runtime.GOOS == "windows" {
+	if env.HostGOOS == "windows" {
 		exe = ".exe"
 	}
 	if err := os.WriteFile(filepath.Join(GDPATH, "bin", "java"+exe), []byte("java stub"), 0755); err != nil {
 		return xray.New(err)
 	}
 	var default_sdk_path string
-	switch runtime.GOOS {
+	switch env.HostGOOS {
 	case "linux":
 		default_sdk_path = filepath.Join(HOME, "Android", "Sdk")
 	case "windows":
@@ -163,7 +163,7 @@ func (Android) Build(args ...string) error {
 			if err := os.MkdirAll(filepath.Join(default_sdk_path, "build-tools", "35"), 0755); err != nil {
 				return xray.New(err)
 			}
-			if runtime.GOOS == "windows" {
+			if env.HostGOOS == "windows" {
 				if err := project.CopyFile(filepath.Join(GDPATH, "bin", "AdbWinApi.dll"), filepath.Join(default_sdk_path, "platform-tools", "AdbWinApi.dll")); err != nil {
 					return xray.New(err)
 				}
@@ -178,7 +178,7 @@ func (Android) Build(args ...string) error {
 					return xray.New(err)
 				}
 			}
-			if runtime.GOOS == "windows" {
+			if env.HostGOOS == "windows" {
 				if err := project.CopyFile(filepath.Join(GDPATH, "bin", "apksigner.exe"), filepath.Join(default_sdk_path, "build-tools", "35", "apksigner.bat")); err != nil {
 					return xray.New(err)
 				}
@@ -192,11 +192,11 @@ func (Android) Build(args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	var GOARCH = "arm64"
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
+	GOARCH := env.TargetGOARCH
+	if GOARCH == "" {
+		GOARCH = "arm64"
 	}
-	if runtime.GOOS != "android" || runtime.GOARCH != GOARCH {
+	if env.HostGOOS != "android" || env.HostGOARCH != GOARCH {
 		zig, err := tooling.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
@@ -237,15 +237,15 @@ func (Android) Build(args ...string) error {
 				return xray.New(err)
 			}
 		default:
-			return fmt.Errorf("gd build: cannot cross-compile android/%v on %v", GOARCH, runtime.GOOS)
+			return fmt.Errorf("gd build: cannot cross-compile android/%v on %s", GOARCH, env.HostTuple())
 		}
 	}
 	return tooling.Go.Action("build", args, "-ldflags=-checklinkname=0", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("libandroid_%v.so", GOARCH)))
 }
 
-func (android Android) Run(args ...string) error {
+func (android Android) Run(env product.BuildEnv, args ...string) error {
 	var debug_keystore string
-	switch runtime.GOOS {
+	switch env.HostGOOS {
 	case "linux":
 		debug_keystore = filepath.Join(os.Getenv("HOME"), ".local", "share", "godot", "keystores", "debug.keystore")
 	case "windows":
@@ -255,7 +255,7 @@ func (android Android) Run(args ...string) error {
 	default:
 		return nil
 	}
-	if err := android.Build(args...); err != nil {
+	if err := android.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 	GOARCH := "arm64"
@@ -346,17 +346,17 @@ func (android Android) Run(args ...string) error {
 	return nil
 }
 
-func (Android) Test(args ...string) error {
+func (Android) Test(env product.BuildEnv, args ...string) error {
 	return fmt.Errorf("gd test: android not supported")
 }
 
-func (android Android) BuildMain(...string) error {
-	if err := android.Build(); err != nil {
+func (android Android) BuildMain(env product.BuildEnv, _ ...string) error {
+	if err := android.Build(env); err != nil {
 		return xray.New(err)
 	}
-	GOARCH := "arm64"
-	if env := os.Getenv("GOARCH"); env != "" {
-		GOARCH = env
+	GOARCH := env.TargetGOARCH
+	if GOARCH == "" {
+		GOARCH = "arm64"
 	}
 	_, err := tooling.AndroidDebugBridge.Lookup()
 	if err != nil {
@@ -375,7 +375,7 @@ func (android Android) BuildMain(...string) error {
 		GDPATH = filepath.Join(HOME, "gd")
 	}
 	var exe string
-	if runtime.GOOS == "windows" {
+	if env.HostGOOS == "windows" {
 		exe = ".exe"
 	}
 	if err := os.WriteFile(filepath.Join(GDPATH, "bin", "java"+exe), []byte("java stub"), 0755); err != nil {
@@ -711,4 +711,3 @@ func loadAndroidPresets() ([]androidPreset, error) {
 	}
 	return out, nil
 }
-

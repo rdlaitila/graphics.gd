@@ -37,6 +37,7 @@ import (
 
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
+	"graphics.gd/product"
 
 	"runtime.link/api/xray"
 )
@@ -47,23 +48,25 @@ type MetaQuest struct {
 	Android
 }
 
-func (mq MetaQuest) Build(args ...string) error {
-	// Force arm64 — Quest has no other targets — and delegate to the
-	// regular Android compile path. The post-processing is only done
-	// in BuildMain / Run after Godot has produced the APK.
+func (mq MetaQuest) Build(env product.BuildEnv, args ...string) error {
+	// Force android/arm64 — Quest has no other targets — and delegate
+	// to the regular Android compile path. Post-processing is only
+	// done in BuildMain / Run after Godot has produced the APK.
+	env.TargetGOOS = "android"
+	env.TargetGOARCH = "arm64"
 	if os.Getenv("GOARCH") == "" {
 		os.Setenv("GOARCH", "arm64")
 	}
 	os.Setenv("GOOS", "android")
-	return mq.Android.Build(args...)
+	return mq.Android.Build(env, args...)
 }
 
-func (mq MetaQuest) Test(args ...string) error {
+func (mq MetaQuest) Test(env product.BuildEnv, args ...string) error {
 	return fmt.Errorf("gd test: metaquest not supported")
 }
 
-func (mq MetaQuest) BuildMain(args ...string) error {
-	if err := mq.Build(args...); err != nil {
+func (mq MetaQuest) BuildMain(env product.BuildEnv, args ...string) error {
+	if err := mq.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 	// MkdirAll the export destination before invoking godot — the
@@ -92,8 +95,8 @@ func (mq MetaQuest) BuildMain(args ...string) error {
 	return signAPK(apk, releaseKeystore())
 }
 
-func (mq MetaQuest) Run(args ...string) error {
-	if err := mq.Build(args...); err != nil {
+func (mq MetaQuest) Run(env product.BuildEnv, args ...string) error {
+	if err := mq.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 	adb, err := tooling.AndroidDebugBridge.Lookup()
@@ -212,8 +215,10 @@ var metaQuestVendorSo []byte
 // informational), but the config file itself MUST be packaged in the
 // .pck or Godot's GodotPlugin registration fails to wire the plugin
 // up, with:
-//   ERROR: Error loading GDExtension configuration file:
-//     'res://addons/godotopenxrvendors/plugin.gdextension'.
+//
+//	ERROR: Error loading GDExtension configuration file:
+//	  'res://addons/godotopenxrvendors/plugin.gdextension'.
+//
 // Drop this file into res://addons/godotopenxrvendors/ just before
 // `godot --export-release`, then clean up after.
 //
@@ -689,10 +694,10 @@ func debugKeystore() string {
 func releaseKeystore() string { return debugKeystore() }
 
 // Compile-time guard: ensure MetaQuest satisfies the Builder interface
-// declared in main.go.
+// declared in platform/platform.go.
 var _ interface {
-	Run(...string) error
-	Build(...string) error
-	BuildMain(...string) error
-	Test(...string) error
+	Run(product.BuildEnv, ...string) error
+	Build(product.BuildEnv, ...string) error
+	BuildMain(product.BuildEnv, ...string) error
+	Test(product.BuildEnv, ...string) error
 } = MetaQuest{}

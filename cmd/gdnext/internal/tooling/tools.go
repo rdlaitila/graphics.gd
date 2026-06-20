@@ -35,10 +35,10 @@ var (
 	ListDynamicDependencies      = wrap("ldd")
 )
 
-func wrap(slug string) toolchain {
+func wrap(slug string) Tool {
 	t, ok := product.LookupToolchain(slug)
 	if !ok {
 		panic(fmt.Sprintf("tooling: product.ToolchainMatrix is missing slug %q", slug))
 	}
-	return toolchain{Toolchain: t}
+	return Tool{Toolchain: t}
 }

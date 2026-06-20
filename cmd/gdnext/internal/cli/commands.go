@@ -72,14 +72,14 @@ func helpRequested(cmd *cli.Command) bool {
 // RUNNING_INSIDE_GODOT short-circuits the launch to avoid an infinite spawn
 // loop when the editor is the parent process.
 func LaunchEditor(_ context.Context, cmd *cli.Command) error {
-	platform, err := setup.ForBuild(cmd, false, nil)
+	platform, env, err := setup.ForBuild(cmd, false, nil)
 	if err != nil {
 		return err
 	}
 	if err := os.Chdir(project.Directory); err != nil {
 		return xray.New(err)
 	}
-	if err := platform.Build("-gcflags=graphics.gd/classdb/...=-N -l"); err != nil {
+	if err := platform.Build(env, "-gcflags=graphics.gd/classdb/...=-N -l"); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {

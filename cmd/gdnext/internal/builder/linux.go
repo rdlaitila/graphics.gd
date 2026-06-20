@@ -4,30 +4,26 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
+	"graphics.gd/product"
 
 	"runtime.link/api/xray"
 )
 
 type Linux struct{}
 
-func (Linux) Build(args ...string) error {
+func (Linux) Build(env product.BuildEnv, args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
-	}
-	if runtime.GOOS != "linux" || runtime.GOARCH != GOARCH {
+	if env.HostGOOS != "linux" || env.HostGOARCH != env.TargetGOARCH {
 		zig, err := tooling.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
 		}
-		switch GOARCH {
+		switch env.TargetGOARCH {
 		case "amd64":
 			if err := os.Setenv("CC", zig+" cc -target x86_64-linux-gnu"); err != nil {
 				return xray.New(err)
@@ -37,28 +33,24 @@ func (Linux) Build(args ...string) error {
 				return xray.New(err)
 			}
 		default:
-			return fmt.Errorf("gd build: cannot cross-compile linux %v on %v", GOARCH, runtime.GOOS)
+			return fmt.Errorf("gd build: cannot cross-compile linux %v on %v", env.TargetGOARCH, env.HostGOOS)
 		}
 	}
-	return tooling.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", GOARCH)))
+	return tooling.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", env.TargetGOARCH)))
 }
 
-func (linux Linux) BuildMain(args ...string) error {
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
-	}
-	if err := linux.Build(args...); err != nil {
+func (linux Linux) BuildMain(env product.BuildEnv, args ...string) error {
+	if err := linux.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 	var export []string
-	switch GOARCH {
+	switch env.TargetGOARCH {
 	case "amd64":
 		export = []string{"--headless", "--export-release", "Linux x86_64"}
 	case "arm64":
 		export = []string{"--headless", "--export-release", "Linux arm64"}
 	default:
-		return fmt.Errorf("gd export: cannot export linux %v", GOARCH)
+		return fmt.Errorf("gd export: cannot export linux %v", env.TargetGOARCH)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
@@ -69,15 +61,11 @@ func (linux Linux) BuildMain(args ...string) error {
 	return nil
 }
 
-func (linux Linux) Run(args ...string) error {
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
+func (linux Linux) Run(env product.BuildEnv, args ...string) error {
+	if env.HostGOOS != "linux" || env.HostGOARCH != env.TargetGOARCH {
+		return fmt.Errorf("gd run: cannot run linux/%v executable on %s", env.TargetGOARCH, env.HostTuple())
 	}
-	if runtime.GOOS != "linux" || runtime.GOARCH != GOARCH {
-		return fmt.Errorf("gd run: cannot run linux/%v executable on %v/%v", GOARCH, runtime.GOOS, runtime.GOARCH)
-	}
-	if err := linux.Build(args...); err != nil {
+	if err := linux.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
@@ -86,15 +74,11 @@ func (linux Linux) Run(args ...string) error {
 	return tooling.Godot.Exec(args...)
 }
 
-func (Linux) Test(args ...string) error {
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
+func (Linux) Test(env product.BuildEnv, args ...string) error {
+	if env.HostGOOS != "linux" || env.HostGOARCH != env.TargetGOARCH {
+		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", env.TargetGOARCH, env.HostTuple())
 	}
-	if runtime.GOOS != "linux" || runtime.GOARCH != GOARCH {
-		return fmt.Errorf("gd test: cannot run linux/%v tests on %v/%v", GOARCH, runtime.GOOS, runtime.GOARCH)
-	}
-	if err := tooling.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", GOARCH))); err != nil {
+	if err := tooling.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", env.TargetGOARCH))); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {

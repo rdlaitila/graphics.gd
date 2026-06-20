@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"graphics.gd/cmd/gdnext/internal/builder"
+	"graphics.gd/product"
 
 	"github.com/urfave/cli/v3"
 )
@@ -18,7 +19,7 @@ func muslCmd() *cli.Command {
 				Name:  "setup",
 				Usage: "stage the musl build environment by invoking builder.Musl.Build",
 				Action: func(_ context.Context, _ *cli.Command) error {
-					return builder.Musl{}.Build()
+					return builder.Musl{}.Build(product.NewBuildEnv())
 				},
 			},
 			{

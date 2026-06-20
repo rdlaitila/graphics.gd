@@ -3,6 +3,7 @@ package product
 import (
 	"encoding/xml"
 	"fmt"
+	"runtime"
 	"strings"
 )
 
@@ -49,6 +50,48 @@ func Tuple(goos, goarch string) string {
 	}
 	return goos + "/" + goarch
 }
+
+// BuildEnv is a (host, target) pair: the platform gdnext itself is
+// running on, and the platform a build is producing artefacts for.
+// Used by every verb in the toolchain / build pipeline that needs
+// both — the pattern was repeated inline across ~20 sites before this
+// lifted out.
+type BuildEnv struct {
+	HostGOOS, HostGOARCH     string
+	TargetGOOS, TargetGOARCH string
+}
+
+// NewBuildEnv returns a BuildEnv whose host AND target are
+// runtime.GOOS / runtime.GOARCH — the right starting point for a
+// no-args invocation before any --goos / --goarch flag is folded in.
+func NewBuildEnv() BuildEnv {
+	return BuildEnv{
+		HostGOOS:     runtime.GOOS,
+		HostGOARCH:   runtime.GOARCH,
+		TargetGOOS:   runtime.GOOS,
+		TargetGOARCH: runtime.GOARCH,
+	}
+}
+
+// ResolveEnv returns a BuildEnv for the runtime host targeting
+// (goos, goarch). Empty target strings fall back to the host, so
+// ResolveEnv("", "") == NewBuildEnv().
+func ResolveEnv(goos, goarch string) BuildEnv {
+	env := NewBuildEnv()
+	if goos != "" {
+		env.TargetGOOS = goos
+	}
+	if goarch != "" {
+		env.TargetGOARCH = goarch
+	}
+	return env
+}
+
+// HostTuple returns the host as a Platforms-friendly tuple ("linux/amd64").
+func (e BuildEnv) HostTuple() string { return Tuple(e.HostGOOS, e.HostGOARCH) }
+
+// TargetTuple returns the target as a tuple ("android/arm64").
+func (e BuildEnv) TargetTuple() string { return Tuple(e.TargetGOOS, e.TargetGOARCH) }
 
 // Platforms is an OR-set of (GOOS, GOARCH) constraints. Used wherever a
 // caller needs to express "this subset of the matrix" — most notably by

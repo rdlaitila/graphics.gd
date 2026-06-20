@@ -4,30 +4,26 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
+	"graphics.gd/product"
 
 	"runtime.link/api/xray"
 )
 
 type Windows struct{}
 
-func (Windows) Build(args ...string) error {
+func (Windows) Build(env product.BuildEnv, args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
-	}
-	if runtime.GOOS != "windows" || runtime.GOARCH != GOARCH {
+	if env.HostGOOS != "windows" || env.HostGOARCH != env.TargetGOARCH {
 		zig, err := tooling.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
 		}
-		switch GOARCH {
+		switch env.TargetGOARCH {
 		case "amd64":
 			if err := os.Setenv("CC", zig+" cc -target x86_64-windows-gnu"); err != nil {
 				return xray.New(err)
@@ -37,28 +33,24 @@ func (Windows) Build(args ...string) error {
 				return xray.New(err)
 			}
 		default:
-			return fmt.Errorf("gd build: cannot cross-compile windows %v on %v", GOARCH, runtime.GOOS)
+			return fmt.Errorf("gd build: cannot cross-compile windows %v on %v", env.TargetGOARCH, env.HostGOOS)
 		}
 	}
-	return tooling.Go.Action("build", args, "-ldflags=-w -s", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("windows_%v.dll", GOARCH)))
+	return tooling.Go.Action("build", args, "-ldflags=-w -s", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("windows_%v.dll", env.TargetGOARCH)))
 }
 
-func (windows Windows) BuildMain(args ...string) error {
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
-	}
-	if err := windows.Build(args...); err != nil {
+func (windows Windows) BuildMain(env product.BuildEnv, args ...string) error {
+	if err := windows.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 	var export []string
-	switch GOARCH {
+	switch env.TargetGOARCH {
 	case "amd64":
 		export = []string{"--headless", "--export-release", "Windows x86_64"}
 	case "arm64":
 		export = []string{"--headless", "--export-release", "Windows arm64"}
 	default:
-		return fmt.Errorf("gd export: cannot export windows %v", GOARCH)
+		return fmt.Errorf("gd export: cannot export windows %v", env.TargetGOARCH)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
@@ -69,15 +61,11 @@ func (windows Windows) BuildMain(args ...string) error {
 	return nil
 }
 
-func (windows Windows) Run(args ...string) error {
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
+func (windows Windows) Run(env product.BuildEnv, args ...string) error {
+	if env.HostGOOS != "windows" || env.HostGOARCH != env.TargetGOARCH {
+		return fmt.Errorf("gd run: cannot run windows/%v executable on %s", env.TargetGOARCH, env.HostTuple())
 	}
-	if runtime.GOOS != "windows" || runtime.GOARCH != GOARCH {
-		return fmt.Errorf("gd test: cannot run windows/%v executable on %v/%v", GOARCH, runtime.GOOS, runtime.GOARCH)
-	}
-	if err := windows.Build(args...); err != nil {
+	if err := windows.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
@@ -86,15 +74,11 @@ func (windows Windows) Run(args ...string) error {
 	return tooling.Godot.Exec(args...)
 }
 
-func (Windows) Test(args ...string) error {
-	var GOARCH = runtime.GOARCH
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
+func (Windows) Test(env product.BuildEnv, args ...string) error {
+	if env.HostGOOS != "windows" || env.HostGOARCH != env.TargetGOARCH {
+		return fmt.Errorf("gd test: cannot run windows/%v tests on %s", env.TargetGOARCH, env.HostTuple())
 	}
-	if runtime.GOOS != "windows" || runtime.GOARCH != GOARCH {
-		return fmt.Errorf("gd test: cannot run windows/%v tests on %v/%v", GOARCH, runtime.GOOS, runtime.GOARCH)
-	}
-	if err := tooling.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("windows_%v.dll", GOARCH))); err != nil {
+	if err := tooling.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("windows_%v.dll", env.TargetGOARCH))); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {

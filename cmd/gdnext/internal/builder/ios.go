@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
+	"graphics.gd/product"
 
 	"runtime.link/api/xray"
 )
@@ -58,10 +58,10 @@ extern int32_t __isPlatformVersionAtLeast(uint32_t platform, uint32_t major, uin
 
 type IOS struct{}
 
-func (IOS) Build(args ...string) error {
-	var GOARCH = "arm64"
-	if goarch := os.Getenv("GOARCH"); goarch != "" {
-		GOARCH = goarch
+func (IOS) Build(env product.BuildEnv, args ...string) error {
+	GOARCH := env.TargetGOARCH
+	if GOARCH == "" {
+		GOARCH = "arm64"
 	}
 	zig, err := tooling.Zig.Lookup()
 	if err != nil {
@@ -93,7 +93,7 @@ func (IOS) Build(args ...string) error {
 			return xray.New(err)
 		}
 	default:
-		return fmt.Errorf("gd build: cannot cross-compile linux %v on %v", GOARCH, runtime.GOOS)
+		return fmt.Errorf("gd build: cannot cross-compile ios %v on %s", GOARCH, env.HostTuple())
 	}
 	if err := tooling.Go.Action("build", args, "-tags=ios", "-buildmode=c-archive", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("darwin_%v.a", GOARCH))); err != nil {
 		return xray.New(err)
@@ -113,8 +113,8 @@ func (IOS) Build(args ...string) error {
 	return nil
 }
 
-func (ios IOS) BuildMain(args ...string) error {
-	if err := ios.Build(args...); err != nil {
+func (ios IOS) BuildMain(env product.BuildEnv, args ...string) error {
+	if err := ios.Build(env, args...); err != nil {
 		return xray.New(err)
 	}
 
@@ -318,8 +318,8 @@ func GetLocalIP() (net.IP, error) {
 	return nil, fmt.Errorf("no non-loopback IPv4 address found")
 }
 
-func (ios IOS) Run(args ...string) error {
-	if err := ios.BuildMain(args...); err != nil {
+func (ios IOS) Run(env product.BuildEnv, args ...string) error {
+	if err := ios.BuildMain(env, args...); err != nil {
 		return xray.New(err)
 	}
 
@@ -347,6 +347,6 @@ func (ios IOS) Run(args ...string) error {
 	}))
 }
 
-func (IOS) Test(args ...string) error {
+func (IOS) Test(env product.BuildEnv, args ...string) error {
 	return fmt.Errorf("gd test: ios not supported")
 }
