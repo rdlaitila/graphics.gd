@@ -80,10 +80,8 @@ func toolchainPath(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// toolchainInstall installs one named toolchain, or every tool needed by
-// any target the current host can build. Both paths run the same pre-check
-// (validateJobs) so a stale product catalog entry surfaces before any
-// download begins.
+// toolchainInstall installs one named toolchain, or every tool needed
+// by any target the current host can build.
 func toolchainInstall(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() == 1 {
 		t := tooling.BySlug(cmd.Args().First())
@@ -115,11 +113,8 @@ func toolchainInstall(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// toolchainDoctor renders the host/target report for every target this host
-// can build, and the install status of every tool those targets need. With
-// --fix the same install pipeline runs and the report is re-emitted only
-// when the install actually changed the missing set — repeating an
-// identical table after a failed install is noise.
+// toolchainDoctor renders the per-target install status for every tool
+// host can build a target with. With --fix runs install and re-renders.
 func toolchainDoctor(_ context.Context, cmd *cli.Command) error {
 	jobs := jobsForHost(buildEnv.Host)
 	if err := validateJobs(buildEnv.Host, jobs); err != nil {
@@ -145,8 +140,6 @@ func toolchainDoctor(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// countMissingJobs returns the number of jobs that fail ModeFind. Used by
-// --fix to decide whether to re-render the status table.
 func countMissingJobs(jobs []toolJob) (n int) {
 	for _, j := range jobs {
 		if _, err := j.Lookup(tooling.ModeFind); err != nil {
@@ -156,58 +149,43 @@ func countMissingJobs(jobs []toolJob) (n int) {
 	return n
 }
 
-// toolJob is one unit of (lookup/install) work — a tool resolved at a
-// specific (GOOS, GOARCH). Host-scoped tools (godot, go, zig) carry the
-// host tuple; target-scoped library artefacts (libgodot, libgodot-editor,
-// android.jar) carry the target's tuple so the right per-target archive
-// gets fetched. ContextTargets records which Platforms (with which
-// LinkModes) caused this job to be queued, so the diagnostic table can
-// show why each entry exists.
+// toolJob is one (tool, target-tuple) unit of lookup/install work.
+// Host-scoped tools carry the host tuple; IsLibrary tools carry the
+// target tuple so per-target archives fetch correctly. ContextTargets
+// records the Platforms (and LinkModes) that caused the queue.
 type toolJob struct {
 	Tool           *tooling.Tool
 	GOOS           string
 	GOARCH         string
 	IsLibrary      bool
 	ContextTargets []jobContext
-	// Experimental is true when every consumer Platform is Experimental
-	// (or every consumer uses an experimental LinkMode). Failures of
-	// experimental-only jobs are reported but do not count toward the
-	// caller's failure tally.
+	// Experimental: every consumer Platform is Experimental, so a
+	// failure here doesn't count toward the install failure tally.
 	Experimental bool
 }
 
-// jobContext records why a particular job got queued — used to render
-// the per-job "needed for" cell in the doctor table.
 type jobContext struct {
 	Target   product.Platform
 	LinkMode product.LinkMode
 }
 
-// Lookup runs at the job's resolved (GOOS, GOARCH) so per-target archives
-// fetch the right artefact.
 func (j toolJob) Lookup(mode ...tooling.Mode) (string, error) {
 	return j.Tool.LookupPlatform(j.GOOS, j.GOARCH, mode...)
 }
 
-// jobsForHost returns, in catalog order, the unique set of
-// (tool, target-tuple) pairs needed to fully prepare every target
-// platform host can build. Non-library tools are deduped by slug across
-// targets; library tools are deduped by (slug, GOOS, GOARCH) so each
-// per-target archive is its own job.
+// jobsForHost returns, in catalog order, the unique (tool, target-tuple)
+// jobs needed to prepare every target host can build. Non-library tools
+// dedupe by slug; library tools dedupe by (slug, goos, goarch).
 func jobsForHost(host product.BuildHost) []toolJob {
 	type key struct{ slug, goos, goarch string }
 	idx := map[key]*toolJob{}
 	var order []key
 	add := func(t product.Toolchain, goos, goarch string, ctx jobContext) {
-		// Library toolchains advertise the target tuples they have
-		// published artefacts for via AvailableHosts. Skip jobs whose
-		// target isn't covered yet so we don't 404 trying to fetch
-		// something the upstream hasn't shipped.
+		// IsLibrary AvailableHosts lists published target tuples; skip
+		// jobs whose tuple has no published artefact.
 		if t.IsLibrary && !t.CanInstallOn(product.BuildHost{GOOS: goos, GOARCH: goarch}) {
 			return
 		}
-		// Host-scoped: ignore target tuple in the dedup key so we
-		// only download/check the tool once per host.
 		k := key{slug: t.Slug}
 		if t.IsLibrary {
 			k = key{slug: t.Slug, goos: goos, goarch: goarch}
@@ -218,7 +196,7 @@ func jobsForHost(host product.BuildHost) []toolJob {
 		}
 		runtime := tooling.BySlug(t.Slug)
 		if runtime == nil {
-			return // unknown to the cli tooling layer; skip
+			return
 		}
 		jg, jc := host.GOOS, host.GOARCH
 		if t.IsLibrary {
@@ -241,11 +219,6 @@ func jobsForHost(host product.BuildHost) []toolJob {
 		if !p.CanBuildOn(host.GOOS, host.GOARCH) {
 			continue
 		}
-		// One pass per LinkMode this platform supports. Tools in
-		// p.BuildTools (the GDExtension baseline) are added for the
-		// GDExtension mode; LibGodotToolchains are added for the
-		// LibGodot mode. SharedToolchains (already inside BuildTools)
-		// dedupe across iterations via the slug-only key.
 		if p.LinkModes.Has(product.GDExtension) {
 			ctx := jobContext{Target: p, LinkMode: product.GDExtension}
 			for _, t := range p.BuildTools {
@@ -254,9 +227,6 @@ func jobsForHost(host product.BuildHost) []toolJob {
 		}
 		if p.LinkModes.Has(product.LibGodot) {
 			ctx := jobContext{Target: p, LinkMode: product.LibGodot}
-			// Shared host tools come from BuildTools regardless of
-			// link mode; LibGodotToolchains layers on the per-target
-			// archives.
 			for _, t := range p.BuildTools {
 				add(t, p.GOOS, p.GOARCH, ctx)
 			}
@@ -265,8 +235,6 @@ func jobsForHost(host product.BuildHost) []toolJob {
 			}
 		}
 	}
-	// Catalog order for stable output: host-scoped first (in catalog
-	// order), then library entries grouped by tool slug.
 	catalogOrder := map[string]int{}
 	for i, t := range tooling.Catalog {
 		catalogOrder[t.Slug] = i
@@ -277,8 +245,6 @@ func jobsForHost(host product.BuildHost) []toolJob {
 		j.Experimental = jobIsExperimentalOnly(*j)
 		out = append(out, *j)
 	}
-	// Stable sort: by catalog order of the underlying tool, then by
-	// (goos, goarch) for libraries.
 	for i := 1; i < len(out); i++ {
 		for j := i; j > 0; j-- {
 			a, b := out[j-1], out[j]
@@ -292,9 +258,6 @@ func jobsForHost(host product.BuildHost) []toolJob {
 	return out
 }
 
-// jobIsExperimentalOnly reports whether every Platform that triggered
-// this job is Experimental. Failures of such jobs are reported but
-// don't count toward the install failure tally.
 func jobIsExperimentalOnly(j toolJob) bool {
 	if len(j.ContextTargets) == 0 {
 		return false
@@ -307,13 +270,9 @@ func jobIsExperimentalOnly(j toolJob) bool {
 	return true
 }
 
-// validateJobs confirms every host-installed tool in jobs declares host
-// in its AvailableHosts. A failure is a product-catalog bug — a target
-// references a tool whose installer doesn't cover this host — surfaced
-// once up front rather than partway through a download. Library
-// toolchains are skipped: they're fetched per-target (the (goos, goarch)
-// gate lives in jobsForHost), so AvailableHosts there describes target
-// tuples, not the host axis.
+// validateJobs surfaces product-catalog bugs (a non-library tool a
+// target needs whose installer doesn't cover host) before any download.
+// IsLibrary tools are gated per-target in jobsForHost, not here.
 func validateJobs(host product.BuildHost, jobs []toolJob) error {
 	seen := map[string]bool{}
 	var bad []string
@@ -336,11 +295,8 @@ func validateJobs(host product.BuildHost, jobs []toolJob) error {
 		host.Tuple(), strings.Join(bad, "\n  "))
 }
 
-// installJobs runs ModeInstall on every job that isn't already present
-// at its resolved tuple. One failing job does not abort the rest.
-// Returns the number of *required* failures (jobs whose every consumer
-// Platform is non-experimental). Jobs that already resolve via ModeFind
-// are skipped silently so `--fix` only narrates real work.
+// installJobs runs ModeInstall on every missing job. One failure does
+// not abort the rest. Returns the count of non-experimental failures.
 func installJobs(host product.BuildHost, jobs []toolJob) (failed int) {
 	var (
 		todo     []toolJob
@@ -410,9 +366,8 @@ func installJobs(host product.BuildHost, jobs []toolJob) (failed int) {
 	return failed
 }
 
-// jobLabel renders a job's display name. Host-scoped tools use just the
-// slug; per-target libraries include the (goos/goarch) tuple so two
-// rows for the same library at different targets stay distinguishable.
+// jobLabel renders a job's display name. Library jobs include the
+// (goos/goarch) tuple so per-target rows stay distinct.
 func jobLabel(j toolJob) string {
 	if j.IsLibrary {
 		return j.Tool.Slug + " (" + product.Tuple(j.GOOS, j.GOARCH) + ")"
@@ -420,11 +375,8 @@ func jobLabel(j toolJob) string {
 	return j.Tool.Slug
 }
 
-// reportJobStatus renders the per-job status table to stdout (ModeFind,
-// no downloads) and returns the count of jobs that aren't installed
-// excluding experimental-only ones. Missing jobs get a one-word DETAIL
-// cell so the table stays narrow; full per-job error texts go into an
-// "Errors:" block below the table.
+// reportJobStatus prints the per-job status table (ModeFind, no
+// downloads) and returns the count of non-experimental missing jobs.
 func reportJobStatus(host product.BuildHost, jobs []toolJob) (missing int) {
 	fmt.Fprintf(os.Stdout, "host:    %s\ntargets: %s\n\n", host.Tuple(), targetsString(targetsForHost(host)))
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -465,8 +417,6 @@ func reportJobStatus(host product.BuildHost, jobs []toolJob) (missing int) {
 	return missing
 }
 
-// jobLinkSummary collapses a job's contexts into a `+`-joined LinkMode
-// string so the doctor table shows which mode(s) need the entry.
 func jobLinkSummary(j toolJob) string {
 	var modes product.LinkMode
 	for _, ctx := range j.ContextTargets {
@@ -478,8 +428,6 @@ func jobLinkSummary(j toolJob) string {
 	return modes.String()
 }
 
-// targetsForHost returns every Target platform that host can build, in
-// PlatformMatrix order.
 func targetsForHost(host product.BuildHost) []product.Platform {
 	out := make([]product.Platform, 0, len(product.PlatformMatrix))
 	for _, p := range product.PlatformMatrix {
@@ -494,7 +442,6 @@ func targetsForHost(host product.BuildHost) []product.Platform {
 	return out
 }
 
-// targetsString renders a []Platform as "goos/goarch,goos/goarch".
 func targetsString(targets []product.Platform) string {
 	if len(targets) == 0 {
 		return "(none)"
@@ -506,8 +453,6 @@ func targetsString(targets []product.Platform) string {
 	return strings.Join(parts, ",")
 }
 
-// hostsString renders a []BuildHost as "goos/goarch,goos/goarch" for
-// error and diagnostic messages.
 func hostsString(hosts []product.BuildHost) string {
 	if len(hosts) == 0 {
 		return "(none)"

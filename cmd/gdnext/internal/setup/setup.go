@@ -48,9 +48,8 @@ func ForBuild(env product.BuildEnv, testing bool, extraArgs []string) (builder.B
 			} else {
 				build_godot = muslBuildClosure(env)
 			}
-			// Musl host = we're statically linking against libgodot
-			// regardless of what the user asked for, so flip the
-			// LinkMode bit unless the user explicitly chose one.
+			// Musl host always statically links libgodot; honour the
+			// user's --link only if they set it.
 			if os.Getenv("GOLINK") == "" {
 				env.Target.LinkMode |= product.LibGodot
 			}

@@ -92,10 +92,7 @@ var GOOSRemaps = map[string]string{
 }
 
 // GOOSAliasLinkMode pins certain GOOS aliases to a specific LinkMode
-// regardless of --link. Today the only such alias is "musl", which
-// means "static-linked Linux via libgodot" — a recipe distinct enough
-// from a regular linux/* GDExtension build that the alias is worth
-// keeping for backwards-compat with GOOS=musl invocations.
+// regardless of --link. "musl" implies LibGodot.
 var GOOSAliasLinkMode = map[string]LinkMode{
 	GOOSMusl: LibGodot,
 }
@@ -331,15 +328,10 @@ var AndroidToolchains = []Toolchain{
 	ToolchainAndroidJar,
 }
 
-// LibGodotToolchains lists the per-target artefacts and host tools that
-// LibGodot-mode builds need on top of SharedToolchains. The doctor /
-// install loop appends these for every Platform whose LinkModes
-// includes LibGodot.
-//
-// NOTE: ldd is intentionally NOT listed here. It is a Linux-host-only
-// musl-detection helper used by setup.go and the musl builder behind an
-// `env.Host.GOOS == linux` guard, so non-linux hosts must not be asked
-// to install it just because they can cross-build a LibGodot target.
+// LibGodotToolchains is what LibGodot-mode builds need on top of
+// SharedToolchains. The doctor / install loop appends these for every
+// Platform whose LinkModes includes LibGodot. (ldd lives in setup.go's
+// musl-host detection and is not listed here.)
 var LibGodotToolchains = []Toolchain{
 	ToolchainLLVM,
 	ToolchainLibGodot,
@@ -463,9 +455,6 @@ var (
 		Slug:        "android.jar",
 		Name:        "android.jar",
 		RequiredFor: "converting the exported .apk into an .aab",
-		// IsLibrary: AvailableHosts lists target tuples where the
-		// jar is used during a build. The same file works for every
-		// listed tuple; the per-tuple install ops are idempotent.
 		AvailableHosts: []BuildHost{
 			{GOOS: GOOSAndroid, GOARCH: GOARCHAmd64},
 			{GOOS: GOOSAndroid, GOARCH: GOARCHArm64},
@@ -508,15 +497,11 @@ var (
 		Slug:        "libgodot",
 		Name:        "libgodot.$(OS).$(GOARCH).$(EXT)",
 		RequiredFor: "libgodot static-link mode",
-		// For IsLibrary toolchains, AvailableHosts lists the target
-		// tuples for which a prebuilt artefact is published upstream.
-		// Only linux/amd64 ships today; extend as new variants land.
+		// IsLibrary AvailableHosts = target tuples with a published
+		// upstream artefact. Only linux/amd64 ships today.
 		AvailableHosts: []BuildHost{HostLinuxAmd64},
 		DownloadURL:    "https://release.graphics.gd/libgodot.$(OS).$(GOARCH).$(EXT)",
-		// DownloadOS maps target GOOS to the URL token. Linux currently
-		// resolves to "musl" because that is the only static-link
-		// recipe with a published artefact; future per-libc variants
-		// (e.g. linux glibc-static) can extend or replace this entry.
+		// linux -> musl in DownloadOS until a glibc-static variant lands.
 		DownloadOS:  map[string]string{"linux": "musl", "musl": "musl", "windows": "windows", "darwin": "darwin"},
 		DownloadEXT: map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
 		IsLibrary:   true,

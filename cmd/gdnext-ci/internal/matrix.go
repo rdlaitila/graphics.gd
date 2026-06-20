@@ -12,13 +12,8 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// gha is the GHA host-OS table: maps each canonical product BuildHost we
-// run CI on to the matching actions/runner-images label. Order is
-// preserved in the emitted matrix so the GHA UI lays jobs out
-// predictably. The (GOOS, GOARCH) pair is the real shape of the runner —
-// ubuntu-latest and windows-latest are amd64; macos-latest is arm64 (M1
-// pool since 2024). Keep this in sync with whichever runner labels the
-// workflow `runs-on` is willing to schedule.
+// gha maps each product BuildHost we run CI on to its actions/runner
+// label. macos-latest is the M1 (arm64) pool.
 var gha = []struct {
 	Host   product.BuildHost
 	Runner string
@@ -91,11 +86,8 @@ type matrixRow struct {
 	Experimental bool   `json:"experimental"`
 }
 
-// buildMatrix runs the same selection rules `gdnext-ci matrix` describes
-// and returns the resulting include: entries in deterministic order
-// (host axis outer, then matrix axis, then example axis). Each
-// (platform, linkMode) combination becomes its own row so the CI surface
-// stays correctly tagged when a target supports multiple link recipes.
+// buildMatrix emits one include: row per (host, platform, linkMode,
+// example) the workflow should run. Host axis outermost.
 func buildMatrix(examples []string) []matrixRow {
 	var out []matrixRow
 	for _, host := range gha {
@@ -116,9 +108,6 @@ func buildMatrix(examples []string) []matrixRow {
 				continue
 			}
 			experimental := platform.Status.Has(product.Experimental)
-			// One row per supported LinkMode. If LinkModes is empty
-			// (legacy / not yet annotated) fall back to a single row
-			// without the link axis so the CI keeps emitting it.
 			modes := []product.LinkMode{0}
 			if platform.LinkModes != 0 {
 				modes = modes[:0]
@@ -130,8 +119,7 @@ func buildMatrix(examples []string) []matrixRow {
 				}
 			}
 			for _, mode := range modes {
-				// LibGodot is experimental everywhere today even
-				// when the host platform isn't.
+				// LibGodot is experimental everywhere today.
 				rowExp := experimental || mode == product.LibGodot
 				link := ""
 				if mode != 0 {

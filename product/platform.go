@@ -55,58 +55,47 @@ func Tuple(goos, goarch string) string {
 	return goos + "/" + goarch
 }
 
-// / BuildHost represents a host machine capable of running gdnext, including
-// / its OS, architecture, and key directory paths for the gdnext toolchain.
+// BuildHost is the machine gdnext is running on: OS, arch, and the
+// resolved gdnext/godot directory paths.
 type BuildHost struct {
 	GOOS   string
 	GOARCH string
-	// GD* paths are populated by the CLI's prepareBuildEnv from $GDPATH
-	// (default ~/gd). Internal code should consume these directly rather
-	// than re-resolving GDPATH.
+	// GD* paths come from the CLI's prepareBuildEnv ($GDPATH, default ~/gd).
 	GDRootPath string
 	GDLibPath  string
 	GDBinPath  string
-	// User* roots are the host's per-user data anchors. UserHomeRoot is
-	// os.UserHomeDir(); UserAppdataRoot is $APPDATA on Windows (where it
-	// differs from HOME) and equal to UserHomeRoot elsewhere. Deep
-	// per-tool paths (godot user data, Android SDK, ...) compose these
-	// with their own conventional sub-paths.
+	// UserHomeRoot is os.UserHomeDir; UserAppdataRoot is $APPDATA on
+	// Windows and equal to UserHomeRoot elsewhere.
 	UserHomeRoot    string
 	UserAppdataRoot string
 }
 
-// Tuple returns the host as a "goos/goarch" string ("linux/amd64").
+// Tuple returns the host as "goos/goarch".
 func (t BuildHost) Tuple() string { return Tuple(t.GOOS, t.GOARCH) }
 
-// TargetHost represents a host machine that is the intended target for a build,
-// including its OS and architecture.
+// TargetHost is the (GOOS, GOARCH, LinkMode) a build is producing for.
 type TargetHost struct {
 	GOOS     string
 	GOARCH   string
 	LinkMode LinkMode
 }
 
-// Tuple returns the target as a "goos/goarch" string ("android/arm64").
+// Tuple returns the target as "goos/goarch".
 func (t TargetHost) Tuple() string { return Tuple(t.GOOS, t.GOARCH) }
 
-// BuildEnv is a (host, target) pair: the platform gdnext itself is
-// running on, and the platform a build is producing artefacts for.
-// Used by every verb in the toolchain / build pipeline that needs
-// both — the pattern was repeated inline across ~20 sites before this
-// lifted out.
+// BuildEnv pairs the host gdnext is running on with the target a build
+// is producing for.
 type BuildEnv struct {
 	Host   BuildHost
 	Target TargetHost
 }
 
-// FindBuildEnv locates the BuildEnv corresponding to the current runtime host
-// and applies the provided target GOOS, GOARCH, and LinkMode, falling back
-// to defaults when necessary. Returns an error if the host is not
-// recognized in HostMatrix, the target tokens are unknown, or the
-// requested link mode is not supported by the resolved Platform row.
+// FindBuildEnv resolves the BuildEnv for the current runtime host and
+// the given target (GOOS, GOARCH, LinkMode) tokens, applying defaults
+// for empty fields. Returns an error when host is unknown, a token is
+// unrecognised, or the link mode is unsupported by the target.
 func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, error) {
 	var env BuildEnv
-	// Look up the current runtime host in the HostMatrix to find the corresponding BuildEnv.
 	for _, host := range HostMatrix {
 		if host.GOOS == runtime.GOOS && host.GOARCH == runtime.GOARCH {
 			env.Host = host
@@ -119,7 +108,6 @@ func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, er
 			Tuple(runtime.GOOS, runtime.GOARCH),
 		)
 	}
-	// Validate the provided target GOOS and GOARCH against the known matrices.
 	if targetGOOS != "" && !lo.Contains(GOOSMatrix, targetGOOS) {
 		return env, fmt.Errorf(
 			"target GOOS '%s' is not recognized",
@@ -132,37 +120,30 @@ func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, er
 			targetGOARCH,
 		)
 	}
-	// Some GOOS aliases imply a specific LinkMode (e.g. "musl" really
-	// means "linux + LinkMode=LibGodot"). Capture the implied mode
-	// before remapping the GOOS, so the user doesn't have to pass
-	// --link=libgodot in addition to GOOS=musl.
+	// Capture GOOS-alias implied LinkMode before remapping the GOOS,
+	// otherwise GOOS=musl loses its LibGodot implication.
 	impliedMode, hasImplied := GOOSAliasLinkMode[targetGOOS]
-	// Normalize certain GOOS values to their canonical forms used internally.
 	if remap, ok := GOOSRemaps[targetGOOS]; ok {
 		targetGOOS = remap
 	}
-	// Override the target GOOS/GOARCH if explicitly provided.
 	if targetGOOS != "" {
 		env.Target.GOOS = targetGOOS
 	}
 	if targetGOARCH != "" {
 		env.Target.GOARCH = targetGOARCH
 	}
-	// Apply default target GOARCH based on the target GOOS if not explicitly set.
 	if env.Target.GOOS != "" && env.Target.GOARCH == "" {
 		if def, ok := GOOSArchDefaults[env.Target.GOOS]; ok {
 			env.Target.GOARCH = def
 		}
 	}
-	// Default the target GOOS/GOARCH to the host if not explicitly set.
 	if env.Target.GOOS == "" {
 		env.Target.GOOS = env.Host.GOOS
 	}
 	if env.Target.GOARCH == "" {
 		env.Target.GOARCH = env.Host.GOARCH
 	}
-	// Resolve LinkMode. Precedence: explicit --link flag > GOOS-alias
-	// implied mode > GOOSLinkModeDefaults > GDExtension fallback.
+	// LinkMode precedence: --link > GOOS alias > GOOSLinkModeDefaults > GDExtension.
 	mode, err := ParseLinkMode(targetLinkMode)
 	if err != nil {
 		return env, err
@@ -179,7 +160,6 @@ func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, er
 			env.Target.LinkMode = GDExtension
 		}
 	}
-	// Validate the requested mode is one this platform supports.
 	if plat, ok := FindPlatformByTargetEnv(env.Target.GOOS, env.Target.GOARCH); ok {
 		if plat.LinkModes != 0 && !plat.LinkModes.Has(env.Target.LinkMode) {
 			return env, fmt.Errorf(
@@ -191,12 +171,9 @@ func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, er
 	return env, nil
 }
 
-// Validate reports whether every field internal callers (builders,
-// tooling, setup) rely on is populated. The CLI is expected to call this
-// once after assembling BuildEnv so that downstream code can read
-// Target.GOOS / Target.GOARCH / Host.GD*Path without defensive
-// fallbacks. A non-nil return is always a bug in the CLI assembly path,
-// not user input — surface it loudly.
+// Validate checks every field downstream code (builders, tooling,
+// setup) reads without defensive fallbacks. A non-nil return is always
+// a bug in the CLI assembly path, not user input.
 func (e BuildEnv) Validate() error {
 	if e.Host.GOOS == "" || e.Host.GOARCH == "" {
 		return fmt.Errorf("product.BuildEnv: Host (GOOS, GOARCH) is not populated")

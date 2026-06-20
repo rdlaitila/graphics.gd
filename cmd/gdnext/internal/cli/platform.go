@@ -236,8 +236,6 @@ func joinOrDash(s []string) string {
 	return strings.Join(s, ", ")
 }
 
-// linkModeOrDash renders a Platform.LinkModes bitfield for the LINK
-// column, returning "-" when the row hasn't been annotated.
 func linkModeOrDash(m product.LinkMode) string {
 	if m == 0 {
 		return "-"
