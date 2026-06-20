@@ -242,6 +242,13 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 				return exe.PathToCommand(), nil
 			}
 		}
+		// Mode==Find is lookup-only: trust the file at install_path
+		// even when the version probe disagrees (some tools print
+		// per-host wrappers that defeat the prefix check).
+		if m == ModeFind {
+			exe.Path = install_path
+			return exe.PathToCommand(), nil
+		}
 	}
 	// some users (ie. NixOS) don't want things to be automatically installed, they
 	// can set their toolchain to local and download/install everything themselves.
