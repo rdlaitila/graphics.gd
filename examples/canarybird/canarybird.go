@@ -171,7 +171,7 @@ func (g *CanaryBird) Process(delta Float.X) {
 	case stateReady:
 		// Idle bob until the first flap kicks the game into motion.
 		bob := Float.X(math.Sin(2*math.Pi*0.5*float64(g.simTime()))) * 0.2
-		g.bird.AsNode3D().SetPosition(Vector3.New[Float.X](-3, bob, 0))
+		g.bird.AsNode3D().SetPosition(Vector3.New(-3, bob, 0))
 	case statePlaying:
 		g.tick(delta)
 	case stateOver:
@@ -279,11 +279,11 @@ func coloredMaterial(c Color.RGBA) StandardMaterial3D.Instance {
 // only sees its top face — no sky shows through underneath.
 func slab(centreY, thickness, width, depth, centreZ Float.X, mat StandardMaterial3D.Instance) MeshInstance3D.Instance {
 	mesh := BoxMesh.New()
-	mesh.SetSize(Vector3.New[Float.X](width, thickness, depth))
+	mesh.SetSize(Vector3.New(width, thickness, depth))
 	mi := MeshInstance3D.New()
 	mi.SetMesh(mesh.AsMesh())
 	mi.AsGeometryInstance3D().SetMaterialOverride(mat.AsMaterial())
-	mi.AsNode3D().SetPosition(Vector3.New[Float.X](0, centreY, centreZ))
+	mi.AsNode3D().SetPosition(Vector3.New(0, centreY, centreZ))
 	return mi
 }
 
