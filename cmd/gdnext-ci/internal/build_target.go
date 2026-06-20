@@ -50,6 +50,13 @@ func BuildTargetCmd() *cli.Command {
 			if st, err := os.Stat(scratch); err != nil || !st.IsDir() {
 				return fmt.Errorf("scratch dir does not exist: %s", scratch)
 			}
+			mode, err := product.ParseLinkMode(link)
+			if err != nil {
+				return err
+			}
+			if mode == 0 {
+				mode = product.GDExtension
+			}
 			// Actual build. Stdin closed so the optional AAB-signing
 			// `Provide passphrase:` prompt reads EOF immediately rather
 			// than consuming the next CI step's output.
@@ -61,10 +68,10 @@ func BuildTargetCmd() *cli.Command {
 			if err := runIn(scratch, "gdnext", args...); err != nil {
 				return err
 			}
-			if err := assertSharedLibrary(scratch, platform); err != nil {
+			if err := assertSharedLibrary(scratch, platform, mode); err != nil {
 				return err
 			}
-			if err := assertDistributable(scratch, platform); err != nil {
+			if err := assertDistributable(scratch, platform, mode); err != nil {
 				return err
 			}
 			if platform.GOOS == "android" {
@@ -77,26 +84,28 @@ func BuildTargetCmd() *cli.Command {
 	}
 }
 
-// assertSharedLibrary verifies the shared library `gdnext build` is
-// expected to produce for plat is present under graphics/. Paths are
-// gdnext-builder conventions, not platform metadata, so the mapping
-// lives here rather than in product/.
-func assertSharedLibrary(scratch string, plat product.Platform) error {
+// assertSharedLibrary verifies the per-target shared library `gdnext
+// build` writes under graphics/. Skipped for libgodot, which produces
+// a single statically-linked executable instead (checked by
+// assertDistributable).
+func assertSharedLibrary(scratch string, plat product.Platform, mode product.LinkMode) error {
+	if mode.Has(product.LibGodot) {
+		return nil
+	}
 	graphics := filepath.Join(scratch, "graphics")
 	switch plat.GOOS {
-	case "linux", "musl":
-		// musl builds piggyback on the linux_<arch>.so name.
+	case product.GOOSLinux:
 		return mustExist(filepath.Join(graphics, "linux_"+plat.GOARCH+".so"))
-	case "windows":
+	case product.GOOSWindows:
 		return mustExist(filepath.Join(graphics, "windows_"+plat.GOARCH+".dll"))
-	case "darwin":
+	case product.GOOSDarwin:
 		if err := mustExist(filepath.Join(graphics, "darwin_"+plat.GOARCH+".dylib")); err != nil {
 			return err
 		}
 		return mustExist(filepath.Join(graphics, "darwin_universal.dylib"))
-	case "js":
+	case product.GOOSJS:
 		return mustExist(filepath.Join(scratch, "releases", "js", "wasm", "library.wasm"))
-	case "android":
+	case product.GOOSAndroid:
 		return nil // apk landed under releases/android/<arch>/; checked below
 	default:
 		return fmt.Errorf("no shared-library assertion for %s", plat.Tuple())
@@ -104,12 +113,15 @@ func assertSharedLibrary(scratch string, plat product.Platform) error {
 }
 
 // assertDistributable verifies the export bundle landed at the path
-// gdnext build writes it to. Each builder writes to a fixed location
-// driven by the Godot export preset.
-func assertDistributable(scratch string, plat product.Platform) error {
+// gdnext build writes it to. libgodot collapses every linux target
+// into a single static binary under releases/linux/<arch>/.
+func assertDistributable(scratch string, plat product.Platform, mode product.LinkMode) error {
 	releases := filepath.Join(scratch, "releases")
+	if mode.Has(product.LibGodot) {
+		return assertDirNonEmpty(filepath.Join(releases, "linux", plat.GOARCH))
+	}
 	switch plat.GOOS {
-	case "linux", "windows", "android", "musl":
+	case "linux", "windows", "android":
 		return assertDirNonEmpty(filepath.Join(releases, plat.GOOS, plat.GOARCH))
 	case "darwin":
 		// macOS exports a universal .app regardless of -goarch.
