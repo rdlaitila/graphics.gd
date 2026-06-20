@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"context"
@@ -9,19 +9,11 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// stageExampleCmd ports cmd/gdnext-ci/stage-example.sh.
-func stageExampleCmd() *cli.Command {
+// StageExampleCmd ports cmd/gdnext-ci/stage-example.sh.
+func StageExampleCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "stage-example",
 		Usage: "stage examples/<name>/ into an empty scratch dir, rewriting graphics.gd to the local checkout",
-		Description: "Copies examples/<name>/ recursively into --scratch,\n" +
-			"then `go mod edit -replace=graphics.gd=<root>` + `go mod tidy`\n" +
-			"so the staged copy resolves against the actual checkout rather\n" +
-			"than the example's committed `replace ../..` line.\n" +
-			"\n" +
-			"<root> is resolved in this priority order:\n" +
-			"  --root flag, $GRAPHICS_GD_ROOT, $GITHUB_WORKSPACE,\n" +
-			"  walk-up from cwd for `module graphics.gd`.",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "example", Usage: "example name under examples/", Required: true},
 			&cli.StringFlag{Name: "scratch", Usage: "empty target directory to stage into", Required: true},

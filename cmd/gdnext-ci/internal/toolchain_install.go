@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"context"
@@ -32,25 +32,11 @@ var optionalInstall = map[string]bool{
 	"vpk": true,
 }
 
-// toolchainInstallCmd ports cmd/gdnext-ci/toolchain-install.sh.
-func toolchainInstallCmd() *cli.Command {
+// ToolchainInstallCmd ports cmd/gdnext-ci/toolchain-install.sh.
+func ToolchainInstallCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "toolchain-install",
 		Usage: "smoke-test `gdnext toolchain install` and its path round-trip",
-		Description: "Two contracts:\n" +
-			"  1. The argless walk (`gdnext toolchain install`) logs a result\n" +
-			"     per entry and exits 0 even when individual entries are\n" +
-			"     unreachable (ldd on macos/windows, libgodot 404s, ...).\n" +
-			"  2. For every installable entry in product.ToolchainMatrix,\n" +
-			"     `install <slug>` followed by `path <slug>` round-trips to\n" +
-			"     an on-disk file. Libraries (IsLibrary) and a small skip\n" +
-			"     set (go, ldd) are excluded; optional entries (upx, vpk)\n" +
-			"     are best-effort.\n" +
-			"\n" +
-			"Per-target REQUIRED/OPTIONAL checks happen later inside\n" +
-			"`gdnext-ci build-target` via `gdnext toolchain doctor --fix`,\n" +
-			"so this verb does NOT call doctor — it stays focused on the\n" +
-			"install verb's own contract.",
 		Action: func(_ context.Context, _ *cli.Command) error {
 			// Phase 1 — argless walk. The announce banner from run()
 			// labels the command itself; no extra header needed.

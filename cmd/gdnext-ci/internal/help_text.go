@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"context"
@@ -16,16 +16,11 @@ var helpVerbs = []string{
 	"android", "ios", "macos", "web", "musl",
 }
 
-// helpTextCmd ports cmd/gdnext-ci/help-text.sh.
-func helpTextCmd() *cli.Command {
+// HelpTextCmd ports cmd/gdnext-ci/help-text.sh.
+func HelpTextCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "help-text",
 		Usage: "assert every registered gdnext verb resolves --help",
-		Description: "Captures the output of `gdnext --help` and `gdnext <v> --help`\n" +
-			"for each verb in the registered set, asserting the page is\n" +
-			"non-empty and mentions the verb name. The output is captured\n" +
-			"in-process rather than piped to grep so a closed reader on the\n" +
-			"shell side can't SIGPIPE gdnext mid-render.",
 		Action: func(_ context.Context, _ *cli.Command) error {
 			out, err := output("gdnext", "--help")
 			if err != nil {

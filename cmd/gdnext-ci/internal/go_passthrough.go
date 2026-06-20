@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"context"
@@ -8,17 +8,10 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func goPassthroughCmd() *cli.Command {
+func GoPassthroughCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "go-passthrough",
 		Usage: "confirm gdnext forwards unknown verbs to the underlying go toolchain",
-		Description: "Runs three sentinel `go`-style invocations through gdnext:\n" +
-			"  gdnext env GOVERSION         # must exit 0\n" +
-			"  gdnext list std              # first 3 lines printed for sanity\n" +
-			"  gdnext mod help              # must contain 'Go mod'\n" +
-			"\n" +
-			"Output is captured in-process rather than piped to grep so a\n" +
-			"partial reader can't SIGPIPE gdnext mid-render.",
 		Action: func(_ context.Context, _ *cli.Command) error {
 			if err := run("gdnext", "env", "GOVERSION"); err != nil {
 				return err

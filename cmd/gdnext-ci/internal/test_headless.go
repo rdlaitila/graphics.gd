@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"context"
@@ -9,14 +9,11 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// testHeadlessCmd ports cmd/gdnext-ci/test-headless.sh.
-func testHeadlessCmd() *cli.Command {
+// TestHeadlessCmd ports cmd/gdnext-ci/test-headless.sh.
+func TestHeadlessCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "test-headless",
 		Usage: "run `gdnext test` against the staged example",
-		Description: "Exercises the full setup-and-dispatch path of `gdnext test`\n" +
-			"under `godot --headless`. The staged example has no Go tests,\n" +
-			"so the run is a no-op success; the value is proving the pipe.",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "scratch", Usage: "staged example directory to test in", Required: true},
 		},

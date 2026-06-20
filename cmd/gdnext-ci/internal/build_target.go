@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"context"
@@ -11,25 +11,14 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// buildTargetCmd is the heaviest of the verbs. Runs `gdnext build`
+// BuildTargetCmd is the heaviest of the verbs. Runs `gdnext build`
 // for one (GOOS, GOARCH) pair against the staged example, asserts
 // the produced shared library + the distributable bundle landed on
 // disk, and on android additionally exercises apksigner.
-func buildTargetCmd() *cli.Command {
+func BuildTargetCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "build-target",
 		Usage: "run `gdnext build` for one (GOOS, GOARCH) and assert artefacts",
-		Description: "Pipeline:\n" +
-			"  1. validate (goos, goarch) via product.Lookup\n" +
-			"  2. `gdnext toolchain doctor --fix` for that target (warms cache)\n" +
-			"  3. `gdnext -goos … -goarch … build` (stdin closed)\n" +
-			"  4. assert shared library landed under graphics/\n" +
-			"  5. assert distributable landed under releases/\n" +
-			"  6. android-only: sign + verify the produced apk\n" +
-			"\n" +
-			"--goos / --goarch must form a row in product.PlatformMatrix.\n" +
-			"Aliases (`iphone`, `win`, `wasm`, ...) are accepted via\n" +
-			"product.Resolve on --goos.",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "goos", Usage: "target GOOS (or alias)", Required: true},
 			&cli.StringFlag{Name: "goarch", Usage: "target GOARCH", Required: true},

@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"context"
@@ -12,21 +12,13 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// diagnosticVerbsCmd ports cmd/gdnext-ci/diagnostic-verbs.sh. Must run
+// DiagnosticVerbsCmd ports cmd/gdnext-ci/diagnostic-verbs.sh. Must run
 // BEFORE toolchain-install so the no-download invariant on
 // `gdnext toolchain doctor` is meaningful (the $GDPATH is still empty).
-func diagnosticVerbsCmd() *cli.Command {
+func DiagnosticVerbsCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "diagnostic-verbs",
 		Usage: "verify the diagnostic verbs that must work without any toolchain installed",
-		Description: "Checks three contracts:\n" +
-			"  1. `gdnext version` — exits 0\n" +
-			"  2. `gdnext toolchain list` — emits a row for every entry in\n" +
-			"     product.ToolchainMatrix\n" +
-			"  3. `gdnext toolchain doctor` (no --fix) — must not mutate $GDPATH\n" +
-			"\n" +
-			"Run before toolchain-install so the doctor no-download check is\n" +
-			"meaningful (a fresh $GDPATH means any download stands out).",
 		Action: func(_ context.Context, _ *cli.Command) error {
 			if err := run("gdnext", "version"); err != nil {
 				return err
