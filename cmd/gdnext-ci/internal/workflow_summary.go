@@ -908,9 +908,9 @@ func renderMarkdown(w io.Writer, s summary) error {
 	renderChecksMarkdown(w, s.Checks)
 	renderBuildsMarkdown(w, s.Builds)
 	renderPlaysMarkdown(w, s.Plays)
-	renderToolchainsMarkdown(w, s.Toolchains)
 	renderFailuresMarkdown(w, s.LastFailures)
 	renderCommitsMarkdown(w, s.Window)
+	renderToolchainsMarkdown(w, s.Toolchains)
 	return nil
 }
 
@@ -934,7 +934,7 @@ func renderCountsMarkdown(w io.Writer, s summary) {
 }
 
 func renderTOCMarkdown(w io.Writer, s summary) {
-	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Plays](#plays) · [Toolchains](#toolchains) · [Latest run failures](#latest-run-failures) · [Commits](#commits)")
+	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Plays](#plays) · [Latest run failures](#latest-run-failures) · [Commits](#commits) · [Toolchains](#toolchains)")
 	fmt.Fprintln(w)
 }
 
