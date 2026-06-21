@@ -22,6 +22,7 @@ type Platform struct {
 	Status     Status      `json:"status"                xml:"status,attr"                  yaml:"status"`
 	LinkModes  LinkMode    `json:"link_modes,omitempty"  xml:"link_modes,attr,omitempty"    yaml:"link_modes,omitempty"`
 	BuildHosts []BuildHost `json:"build_hosts,omitempty" xml:"build_hosts,omitempty"        yaml:"build_hosts,omitempty"`
+	PlayHosts  []BuildHost `json:"play_hosts,omitempty"  xml:"play_hosts,omitempty"         yaml:"play_hosts,omitempty"`
 	BuildTools []Toolchain `json:"build_tools,omitempty" xml:"build_tools,omitempty" yaml:"build_tools,omitempty"`
 	Renderers  []string    `json:"renderers,omitempty"   xml:"renderers>renderer,omitempty" yaml:"renderers,omitempty"`
 	Notes      string      `json:"notes,omitempty"       xml:"notes,omitempty"              yaml:"notes,omitempty"`
@@ -250,6 +251,18 @@ func (p Platform) Names() []string {
 	out = append(out, p.GOOS)
 	out = append(out, p.Aliases...)
 	return out
+}
+
+// CanPlayOn reports whether this target can be launched + ticked
+// headlessly on the given host. An empty PlayHosts is treated as
+// "no host can play this yet" — the play matrix skips the row.
+func (p Platform) CanPlayOn(hostGOOS, hostGOARCH string) bool {
+	for _, host := range p.PlayHosts {
+		if host.GOOS == hostGOOS && host.GOARCH == hostGOARCH {
+			return true
+		}
+	}
+	return false
 }
 
 // CanBuildOn reports whether this target can be built from the host

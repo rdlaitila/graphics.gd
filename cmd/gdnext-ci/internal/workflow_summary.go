@@ -167,15 +167,12 @@ func ghError(err error) error {
 	return err
 }
 
-// ghaTimestamp matches the ISO timestamp prefix GHA prepends to every
-// log line (`2026-06-20T12:34:56.7890123Z `). Stripping it claws back
-// ~30 columns for the actual log content.
+// ghaTimestamp matches the ISO timestamp GHA prepends to every log
+// line; stripping it claws back ~30 columns.
 var ghaTimestamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s`)
 
 // tailLines returns the last n content lines of text with GHA
-// timestamps stripped. Group/endgroup marker lines (`##[group]…`,
-// `##[endgroup]`) are dropped so the tail focuses on the actual
-// command output.
+// timestamps and group markers stripped.
 func tailLines(text string, n int) []string {
 	text = strings.TrimRight(text, "\n")
 	if text == "" {
@@ -233,9 +230,8 @@ func outcomeFromJob(j ghJob) outcome {
 }
 
 // entry is one row's data point for one run: the outcome plus how
-// long the job ran. A zero Duration means the appearance had no
-// timing data (job didn't run, or didn't reach completion). URL
-// points at the job's run page on github.com when known.
+// long the job ran. Zero Duration means timing data is missing. URL
+// links the pip back to the GHA job page.
 type entry struct {
 	Outcome  outcome
 	Duration time.Duration
@@ -257,8 +253,8 @@ type history []entry
 func (t history) pass() int { return t.count(outcomeSuccess) }
 func (t history) fail() int { return t.count(outcomeFailure) }
 
-// ran reports the number of window slots where the row appeared in any
-// form (success, failure, skipped, running) — i.e. anything but missing.
+// ran reports the number of window slots where the row appeared in
+// any form (anything but missing).
 func (t history) ran() int {
 	n := 0
 	for _, e := range t {
@@ -291,11 +287,9 @@ func (t history) passPercent() (pct int, ok bool) {
 
 // passPercentChange compares the older half of the row's appearances
 // to the newer half and returns the signed delta in percentage
-// points. Missing slots are filtered first so a row that only existed
-// for the last K runs still gets a trend (otherwise younger rows
-// would always read as "—"). ok=false when fewer than two
-// appearances exist, or either half has no decisive runs. The split
-// is biased toward the newer half on odd appearance counts.
+// points. Missing slots are filtered first so young rows still get
+// a trend. ok=false when fewer than two appearances exist or either
+// half is non-decisive.
 func (t history) passPercentChange() (delta int, ok bool) {
 	seen := make(history, 0, len(t))
 	for _, e := range t {
@@ -383,11 +377,11 @@ type summaryCounts struct {
 	PlatformsCatalogued int
 }
 
-func (s summary) counts() summaryCounts {
+func (t summary) counts() summaryCounts {
 	c := summaryCounts{
-		LatestFailures:      len(s.LastFailures),
+		LatestFailures:      len(t.LastFailures),
 		PlatformsCatalogued: len(product.PlatformMatrix),
-		BuildCells:          len(s.Builds),
+		BuildCells:          len(t.Builds),
 	}
 	hosts := map[string]struct{}{}
 	targets := map[string]struct{}{}
@@ -395,16 +389,16 @@ func (s summary) counts() summaryCounts {
 		c.WindowPasses += h.pass()
 		c.WindowFailures += h.fail()
 	}
-	for _, r := range s.Checks {
+	for _, r := range t.Checks {
 		hosts[r.Host] = struct{}{}
 		tally(r.History)
 	}
-	for _, r := range s.Builds {
+	for _, r := range t.Builds {
 		hosts[r.Host] = struct{}{}
 		targets[r.Target] = struct{}{}
 		tally(r.History)
 	}
-	for _, r := range s.Runs {
+	for _, r := range t.Runs {
 		tally(r.History)
 	}
 	c.Hosts = len(hosts)
@@ -574,11 +568,9 @@ func collectBuilds(asc []runWithJobs) []buildRow {
 }
 
 // parseLinkExp pulls (link, experimental) out of the variable-shaped
-// suffix axes after (host, example, target). Older runs had only an
-// experimental boolean; current runs have link then experimental. The
-// link axis is content-detected against the LinkMode catalog so a row
-// missing it falls back to the empty link without misreading the
-// experimental flag as a link mode.
+// suffix axes after (host, example, target). Older runs lacked the
+// link axis; content-detection against the LinkMode catalog keeps
+// the experimental boolean from being misread as a link mode.
 func parseLinkExp(tail []string) (link string, experimental bool) {
 	for _, t := range tail {
 		if t == "true" {
@@ -704,17 +696,12 @@ func firstFailedStep(j ghJob) (ghStep, bool) {
 }
 
 // extractStepLog returns just the failing step's section of the
-// per-job log. The runner emits one top-level `##[group]Run …` marker
-// per user step (in YAML order), but the group only wraps the step's
-// metadata header (script echo + shell + env) — the actual command
-// output runs at depth 0 after the matching `##[endgroup]`, until
-// the next step's top-level marker. So we capture from the target
-// step's `##[group]Run …` line through the line before the next
-// step-boundary marker. Step boundaries are runner-emitted markers
-// only (`Run `, `Post Run `, `Complete job`); user-emitted
-// `::group::…::endgroup::` echos inside a step are skipped via depth
-// tracking. Step numbering in the API starts at 1 for "Set up job",
-// so the (number - 1)-th `Run ` marker is the right one.
+// per-job log. The runner wraps each step's metadata in a top-level
+// `##[group]Run …` but the step's actual command output runs at
+// depth 0 between that group's endgroup and the next step's
+// boundary marker. Nested user-emitted `::group::` is depth-tracked.
+// API step numbering starts at 1 for "Set up job", so (number-1)
+// counts user `Run ` markers.
 func extractStepLog(log string, stepNumber int) string {
 	target := stepNumber - 1
 	if target < 1 {

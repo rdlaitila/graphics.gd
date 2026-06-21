@@ -153,6 +153,7 @@ var (
 		Status:     Supported | Stable,
 		LinkModes:  GDExtension | LibGodot,
 		BuildHosts: HostMatrix,
+		PlayHosts:  []BuildHost{HostLinuxAmd64},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
 		Notes:      "libgodot mode (--link=libgodot or GOOS=musl alias) currently fetches the .musl. artefact",
@@ -179,6 +180,7 @@ var (
 		Status:     Supported | Stable,
 		LinkModes:  GDExtension,
 		BuildHosts: HostMatrix,
+		PlayHosts:  []BuildHost{HostLinuxAmd64},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
 	}

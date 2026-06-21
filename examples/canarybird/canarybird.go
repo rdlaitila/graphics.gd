@@ -3,6 +3,7 @@ package main
 import (
 	"math"
 	"math/rand/v2"
+	"os"
 
 	"graphics.gd/classdb/AudioStreamPlayer"
 	"graphics.gd/classdb/AudioStreamWAV"
@@ -40,7 +41,7 @@ const (
 	ceilingY      Float.X = 5.0
 	cloudCount            = 4
 	cloudSpacing  Float.X = 7.0
-	cloudKillDist Float.X = 0.7
+	cloudKillDist Float.X = 1.25 // bird radius 0.45 + cloud radius 0.9 - a small fudge for forgiveness
 	cloudSpawnX   Float.X = 14.0
 	cloudDespawnX Float.X = -10.0
 	settingsPath          = "user://canarybird.cfg"
@@ -70,6 +71,7 @@ type CanaryBird struct {
 	score, highScore             int
 	state                        gameState
 	rng                          *rand.Rand
+	bot                          *playBot
 }
 
 func (g *CanaryBird) Ready() {
@@ -78,6 +80,9 @@ func (g *CanaryBird) Ready() {
 	g.buildScene()
 	g.buildHUD()
 	g.reset()
+	if os.Getenv("GDNEXT_PLAY") != "" {
+		g.bot = newPlayBot(g)
+	}
 }
 
 func (g *CanaryBird) buildScene() {
@@ -164,6 +169,9 @@ func (g *CanaryBird) buildHUD() {
 // scoring. Per-frame logic in Go demonstrates the Process callback round-
 // trip without an AnimationPlayer or PhysicsBody.
 func (g *CanaryBird) Process(delta Float.X) {
+	if g.bot != nil {
+		g.bot.tick(delta)
+	}
 	if Input.IsActionJustPressed("flap", false) {
 		g.flap()
 	}
@@ -205,7 +213,7 @@ func (g *CanaryBird) tick(delta Float.X) {
 		cp.X -= scrollSpeed * delta
 		if cp.X < cloudDespawnX {
 			cp.X += cloudSpacing * cloudCount
-			cp.Y = Float.X(g.rng.Float64()*6.0 - 3.0)
+			cp.Y = Float.X(g.rng.Float64()*8.0 - 3.0)
 			g.score++
 			g.scoreLabel.SetText("Score: " + itoa(g.score) + "  (best " + itoa(g.highScore) + ")")
 		}
@@ -256,7 +264,7 @@ func (g *CanaryBird) reset() {
 	// Reseed the cloud ring across the playable strip.
 	for i, c := range g.clouds {
 		x := cloudSpawnX + Float.X(i)*cloudSpacing
-		y := Float.X(g.rng.Float64()*6.0 - 3.0)
+		y := Float.X(g.rng.Float64()*8.0 - 3.0)
 		c.AsNode3D().SetPosition(Vector3.New(x, y, Float.X(0)))
 	}
 }

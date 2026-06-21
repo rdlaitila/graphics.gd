@@ -84,6 +84,8 @@ type matrixRow struct {
 	Target       string `json:"target"`
 	Link         string `json:"link,omitempty"`
 	Experimental bool   `json:"experimental"`
+	Playable     bool   `json:"playable"`
+	Artifact     string `json:"artifact,omitempty"`
 }
 
 // buildMatrix emits one include: row per (host, platform, linkMode,
@@ -128,12 +130,19 @@ func buildMatrix(examples []string) []matrixRow {
 					if ex == "" {
 						continue
 					}
+					playable := len(platform.PlayHosts) > 0
+					artifact := ""
+					if playable {
+						artifact = ArtifactName(host.Runner, ex, platform.Tuple(), link)
+					}
 					out = append(out, matrixRow{
 						OS:           host.Runner,
 						Example:      ex,
 						Target:       platform.Tuple(),
 						Link:         link,
 						Experimental: experimental,
+						Playable:     playable,
+						Artifact:     artifact,
 					})
 				}
 			}

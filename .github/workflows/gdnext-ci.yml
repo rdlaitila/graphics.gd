@@ -174,16 +174,130 @@ jobs:
           find "$tmp" \( -type f -o -type l \) | sort
           echo "::endgroup::"
 
+      # Upload the staged scratch dir so the play matrix can download
+      # and drive the produced binary. Only the cells whose target has
+      # a Platform.PlayHosts entry contribute artefacts; the rest skip
+      # this step entirely so we don't burn storage on builds nobody
+      # can play yet.
+      - name: Upload play artefact (${{ matrix.artifact }})
+        if: ${{ matrix.playable && success() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ steps.stage.outputs.tmp }}
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Headless test pipeline
         shell: bash
         run: gdnext-ci test-headless --scratch "${{ steps.stage.outputs.tmp }}"
+
+  # Pre-job: enumerate the (play-host, build-host, target, link) quads
+  # the play matrix should drive. Only emitted for Platforms whose
+  # PlayHosts is non-empty, so adding a play target lands here without
+  # workflow edits.
+  discover-plays:
+    needs: [gdnext-ci-build]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+      empty: ${{ steps.list.outputs.empty }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+      - id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install ./cmd/gdnext-ci
+          matrix=$("$(go env GOPATH)/bin/gdnext-ci" play-matrix --summary)
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+          # Skip the gdnext-ci-run job entirely when no rows exist
+          # (e.g. every play target was excluded). Otherwise GHA
+          # complains about an empty matrix.
+          count=$(echo "$matrix" | jq '.include | length')
+          if [ "$count" = "0" ]; then
+            echo "empty=true" >> $GITHUB_OUTPUT
+          else
+            echo "empty=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Per-(play-host, build-host, target, link) drive of the produced
+  # binary via the canarybird play-bot. Each cell downloads its build
+  # artefact, runs `gdnext-ci play-cell` against it, and surfaces the
+  # bot's pass/fail report.
+  gdnext-ci-run:
+    needs: [discover-plays]
+    if: ${{ always() && needs.discover-plays.outputs.empty == 'false' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover-plays.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+
+      - name: Install gdnext-ci into PATH
+        shell: bash
+        run: |
+          go install ./cmd/gdnext-ci
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Download play artefact (${{ matrix.artifact }})
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ matrix.artifact }}
+          path: scratch
+
+      # xvfb-run gives the engine a virtual display; wine lets linux
+      # runners drive windows binaries. Both are no-ops when not
+      # needed (play-cell short-circuits xvfb when $DISPLAY is set).
+      - name: Install xvfb + wine
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends xvfb
+          if [ "${{ matrix.target }}" = "windows/amd64" ]; then
+            sudo dpkg --add-architecture i386
+            sudo apt-get update -y
+            sudo apt-get install -y --no-install-recommends wine wine64
+          fi
+
+      - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] (built on ${{ matrix.build_os }})
+        continue-on-error: ${{ matrix.experimental }}
+        shell: bash
+        run: |
+          gdnext-ci play-cell \
+            --scratch scratch \
+            --example "${{ matrix.example }}" \
+            --target "${{ matrix.target }}" \
+            --link "${{ matrix.link }}"
+
+      - name: Show play report
+        if: always()
+        shell: bash
+        run: |
+          if [ -f scratch/play-report.json ]; then
+            echo "::group::play-report.json"
+            cat scratch/play-report.json
+            echo "::endgroup::"
+          else
+            echo "no play-report.json"
+          fi
 
   # Aggregate every cell of this run plus the last 14 runs of this
   # branch into a single markdown step summary so the workflow's
   # success / failure history is visible at a glance from the UI.
   summary:
     name: Workflow summary
-    needs: [discover-targets, gdnext-ci-checks, gdnext-ci-build]
+    needs: [discover-targets, gdnext-ci-checks, gdnext-ci-build, discover-plays, gdnext-ci-run]
     if: always()
     runs-on: ubuntu-latest
     permissions:

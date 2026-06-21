@@ -39,6 +39,8 @@ func main() {
 			internal.BuildTargetCmd(),
 			internal.TestHeadlessCmd(),
 			internal.MatrixCmd(),
+			internal.PlayMatrixCmd(),
+			internal.PlayCellCmd(),
 			internal.WorkflowSummaryCmd(),
 		},
 	}

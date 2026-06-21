@@ -3,8 +3,8 @@
 Top-level layout. Each subdirectory may have a `Readme.md` or doc comments
 covering its internals.
 
-- `cmd/` — executables (`gdnext` CLI, `gdnext-ci` CI driver).
-- `product/` — canonical product metadata. Pure data + lookup helpers; no `graphics.gd` imports allowed.
+- `cmd/` — executables (`gd` CLI, `gdnext` CLI, `gdnext-ci` CI driver).
+- `product/` — canonical product metadata database. Pure data + lookup helpers; no `graphics.gd` imports allowed.
 - `classdb/` — generated Godot class bindings.
 - `variant/` — pure-Go vector/math types + variant glue.
 - `shaders/` — write-shaders-in-Go support.
