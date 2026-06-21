@@ -359,7 +359,7 @@ type summary struct {
 	Window       []runMeta
 	Checks       []checkRow
 	Builds       []buildRow
-	Runs         []runRow
+	Plays        []playRow
 	LastFailures []failureRow
 }
 
@@ -398,7 +398,7 @@ func (t summary) counts() summaryCounts {
 		targets[r.Target] = struct{}{}
 		tally(r.History)
 	}
-	for _, r := range t.Runs {
+	for _, r := range t.Plays {
 		tally(r.History)
 	}
 	c.Hosts = len(hosts)
@@ -447,11 +447,16 @@ type buildRow struct {
 	History      history
 }
 
-// runRow is reserved for the upcoming `gdnext-ci-run` matrix; today
-// the collector always emits zero of these.
-type runRow struct {
-	Name    string
-	History history
+// playRow is one (play-host, build-host, target, link) play cell
+// across the window. Populated from `gdnext-ci-play` jobs only.
+type playRow struct {
+	PlayHost     string
+	BuildHost    string
+	Example      string
+	Target       string
+	Link         string
+	Experimental bool
+	History      history
 }
 
 // --- Collector -------------------------------------------------------
@@ -493,7 +498,7 @@ func collect(window []runWithJobs, branch string) summary {
 	}
 	s.Checks = collectChecks(asc)
 	s.Builds = collectBuilds(asc)
-	s.Runs = collectRuns(asc)
+	s.Plays = collectPlays(asc)
 	return s
 }
 
@@ -567,24 +572,25 @@ func collectBuilds(asc []runWithJobs) []buildRow {
 	return out
 }
 
-// parseLinkExp pulls (link, experimental) out of the variable-shaped
-// suffix axes after (host, example, target). Older runs lacked the
-// link axis; content-detection against the LinkMode catalog keeps
-// the experimental boolean from being misread as a link mode.
+// parseLinkExp pulls (link, experimental) out of the suffix axes
+// after (host, example, target). Pinned build job names render the
+// suffix as `(link, experimental)`; pre-rename runs in the window
+// include extra trailing axes — content detection (LinkMode catalog
+// for link, bool literal for experimental) stays robust to both.
 func parseLinkExp(tail []string) (link string, experimental bool) {
+	if len(tail) > 0 && isLinkMode(tail[0]) {
+		link = tail[0]
+	}
 	for _, t := range tail {
 		if t == "true" {
 			experimental = true
-			continue
+			return
 		}
 		if t == "false" {
-			continue
-		}
-		if isLinkMode(t) {
-			link = t
+			return
 		}
 	}
-	return link, experimental
+	return
 }
 
 func isLinkMode(s string) bool {
@@ -596,31 +602,48 @@ func isLinkMode(s string) bool {
 	return false
 }
 
-func collectRuns(asc []runWithJobs) []runRow {
-	rows := map[string]*runRow{}
-	var keys []string
+type playKey struct{ playHost, buildHost, example, target, link string }
+
+func collectPlays(asc []runWithJobs) []playRow {
+	rows := map[playKey]*playRow{}
+	var order []playKey
 	for i, r := range asc {
 		for _, j := range r.Jobs {
 			head, axes, ok := splitJobName(j.Name)
-			if !ok || head != "gdnext-ci-run" {
+			if !ok || head != "gdnext-ci-play" || len(axes) < 5 {
 				continue
 			}
-			name := strings.Join(axes, ", ")
-			row, exists := rows[name]
+			link, exp := parseLinkExp(axes[4:])
+			k := playKey{playHost: axes[0], buildHost: axes[1], example: axes[2], target: axes[3], link: link}
+			row, exists := rows[k]
 			if !exists {
-				row = &runRow{Name: name, History: make(history, len(asc))}
-				rows[name] = row
-				keys = append(keys, name)
+				row = &playRow{
+					PlayHost:  k.playHost,
+					BuildHost: k.buildHost,
+					Example:   k.example,
+					Target:    k.target,
+					Link:      k.link,
+					History:   make(history, len(asc)),
+				}
+				rows[k] = row
+				order = append(order, k)
 			}
+			row.Experimental = exp
 			row.History[i] = entryFromJob(j)
 		}
 	}
-	sort.Strings(keys)
-	out := make([]runRow, 0, len(keys))
-	for _, k := range keys {
+	sort.Slice(order, func(a, b int) bool {
+		return playRank(order[a]) < playRank(order[b])
+	})
+	out := make([]playRow, 0, len(order))
+	for _, k := range order {
 		out = append(out, *rows[k])
 	}
 	return out
+}
+
+func playRank(k playKey) int {
+	return targetRank(k.target)*1_000_000_000 + linkSubrank(k.link)*10_000_000 + hostRank(k.buildHost)*10_000 + hostRank(k.playHost)*10
 }
 
 // latestRun returns the newest run in window by created_at, ok=false
@@ -760,9 +783,9 @@ func failureTitle(name string) string {
 		if len(axes) >= 4 {
 			return fmt.Sprintf("Build %s [%s] on %s", axes[2], axes[3], axes[0])
 		}
-	case "gdnext-ci-run":
-		if len(axes) >= 1 {
-			return "Run " + strings.Join(axes, ", ")
+	case "gdnext-ci-play":
+		if len(axes) >= 5 {
+			return fmt.Sprintf("Play %s [%s] on %s (built on %s)", axes[3], axes[4], axes[0], axes[1])
 		}
 	}
 	return name
@@ -782,7 +805,7 @@ func failureRank(f failureRow) int {
 		if len(axes) >= 4 {
 			return 1_000_000 + buildRank(buildKey{host: axes[0], example: axes[1], target: axes[2], link: axes[3]})
 		}
-	case "gdnext-ci-run":
+	case "gdnext-ci-play":
 		return 500_000_000
 	}
 	return 1_000_000_000
@@ -869,7 +892,7 @@ func renderMarkdown(w io.Writer, s summary) error {
 	renderTOCMarkdown(w, s)
 	renderChecksMarkdown(w, s.Checks)
 	renderBuildsMarkdown(w, s.Builds)
-	renderRunsMarkdown(w, s.Runs)
+	renderPlaysMarkdown(w, s.Plays)
 	renderFailuresMarkdown(w, s.LastFailures)
 	renderCommitsMarkdown(w, s.Window)
 	return nil
@@ -895,7 +918,7 @@ func renderCountsMarkdown(w io.Writer, s summary) {
 }
 
 func renderTOCMarkdown(w io.Writer, s summary) {
-	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Runs](#runs) · [Latest run failures](#latest-run-failures) · [Commits](#commits)")
+	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Plays](#plays) · [Latest run failures](#latest-run-failures) · [Commits](#commits)")
 	fmt.Fprintln(w)
 }
 
@@ -936,17 +959,24 @@ func renderBuildsMarkdown(w io.Writer, rows []buildRow) {
 	fmt.Fprintln(w)
 }
 
-func renderRunsMarkdown(w io.Writer, rows []runRow) {
-	fmt.Fprintln(w, "## Runs")
+func renderPlaysMarkdown(w io.Writer, rows []playRow) {
+	fmt.Fprintln(w, "## Plays")
 	fmt.Fprintln(w)
 	if len(rows) == 0 {
-		fmt.Fprintln(w, "_Reserved for the upcoming `gdnext-ci-run` matrix — not yet wired up._")
+		fmt.Fprintln(w, "_No `gdnext-ci-play` jobs in this window._")
 		fmt.Fprintln(w)
 		return
 	}
-	writeMarkdownHeader(w, "Run")
+	writeMarkdownHeader(w, "Target", "Link", "Build host", "Play host", "Example")
 	for _, r := range rows {
-		writeMarkdownRow(w, []string{r.Name}, r.History)
+		link := r.Link
+		if link == "" {
+			link = "—"
+		}
+		if r.Experimental {
+			link += " (exp.)"
+		}
+		writeMarkdownRow(w, []string{r.Target, link, r.BuildHost, r.PlayHost, r.Example}, r.History)
 	}
 	fmt.Fprintln(w)
 }

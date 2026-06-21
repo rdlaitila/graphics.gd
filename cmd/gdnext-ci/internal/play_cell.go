@@ -67,6 +67,10 @@ func playCellAction(_ context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+	// download-artifact strips the executable bit; restore it.
+	if err := os.Chmod(bin, 0755); err != nil {
+		return fmt.Errorf("chmod +x %s: %w", bin, err)
+	}
 	reportPath := filepath.Join(scratch, "play-report.json")
 	_ = os.Remove(reportPath)
 	argv, err := launchCommand(bin, plat, mode)

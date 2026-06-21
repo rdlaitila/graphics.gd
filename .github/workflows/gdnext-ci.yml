@@ -112,6 +112,9 @@ jobs:
   # product.Platform.BuildHosts, not in the workflow.
   gdnext-ci-build:
     needs: [discover-targets, gdnext-ci-checks]
+    # Pin the displayed name so the matrix axes (which include long
+    # artefact slugs + boolean flags) don't leak into the UI label.
+    name: gdnext-ci-build (${{ matrix.os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.experimental && ', exp' || '' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -140,7 +143,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tmp=$(mktemp -d)
+          # Use RUNNER_TEMP so the path is visible to Node-based
+          # actions (upload-artifact). $(mktemp -d) on Git-Bash
+          # returns a mingw /tmp/... path that the Node host can't see.
+          tmp="${RUNNER_TEMP//\\//}/staged"
+          rm -rf "$tmp"
+          mkdir -p "$tmp"
           echo "tmp=$tmp" >> $GITHUB_OUTPUT
           gdnext-ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
 
@@ -215,7 +223,7 @@ jobs:
           go install ./cmd/gdnext-ci
           matrix=$("$(go env GOPATH)/bin/gdnext-ci" play-matrix --summary)
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
-          # Skip the gdnext-ci-run job entirely when no rows exist
+          # Skip the gdnext-ci-play job entirely when no rows exist
           # (e.g. every play target was excluded). Otherwise GHA
           # complains about an empty matrix.
           count=$(echo "$matrix" | jq '.include | length')
@@ -229,9 +237,10 @@ jobs:
   # binary via the canarybird play-bot. Each cell downloads its build
   # artefact, runs `gdnext-ci play-cell` against it, and surfaces the
   # bot's pass/fail report.
-  gdnext-ci-run:
+  gdnext-ci-play:
     needs: [discover-plays]
     if: ${{ always() && needs.discover-plays.outputs.empty == 'false' }}
+    name: gdnext-ci-play (${{ matrix.os }}, ${{ matrix.build_os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.experimental && ', exp' || '' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -297,7 +306,7 @@ jobs:
   # success / failure history is visible at a glance from the UI.
   summary:
     name: Workflow summary
-    needs: [discover-targets, gdnext-ci-checks, gdnext-ci-build, discover-plays, gdnext-ci-run]
+    needs: [discover-targets, gdnext-ci-checks, gdnext-ci-build, discover-plays, gdnext-ci-play]
     if: always()
     runs-on: ubuntu-latest
     permissions:

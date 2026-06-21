@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"graphics.gd/product"
@@ -48,8 +49,8 @@ func PlayMatrixCmd() *cli.Command {
 					if link == "" {
 						link = "-"
 					}
-					fmt.Fprintf(os.Stderr, "  play=%-14s build=%-14s × %-14s × %-16s × %s\n",
-						r.OS, r.BuildOS, r.Example, r.Target, link)
+					fmt.Fprintf(os.Stderr, "  %-16s [%s] built on %-14s played on %-14s × %s\n",
+						r.Target, link, r.BuildOS, r.OS, r.Example)
 				}
 			}
 			return nil
@@ -133,7 +134,26 @@ func buildPlayMatrix(examples []string) []playMatrixRow {
 			}
 		}
 	}
+	sort.SliceStable(out, func(i, j int) bool { return playMatrixLess(out[i], out[j]) })
 	return out
+}
+
+// playMatrixLess orders rows by target → link → build host → play
+// host → example so reading the human summary scans target-major.
+func playMatrixLess(a, b playMatrixRow) bool {
+	if ar, br := targetRank(a.Target), targetRank(b.Target); ar != br {
+		return ar < br
+	}
+	if ar, br := linkSubrank(a.Link), linkSubrank(b.Link); ar != br {
+		return ar < br
+	}
+	if ar, br := hostRank(a.BuildOS), hostRank(b.BuildOS); ar != br {
+		return ar < br
+	}
+	if ar, br := hostRank(a.OS), hostRank(b.OS); ar != br {
+		return ar < br
+	}
+	return a.Example < b.Example
 }
 
 // runnerFor maps a product.BuildHost to its GHA runner label.
