@@ -923,8 +923,11 @@ func renderTOCMarkdown(w io.Writer, s summary) {
 }
 
 func renderChecksMarkdown(w io.Writer, rows []checkRow) {
-	fmt.Fprintln(w, "## Checks")
-	fmt.Fprintln(w)
+	var histories []history
+	for _, r := range rows {
+		histories = append(histories, r.History)
+	}
+	writeSectionHeader(w, "checks", "Checks", histories)
 	if len(rows) == 0 {
 		fmt.Fprintln(w, "_No `gdnext-ci-checks` jobs in this window._")
 		fmt.Fprintln(w)
@@ -938,8 +941,11 @@ func renderChecksMarkdown(w io.Writer, rows []checkRow) {
 }
 
 func renderBuildsMarkdown(w io.Writer, rows []buildRow) {
-	fmt.Fprintln(w, "## Builds")
-	fmt.Fprintln(w)
+	var histories []history
+	for _, r := range rows {
+		histories = append(histories, r.History)
+	}
+	writeSectionHeader(w, "builds", "Builds", histories)
 	if len(rows) == 0 {
 		fmt.Fprintln(w, "_No `gdnext-ci-build` jobs in this window._")
 		fmt.Fprintln(w)
@@ -960,8 +966,11 @@ func renderBuildsMarkdown(w io.Writer, rows []buildRow) {
 }
 
 func renderPlaysMarkdown(w io.Writer, rows []playRow) {
-	fmt.Fprintln(w, "## Plays")
-	fmt.Fprintln(w)
+	var histories []history
+	for _, r := range rows {
+		histories = append(histories, r.History)
+	}
+	writeSectionHeader(w, "plays", "Plays", histories)
 	if len(rows) == 0 {
 		fmt.Fprintln(w, "_No `gdnext-ci-play` jobs in this window._")
 		fmt.Fprintln(w)
@@ -979,6 +988,32 @@ func renderPlaysMarkdown(w io.Writer, rows []playRow) {
 		writeMarkdownRow(w, []string{r.Target, link, r.BuildHost, r.PlayHost, r.Example}, r.History)
 	}
 	fmt.Fprintln(w)
+}
+
+// writeSectionHeader emits an HTML-anchored heading so the TOC link
+// (`#anchor`) stays stable when we append a pass-% suffix to the
+// displayed text. Markdown `## foo (84%)` would slug to `#foo-84`
+// and break the contents links.
+func writeSectionHeader(w io.Writer, anchor, title string, hs []history) {
+	suffix := ""
+	if pct, ok := overallPass(hs); ok {
+		suffix = fmt.Sprintf(" — %d%% pass", pct)
+	}
+	fmt.Fprintf(w, "<h2 id=\"%s\">%s%s</h2>\n\n", anchor, htmlEscape(title), suffix)
+}
+
+// overallPass aggregates pass/fail across many histories and returns
+// the integer pass rate, ok=false when no decisive outcomes.
+func overallPass(hs []history) (int, bool) {
+	var p, f int
+	for _, h := range hs {
+		p += h.pass()
+		f += h.fail()
+	}
+	if p+f == 0 {
+		return 0, false
+	}
+	return int(float64(p) / float64(p+f) * 100), true
 }
 
 func writeMarkdownHeader(w io.Writer, leading ...string) {
@@ -1092,6 +1127,14 @@ func mdEscape(s string) string {
 	return s
 }
 
+func htmlEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	return s
+}
+
 func renderFailuresMarkdown(w io.Writer, rows []failureRow) {
 	fmt.Fprintln(w, "## Latest run failures")
 	fmt.Fprintln(w)
@@ -1108,12 +1151,9 @@ func renderFailuresMarkdown(w io.Writer, rows []failureRow) {
 	fmt.Fprintf(w, "**%d** job(s) failed in the most recent run. Expand to see the log tail.\n\n", len(rows))
 	for _, r := range rows {
 		fmt.Fprintln(w, "<details>")
-		title := r.Title
-		if r.Step != "" {
-			title += " — step `" + r.Step + "`"
-		}
+		title := htmlEscape(r.Title)
 		if r.URL != "" {
-			title += fmt.Sprintf(" ([open job](%s))", r.URL)
+			title += fmt.Sprintf(" (<a href=\"%s\">open job</a>)", r.URL)
 		}
 		fmt.Fprintf(w, "<summary><b>%s</b></summary>\n\n", title)
 		if len(r.LogTail) == 0 {
