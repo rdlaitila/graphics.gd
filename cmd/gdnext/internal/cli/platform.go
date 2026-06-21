@@ -42,69 +42,71 @@ func platformCmd() *cli.Command {
 				Usage:   "render one field per line per row (useful when the table is too wide)",
 			},
 		},
-		Action: func(_ context.Context, cmd *cli.Command) error {
-			format := strings.ToLower(cmd.String("format"))
-			vertical := cmd.Bool("vertical")
-			hostsOnly := cmd.Bool("hosts")
-			targetsOnly := cmd.Bool("targets")
-			if hostsOnly && targetsOnly {
-				return fmt.Errorf("--hosts and --targets are mutually exclusive")
-			}
-			// Resolve the row set or single row.
-			var (
-				rows   []product.Platform
-				single bool
-				title  string
-			)
-			switch {
-			case cmd.NArg() > 0:
-				arg := strings.ToLower(cmd.Args().First())
-				p, ok := product.FindPlatformByName(arg)
-				if !ok {
-					return fmt.Errorf("unknown platform %q (try `gdnext platform` for the full list)", arg)
-				}
-				rows = []product.Platform{p}
-				single = true
-				title = "platform " + p.Tuple()
-			case hostsOnly:
-				rows = product.Hosts()
-				title = "hosts"
-			case targetsOnly:
-				rows = product.Targets()
-				title = "targets"
-			default:
-				rows = product.PlatformMatrix
-				title = "all platforms"
-			}
-			switch format {
-			case "table":
-				if single {
-					printDetail(rows[0])
-					return nil
-				}
-				if vertical {
-					printVertical(title, rows)
-					return nil
-				}
-				printTable(title, rows)
-				return nil
-			case "json":
-				return printJSON(rows, single)
-			case "yaml", "yml":
-				return printYAML(rows, single)
-			case "xml":
-				return printXML(rows, single)
-			case "markdown", "md":
-				if vertical {
-					printMarkdownVertical(title, rows)
-					return nil
-				}
-				printMarkdown(title, rows)
-				return nil
-			default:
-				return fmt.Errorf("unknown --format %q (want one of: table, json, yaml, xml, markdown)", format)
-			}
-		},
+		Action: platformAction,
+	}
+}
+
+func platformAction(_ context.Context, cmd *cli.Command) error {
+	format := strings.ToLower(cmd.String("format"))
+	vertical := cmd.Bool("vertical")
+	hostsOnly := cmd.Bool("hosts")
+	targetsOnly := cmd.Bool("targets")
+	if hostsOnly && targetsOnly {
+		return fmt.Errorf("--hosts and --targets are mutually exclusive")
+	}
+	// Resolve the row set or single row.
+	var (
+		rows   []product.Platform
+		single bool
+		title  string
+	)
+	switch {
+	case cmd.NArg() > 0:
+		arg := strings.ToLower(cmd.Args().First())
+		p, ok := product.FindPlatformByName(arg)
+		if !ok {
+			return fmt.Errorf("unknown platform %q (try `gdnext platform` for the full list)", arg)
+		}
+		rows = []product.Platform{p}
+		single = true
+		title = "platform " + p.Tuple()
+	case hostsOnly:
+		rows = product.Hosts()
+		title = "hosts"
+	case targetsOnly:
+		rows = product.Targets()
+		title = "targets"
+	default:
+		rows = product.PlatformMatrix
+		title = "all platforms"
+	}
+	switch format {
+	case "table":
+		if single {
+			printDetail(rows[0])
+			return nil
+		}
+		if vertical {
+			printVertical(title, rows)
+			return nil
+		}
+		printTable(title, rows)
+		return nil
+	case "json":
+		return printJSON(rows, single)
+	case "yaml", "yml":
+		return printYAML(rows, single)
+	case "xml":
+		return printXML(rows, single)
+	case "markdown", "md":
+		if vertical {
+			printMarkdownVertical(title, rows)
+			return nil
+		}
+		printMarkdown(title, rows)
+		return nil
+	default:
+		return fmt.Errorf("unknown --format %q (want one of: table, json, yaml, xml, markdown)", format)
 	}
 }
 

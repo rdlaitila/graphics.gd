@@ -20,44 +20,46 @@ func docCmd() *cli.Command {
 		Usage:           "go doc with //gd: tag lookup against classdb",
 		ArgsUsage:       "[symbol] [args...]",
 		SkipFlagParsing: true,
-		Action: func(_ context.Context, cmd *cli.Command) error {
-			if helpRequested(cmd) {
-				return cli.ShowSubcommandHelp(cmd)
-			}
-			args := cmd.Args().Slice()
-			if len(args) == 0 {
-				return tooling.Go.Exec("doc")
-			}
-			query := args[0]
-			remaining := args[1:]
-			matches, err := findGdDocMatches(query)
-			if err != nil {
-				return err
-			}
-			if len(matches) == 0 {
-				return tooling.Go.Exec(append([]string{"doc"}, args...)...)
-			}
-			var lastErr error
-			var failures int
-			for i, match := range matches {
-				if i > 0 {
-					fmt.Println()
-					fmt.Println("---")
-					fmt.Println()
-				}
-				docArgs := append([]string{"doc", match.goDocPath}, remaining...)
-				if err := tooling.Go.Exec(docArgs...); err != nil {
-					fmt.Fprintf(os.Stderr, "warning: could not get doc for %s: %v\n", match.goDocPath, err)
-					lastErr = err
-					failures++
-				}
-			}
-			if failures == len(matches) {
-				return lastErr
-			}
-			return nil
-		},
+		Action:          docAction,
 	}
+}
+
+func docAction(_ context.Context, cmd *cli.Command) error {
+	if helpRequested(cmd) {
+		return cli.ShowSubcommandHelp(cmd)
+	}
+	args := cmd.Args().Slice()
+	if len(args) == 0 {
+		return tooling.Go.Exec("doc")
+	}
+	query := args[0]
+	remaining := args[1:]
+	matches, err := findGdDocMatches(query)
+	if err != nil {
+		return err
+	}
+	if len(matches) == 0 {
+		return tooling.Go.Exec(append([]string{"doc"}, args...)...)
+	}
+	var lastErr error
+	var failures int
+	for i, match := range matches {
+		if i > 0 {
+			fmt.Println()
+			fmt.Println("---")
+			fmt.Println()
+		}
+		docArgs := append([]string{"doc", match.goDocPath}, remaining...)
+		if err := tooling.Go.Exec(docArgs...); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not get doc for %s: %v\n", match.goDocPath, err)
+			lastErr = err
+			failures++
+		}
+	}
+	if failures == len(matches) {
+		return lastErr
+	}
+	return nil
 }
 
 type gdDocMatch struct {

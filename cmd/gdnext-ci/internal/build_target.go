@@ -25,63 +25,65 @@ func BuildTargetCmd() *cli.Command {
 			&cli.StringFlag{Name: "link", Usage: "link mode (gdextension|libgodot); blank = platform default"},
 			&cli.StringFlag{Name: "scratch", Usage: "staged example directory to build in", Required: true},
 		},
-		Action: func(_ context.Context, cmd *cli.Command) error {
-			goos := cmd.String("goos")
-			goarch := cmd.String("goarch")
-			link := cmd.String("link")
-			scratchArg := cmd.String("scratch")
-			platform, ok := product.FindPlatformByTargetEnv(goos, goarch)
-			if !ok {
-				if p, ok := product.FindPlatformByName(goos); ok && (goarch == "" || p.GOARCH == goarch) {
-					platform = p
-					goos, goarch = p.GOOS, p.GOARCH
-				} else {
-					return fmt.Errorf("unknown platform %s (try `gdnext platforms` for the matrix)",
-						product.Tuple(goos, goarch))
-				}
-			}
-			if !platform.Kind.Has(product.Target) {
-				return fmt.Errorf("%s is registered but not a build target", platform.Tuple())
-			}
-			scratch, err := filepath.Abs(scratchArg)
-			if err != nil {
-				return err
-			}
-			if st, err := os.Stat(scratch); err != nil || !st.IsDir() {
-				return fmt.Errorf("scratch dir does not exist: %s", scratch)
-			}
-			mode, err := product.ParseLinkMode(link)
-			if err != nil {
-				return err
-			}
-			if mode == 0 {
-				mode = product.GDExtension
-			}
-			// Actual build. Stdin closed so the optional AAB-signing
-			// `Provide passphrase:` prompt reads EOF immediately rather
-			// than consuming the next CI step's output.
-			args := []string{"-goos", goos, "-goarch", goarch}
-			if link != "" {
-				args = append(args, "-link", link)
-			}
-			args = append(args, "build")
-			if err := runIn(scratch, "gdnext", args...); err != nil {
-				return err
-			}
-			if err := assertSharedLibrary(scratch, platform, mode); err != nil {
-				return err
-			}
-			if err := assertDistributable(scratch, platform, mode); err != nil {
-				return err
-			}
-			if platform.GOOS == "android" {
-				if err := signAndVerifyApk(scratch, platform); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
+		Action: buildAction,
 	}
+}
+
+func buildAction(ctx context.Context, cmd *cli.Command) error {
+	goos := cmd.String("goos")
+	goarch := cmd.String("goarch")
+	link := cmd.String("link")
+	scratchArg := cmd.String("scratch")
+	platform, ok := product.FindPlatformByTargetEnv(goos, goarch)
+	if !ok {
+		if p, ok := product.FindPlatformByName(goos); ok && (goarch == "" || p.GOARCH == goarch) {
+			platform = p
+			goos, goarch = p.GOOS, p.GOARCH
+		} else {
+			return fmt.Errorf("unknown platform %s (try `gdnext platforms` for the matrix)",
+				product.Tuple(goos, goarch))
+		}
+	}
+	if !platform.Kind.Has(product.Target) {
+		return fmt.Errorf("%s is registered but not a build target", platform.Tuple())
+	}
+	scratch, err := filepath.Abs(scratchArg)
+	if err != nil {
+		return err
+	}
+	if st, err := os.Stat(scratch); err != nil || !st.IsDir() {
+		return fmt.Errorf("scratch dir does not exist: %s", scratch)
+	}
+	mode, err := product.ParseLinkMode(link)
+	if err != nil {
+		return err
+	}
+	if mode == 0 {
+		mode = product.GDExtension
+	}
+	// Actual build. Stdin closed so the optional AAB-signing
+	// `Provide passphrase:` prompt reads EOF immediately rather
+	// than consuming the next CI step's output.
+	args := []string{"-goos", goos, "-goarch", goarch}
+	if link != "" {
+		args = append(args, "-link", link)
+	}
+	args = append(args, "build")
+	if err := runIn(scratch, "gdnext", args...); err != nil {
+		return err
+	}
+	if err := assertSharedLibrary(scratch, platform, mode); err != nil {
+		return err
+	}
+	if err := assertDistributable(scratch, platform, mode); err != nil {
+		return err
+	}
+	if platform.GOOS == "android" {
+		if err := signAndVerifyApk(scratch, platform); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // assertSharedLibrary verifies the per-target shared library `gdnext

@@ -17,19 +17,21 @@ func runCmd() *cli.Command {
 		Usage:           "build the project as a shared library and launch it via Godot (or adb / web server)",
 		ArgsUsage:       "[-- go-build-flags...]",
 		SkipFlagParsing: true,
-		Action: func(_ context.Context, cmd *cli.Command) error {
-			if helpRequested(cmd) {
-				return cli.ShowSubcommandHelp(cmd)
-			}
-			extra := cmd.Args().Slice()
-			platform, err := setup.ForBuild(buildEnv, false, extra)
-			if err != nil {
-				return err
-			}
-			if err := os.Chdir(project.Directory); err != nil {
-				return xray.New(err)
-			}
-			return platform.Run(buildEnv, append([]string{"-gcflags=graphics.gd/classdb/...=-N -l"}, extra...)...)
-		},
+		Action:          runAction,
 	}
+}
+
+func runAction(_ context.Context, cmd *cli.Command) error {
+	if helpRequested(cmd) {
+		return cli.ShowSubcommandHelp(cmd)
+	}
+	extra := cmd.Args().Slice()
+	platform, err := setup.ForBuild(buildEnv, false, extra)
+	if err != nil {
+		return err
+	}
+	if err := os.Chdir(project.Directory); err != nil {
+		return xray.New(err)
+	}
+	return platform.Run(buildEnv, append([]string{"-gcflags=graphics.gd/classdb/...=-N -l"}, extra...)...)
 }

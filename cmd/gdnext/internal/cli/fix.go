@@ -32,43 +32,15 @@ var fixes string
 
 func fixCmd() *cli.Command {
 	return &cli.Command{
-		Name:  "fix",
-		Usage: "rewrite code to migrate from deprecated graphics.gd APIs",
-		Action: func(_ context.Context, _ *cli.Command) error {
-			return Fix()
-		},
+		Name:   "fix",
+		Usage:  "rewrite code to migrate from deprecated graphics.gd APIs",
+		Action: fixAction,
 	}
 }
 
-// FixHint scans the supplied list of unresolved-symbol error names and, if
-// any of them match a deprecated symbol declared in deprecated.txt, prints a
-// hint to stderr telling the user to run "gdnext fix". This was orphaned in
-// the legacy cmd/gd; we expose it for future re-wiring (e.g. from a build
-// failure hook).
-func FixHint(undefined []string) {
-	for example := range String.Splits(fixes, "\n\n") {
-		_, before, _ := strings.Cut(example, "func before(")
-		_, name, _ := strings.Cut(before, "{")
-		_, nameAfterReturn, ok := strings.Cut(name, "return")
-		if ok {
-			name = nameAfterReturn
-		}
-		name, _, _ = strings.Cut(name, "(")
-		name = strings.TrimSpace(name)
-		if slices.Contains(undefined, name) {
-			fmt.Fprintln(os.Stderr)
-			fmt.Fprintln(os.Stderr, "NOTE it looks like some of your compilation errors may be fixed by running `gdnext fix`")
-			fmt.Fprintln(os.Stderr, "this will rewrite your project to refactor deprecated functions to use the new API.")
-			fmt.Fprintln(os.Stderr, "(you should back up your code or use version control before running this command).")
-			fmt.Fprintln(os.Stderr)
-			return
-		}
-	}
-}
-
-// Fix runs the eg transformer over every package in the current module.
+// fixAction runs the eg transformer over every package in the current module.
 // Exposed so other tools (or a future "gdnext fix --check") can drive it.
-func Fix() error {
+func fixAction(_ context.Context, _ *cli.Command) error {
 	cfg := &packages.Config{
 		Fset:  token.NewFileSet(),
 		Mode:  packages.NeedName | packages.NeedTypes | packages.NeedSyntax | packages.NeedImports | packages.NeedDeps | packages.NeedCompiledGoFiles,
@@ -125,6 +97,32 @@ func Fix() error {
 		os.Exit(1)
 	}
 	return nil
+}
+
+// fixHint scans the supplied list of unresolved-symbol error names and, if
+// any of them match a deprecated symbol declared in deprecated.txt, prints a
+// hint to stderr telling the user to run "gdnext fix". This was orphaned in
+// the legacy cmd/gd; we expose it for future re-wiring (e.g. from a build
+// failure hook).
+func fixHint(undefined []string) {
+	for example := range String.Splits(fixes, "\n\n") {
+		_, before, _ := strings.Cut(example, "func before(")
+		_, name, _ := strings.Cut(before, "{")
+		_, nameAfterReturn, ok := strings.Cut(name, "return")
+		if ok {
+			name = nameAfterReturn
+		}
+		name, _, _ = strings.Cut(name, "(")
+		name = strings.TrimSpace(name)
+		if slices.Contains(undefined, name) {
+			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(os.Stderr, "NOTE it looks like some of your compilation errors may be fixed by running `gdnext fix`")
+			fmt.Fprintln(os.Stderr, "this will rewrite your project to refactor deprecated functions to use the new API.")
+			fmt.Fprintln(os.Stderr, "(you should back up your code or use version control before running this command).")
+			fmt.Fprintln(os.Stderr)
+			return
+		}
+	}
 }
 
 type pkgsImporter []*packages.Package
