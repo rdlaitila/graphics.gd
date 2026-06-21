@@ -2,7 +2,12 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -11,6 +16,7 @@ import (
 	"graphics.gd/product"
 
 	"github.com/urfave/cli/v3"
+	"gopkg.in/yaml.v3"
 )
 
 func toolchainCmd() *cli.Command {
@@ -42,6 +48,12 @@ func toolchainCmd() *cli.Command {
 					&cli.BoolFlag{
 						Name:  "fix",
 						Usage: "after reporting, run `toolchain install` and re-report",
+					},
+					&cli.StringFlag{
+						Name:    "format",
+						Aliases: []string{"f"},
+						Value:   "table",
+						Usage:   "output format: table | json | yaml | xml",
 					},
 				},
 				Action: toolchainDoctor,
@@ -116,9 +128,13 @@ func toolchainInstall(_ context.Context, cmd *cli.Command) error {
 // toolchainDoctor renders the per-target install status for every tool
 // host can build a target with. With --fix runs install and re-renders.
 func toolchainDoctor(_ context.Context, cmd *cli.Command) error {
+	format := strings.ToLower(cmd.String("format"))
 	jobs := jobsForHost(buildEnv.Host)
 	if err := validateJobs(buildEnv.Host, jobs); err != nil {
 		return err
+	}
+	if format != "" && format != "table" {
+		return printDoctorAudit(buildEnv.Host, jobs, format)
 	}
 	fail := reportJobStatus(buildEnv.Host, jobs)
 	if cmd.Bool("fix") && fail > 0 {
@@ -462,4 +478,132 @@ func hostsString(hosts []product.BuildHost) string {
 		parts = append(parts, h.Tuple())
 	}
 	return strings.Join(parts, ",")
+}
+
+// DoctorAuditRow is the per-job audit shape emitted by `gdnext
+// toolchain doctor --format=json|yaml|xml`. Each row is one
+// (tool, target) entry the host needs, with the resolved install
+// path, file size and SHA256 (for supply-chain audit), plus the
+// catalog Source URL the artefact would be fetched from.
+type DoctorAuditRow struct {
+	XMLName  xml.Name `json:"-"                  xml:"entry"               yaml:"-"`
+	Slug     string   `json:"slug"               xml:"slug"                yaml:"slug"`
+	Name     string   `json:"name"               xml:"name"                yaml:"name"`
+	Version  string   `json:"version,omitempty"  xml:"version,omitempty"   yaml:"version,omitempty"`
+	GOOS     string   `json:"goos"               xml:"goos"                yaml:"goos"`
+	GOARCH   string   `json:"goarch"             xml:"goarch"              yaml:"goarch"`
+	Host     string   `json:"host"               xml:"host"                yaml:"host"`
+	Library  bool     `json:"library,omitempty"  xml:"library,attr,omitempty" yaml:"library,omitempty"`
+	Required string   `json:"required_for,omitempty" xml:"required_for,omitempty" yaml:"required_for,omitempty"`
+	Status   string   `json:"status"             xml:"status,attr"         yaml:"status"`
+	Path     string   `json:"path,omitempty"     xml:"path,omitempty"      yaml:"path,omitempty"`
+	Size     int64    `json:"size,omitempty"     xml:"size,omitempty"      yaml:"size,omitempty"`
+	SHA256   string   `json:"sha256,omitempty"   xml:"sha256,omitempty"    yaml:"sha256,omitempty"`
+	Source   string   `json:"source,omitempty"   xml:"source,omitempty"    yaml:"source,omitempty"`
+	Error    string   `json:"error,omitempty"    xml:"error,omitempty"     yaml:"error,omitempty"`
+}
+
+func printDoctorAudit(host product.BuildHost, jobs []toolJob, format string) error {
+	rows := collectDoctorAudit(host, jobs)
+	switch format {
+	case "json":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(rows)
+	case "yaml", "yml":
+		return yaml.NewEncoder(os.Stdout).Encode(rows)
+	case "xml":
+		out, err := xml.MarshalIndent(struct {
+			XMLName xml.Name         `xml:"toolchain-audit"`
+			Entries []DoctorAuditRow `xml:"entry"`
+		}{Entries: rows}, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(out))
+		return nil
+	default:
+		return fmt.Errorf("unknown --format %q (want table | json | yaml | xml)", format)
+	}
+}
+
+func collectDoctorAudit(host product.BuildHost, jobs []toolJob) []DoctorAuditRow {
+	out := make([]DoctorAuditRow, 0, len(jobs))
+	for _, j := range jobs {
+		row := DoctorAuditRow{
+			Slug:     j.Tool.Slug,
+			Name:     j.Tool.Name,
+			Version:  j.Tool.Version,
+			GOOS:     j.GOOS,
+			GOARCH:   j.GOARCH,
+			Host:     host.Tuple(),
+			Library:  j.IsLibrary,
+			Required: j.Tool.RequiredFor,
+			Source:   doctorAuditSource(j.Tool.Toolchain, j.GOOS, j.GOARCH),
+		}
+		path, err := j.Lookup(tooling.ModeFind)
+		if err != nil {
+			row.Status = "missing"
+			row.Error = err.Error()
+			out = append(out, row)
+			continue
+		}
+		row.Status = "ok"
+		row.Path = path
+		if size, sum, err := digestFile(path); err == nil {
+			row.Size = size
+			row.SHA256 = sum
+		} else if err.Error() != "" {
+			// directories (.app bundles) leave size/sha empty rather
+			// than carrying a synthetic digest.
+			row.Error = err.Error()
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// doctorAuditSource resolves the catalog's DownloadURL with the same
+// substitutions LookupPlatform applies, so the audit row carries the
+// exact upstream the artefact was fetched from.
+func doctorAuditSource(t product.Toolchain, goos, goarch string) string {
+	if u, ok := t.Downloads[goos][goarch]; ok {
+		return u
+	}
+	if t.DownloadURL == "" {
+		return ""
+	}
+	arch := t.DownloadARCH[goarch]
+	osTok := strings.ReplaceAll(t.DownloadOS[goos], "$(ARCH)", arch)
+	ext := t.DownloadEXT[goos]
+	r := strings.NewReplacer(
+		"$(VERSION)", t.Version,
+		"$(ARCH)", arch,
+		"$(OS)", osTok,
+		"$(GOARCH)", goarch,
+		"$(GOOS)", goos,
+		"$(EXT)", ext,
+	)
+	return r.Replace(t.DownloadURL)
+}
+
+func digestFile(path string) (int64, string, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, "", err
+	}
+	if st.IsDir() {
+		return 0, "", nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	n, err := io.Copy(h, f)
+	if err != nil {
+		return 0, "", err
+	}
+	return n, hex.EncodeToString(h.Sum(nil)), nil
 }

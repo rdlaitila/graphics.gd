@@ -41,10 +41,7 @@ func main() {
 		// ---- BEGIN go-compat passthrough (delete to remove) -----------------
 		// Forward unknown subcommands like `gdnext get pkg` or `gdnext mod tidy`
 		// straight to the underlying `go` toolchain so gdnext stays a drop-in
-		// replacement for the `gd` command. urfave's own CommandNotFound hook
-		// can't help here because the root command has a default Action (the
-		// editor launcher), so any unmatched first positional falls into that
-		// action instead. We sniff for the case up front and short-circuit.
+		// replacement for the `gd` command.
 		if err := tooling.Go.Exec(goArgs...); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -62,17 +59,7 @@ func main() {
 // goPassthrough decides whether args looks like a `go` invocation
 // gdnext should forward rather than try to handle itself. Returns the
 // argv to pass to `go` (verb + remaining tokens, no program name) and
-// true when the answer is yes.
-//
-// The heuristic: walk args after the program name skipping any leading
-// global flags. The first non-flag token is the candidate verb. If it
-// matches a registered gdnext command we hand off to urfave; otherwise
-// the user typed something like `gdnext get pkg` and we treat the whole
-// suffix as a `go` invocation.
-//
-// Wholly cosmetic: leaving this in `main.go` (not the cli package) makes
-// the entire go-compat shim a single self-contained function that's
-// trivial to delete.
+// true when the answer is yes
 func goPassthrough(args []string, cmd *cli.Command) ([]string, bool) {
 	if len(args) < 2 {
 		return nil, false
@@ -117,13 +104,6 @@ func goPassthrough(args []string, cmd *cli.Command) ([]string, bool) {
 // (or one of its aliases) on the supplied root. urfave keeps the
 // canonical list on cmd.Commands and doesn't expose a Lookup-by-name;
 // the slice is tiny so a linear scan is fine.
-//
-// urfave's auto-injected `help` / `h` verb is NOT in cmd.Commands at
-// argv-parse time, so it isn't recognised here. That's deliberate:
-// `gdnext help vet` should forward to `go help vet` rather than print
-// "no such gdnext subcommand". The price is that bare `gdnext help`
-// also forwards to `go help`; users wanting our top-level help should
-// use `gdnext --help` (and per-verb help is `gdnext <verb> --help`).
 func isKnownCommand(cmd *cli.Command, tok string) bool {
 	for _, c := range cmd.Commands {
 		for _, n := range c.Names() {

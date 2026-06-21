@@ -51,7 +51,6 @@ func playCellAction(_ context.Context, cmd *cli.Command) error {
 	link := cmd.String("link")
 	timeout := cmd.Duration("timeout")
 	minScore := int(cmd.Int("min-score"))
-
 	plat, ok := parseTuple(target)
 	if !ok {
 		return fmt.Errorf("invalid --target %q (want goos/goarch)", target)
@@ -78,7 +77,6 @@ func playCellAction(_ context.Context, cmd *cli.Command) error {
 		return err
 	}
 	fmt.Printf("==> play %s [%s]: %s\n", target, mode, strings.Join(argv, " "))
-
 	ctx, cancel := contextWithTimeout(timeout)
 	defer cancel()
 	c := exec.CommandContext(ctx, argv[0], argv[1:]...)
@@ -132,17 +130,17 @@ func releaseBinary(scratch, example string, plat target, mode product.LinkMode) 
 func launchCommand(bin string, plat target, mode product.LinkMode) ([]string, error) {
 	hostGOOS := runtime.GOOS
 	switch {
-	case hostGOOS == "linux" && plat.GOOS == product.GOOSLinux:
+	case hostGOOS == product.GOOSLinux && plat.GOOS == product.GOOSLinux:
 		return withXvfb(bin), nil
-	case hostGOOS == "linux" && plat.GOOS == product.GOOSWindows:
+	case hostGOOS == product.GOOSLinux && plat.GOOS == product.GOOSWindows:
 		wine, err := exec.LookPath("wine")
 		if err != nil {
 			return nil, fmt.Errorf("linux→windows play needs wine on PATH: %w", err)
 		}
 		return withXvfb(wine, bin), nil
-	case hostGOOS == "windows" && plat.GOOS == product.GOOSWindows:
+	case hostGOOS == product.GOOSWindows && plat.GOOS == product.GOOSWindows:
 		return []string{bin}, nil
-	case hostGOOS == "darwin" && plat.GOOS == product.GOOSDarwin:
+	case hostGOOS == product.GOOSDarwin && plat.GOOS == product.GOOSDarwin:
 		return []string{bin}, nil
 	}
 	return nil, fmt.Errorf("no launch recipe: host=%s target=%s/%s", hostGOOS, plat.GOOS, plat.GOARCH)

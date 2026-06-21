@@ -60,6 +60,22 @@ func workflowSummaryAction(_ context.Context, cmd *cli.Command) error {
 	}
 	s := collect(window, branch)
 	s.LastFailures = collectFailures(repo, window, tail)
+	if latest, ok := latestRun(window); ok {
+		var prior map[string]string
+		// Pick the most-recent prior run on the same branch for the
+		// supply-chain diff. Falls back to nil (no Changed flags) when
+		// the window only carries one run.
+		for _, r := range window {
+			if r.Run.ID == latest.Run.ID {
+				continue
+			}
+			if r.Run.CreatedAt.Before(latest.Run.CreatedAt) {
+				prior = priorToolchainSHAs(repo, r.Run.ID)
+				break
+			}
+		}
+		s.Toolchains = collectToolchains(repo, latest.Run.ID, prior)
+	}
 	return renderMarkdown(os.Stdout, s)
 }
 
@@ -360,6 +376,7 @@ type summary struct {
 	Checks       []checkRow
 	Builds       []buildRow
 	Plays        []playRow
+	Toolchains   []toolchainRow
 	LastFailures []failureRow
 }
 
@@ -373,7 +390,7 @@ type summaryCounts struct {
 	WindowFailures      int
 	Hosts               int
 	BuildCells          int
-	Targets             int
+	PlayCells           int
 	PlatformsCatalogued int
 }
 
@@ -382,9 +399,9 @@ func (t summary) counts() summaryCounts {
 		LatestFailures:      len(t.LastFailures),
 		PlatformsCatalogued: len(product.PlatformMatrix),
 		BuildCells:          len(t.Builds),
+		PlayCells:           len(t.Plays),
 	}
 	hosts := map[string]struct{}{}
-	targets := map[string]struct{}{}
 	tally := func(h history) {
 		c.WindowPasses += h.pass()
 		c.WindowFailures += h.fail()
@@ -395,14 +412,12 @@ func (t summary) counts() summaryCounts {
 	}
 	for _, r := range t.Builds {
 		hosts[r.Host] = struct{}{}
-		targets[r.Target] = struct{}{}
 		tally(r.History)
 	}
 	for _, r := range t.Plays {
 		tally(r.History)
 	}
 	c.Hosts = len(hosts)
-	c.Targets = len(targets)
 	c.DecisiveJobs = c.WindowPasses + c.WindowFailures
 	return c
 }
@@ -893,14 +908,15 @@ func renderMarkdown(w io.Writer, s summary) error {
 	renderChecksMarkdown(w, s.Checks)
 	renderBuildsMarkdown(w, s.Builds)
 	renderPlaysMarkdown(w, s.Plays)
+	renderToolchainsMarkdown(w, s.Toolchains)
 	renderFailuresMarkdown(w, s.LastFailures)
 	renderCommitsMarkdown(w, s.Window)
 	return nil
 }
 
 // renderCountsMarkdown prints a single-line word-cloud of the
-// quantities that read at-a-glance: jobs, hosts, targets, platforms,
-// and overall / most-recent failure tallies.
+// quantities that read at-a-glance: jobs, hosts, build cells,
+// catalogued platforms, and the failure tallies.
 func renderCountsMarkdown(w io.Writer, s summary) {
 	c := s.counts()
 	parts := []string{
@@ -910,7 +926,7 @@ func renderCountsMarkdown(w io.Writer, s summary) {
 		fmt.Sprintf("**%d** decisive jobs", c.DecisiveJobs),
 		fmt.Sprintf("**%d** hosts", c.Hosts),
 		fmt.Sprintf("**%d** build cells", c.BuildCells),
-		fmt.Sprintf("**%d** targets", c.Targets),
+		fmt.Sprintf("**%d** play cells", c.PlayCells),
 		fmt.Sprintf("**%d** platforms in catalog", c.PlatformsCatalogued),
 	}
 	fmt.Fprintln(w, strings.Join(parts, " · "))
@@ -918,7 +934,7 @@ func renderCountsMarkdown(w io.Writer, s summary) {
 }
 
 func renderTOCMarkdown(w io.Writer, s summary) {
-	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Plays](#plays) · [Latest run failures](#latest-run-failures) · [Commits](#commits)")
+	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Plays](#plays) · [Toolchains](#toolchains) · [Latest run failures](#latest-run-failures) · [Commits](#commits)")
 	fmt.Fprintln(w)
 }
 
@@ -951,7 +967,7 @@ func renderBuildsMarkdown(w io.Writer, rows []buildRow) {
 		fmt.Fprintln(w)
 		return
 	}
-	writeMarkdownHeader(w, "Host", "Example", "Target", "Link")
+	writeMarkdownHeader(w, "Example", "Target", "Link", "Build host")
 	for _, r := range rows {
 		link := r.Link
 		if link == "" {
@@ -960,7 +976,7 @@ func renderBuildsMarkdown(w io.Writer, rows []buildRow) {
 		if r.Experimental {
 			link += " (exp.)"
 		}
-		writeMarkdownRow(w, []string{r.Host, r.Example, r.Target, link}, r.History)
+		writeMarkdownRow(w, []string{r.Example, r.Target, link, r.Host}, r.History)
 	}
 	fmt.Fprintln(w)
 }
@@ -976,7 +992,7 @@ func renderPlaysMarkdown(w io.Writer, rows []playRow) {
 		fmt.Fprintln(w)
 		return
 	}
-	writeMarkdownHeader(w, "Target", "Link", "Build host", "Play host", "Example")
+	writeMarkdownHeader(w, "Example", "Target", "Link", "Build host", "Play host")
 	for _, r := range rows {
 		link := r.Link
 		if link == "" {
@@ -985,7 +1001,7 @@ func renderPlaysMarkdown(w io.Writer, rows []playRow) {
 		if r.Experimental {
 			link += " (exp.)"
 		}
-		writeMarkdownRow(w, []string{r.Target, link, r.BuildHost, r.PlayHost, r.Example}, r.History)
+		writeMarkdownRow(w, []string{r.Example, r.Target, link, r.BuildHost, r.PlayHost}, r.History)
 	}
 	fmt.Fprintln(w)
 }
@@ -996,24 +1012,24 @@ func renderPlaysMarkdown(w io.Writer, rows []playRow) {
 // and break the contents links.
 func writeSectionHeader(w io.Writer, anchor, title string, hs []history) {
 	suffix := ""
-	if pct, ok := overallPass(hs); ok {
-		suffix = fmt.Sprintf(" — %d%% pass", pct)
+	if pct, pass, fail, ok := overallPass(hs); ok {
+		suffix = fmt.Sprintf(" — %d%% (%d/%d)", pct, pass, pass+fail)
 	}
 	fmt.Fprintf(w, "<h2 id=\"%s\">%s%s</h2>\n\n", anchor, htmlEscape(title), suffix)
 }
 
 // overallPass aggregates pass/fail across many histories and returns
-// the integer pass rate, ok=false when no decisive outcomes.
-func overallPass(hs []history) (int, bool) {
-	var p, f int
+// the integer pass rate plus the underlying counts. ok=false when
+// no decisive outcomes are present.
+func overallPass(hs []history) (pct, pass, fail int, ok bool) {
 	for _, h := range hs {
-		p += h.pass()
-		f += h.fail()
+		pass += h.pass()
+		fail += h.fail()
 	}
-	if p+f == 0 {
-		return 0, false
+	if pass+fail == 0 {
+		return 0, 0, 0, false
 	}
-	return int(float64(p) / float64(p+f) * 100), true
+	return int(float64(pass) / float64(pass+fail) * 100), pass, fail, true
 }
 
 func writeMarkdownHeader(w io.Writer, leading ...string) {
@@ -1136,7 +1152,7 @@ func htmlEscape(s string) string {
 }
 
 func renderFailuresMarkdown(w io.Writer, rows []failureRow) {
-	fmt.Fprintln(w, "## Latest run failures")
+	fmt.Fprintln(w, `<h2 id="latest-run-failures">Latest run failures</h2>`)
 	fmt.Fprintln(w)
 	if rows == nil {
 		fmt.Fprintln(w, "_No runs in the window._")
@@ -1176,7 +1192,7 @@ func renderFailuresMarkdown(w io.Writer, rows []failureRow) {
 // a link to the run page. Newest-first to match how a reader scans
 // the history (most recent activity first).
 func renderCommitsMarkdown(w io.Writer, runs []runMeta) {
-	fmt.Fprintln(w, "## Commits")
+	fmt.Fprintln(w, `<h2 id="commits">Commits</h2>`)
 	fmt.Fprintln(w)
 	if len(runs) == 0 {
 		fmt.Fprintln(w, "_No runs in the window._")
