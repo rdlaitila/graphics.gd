@@ -17,6 +17,7 @@ on:
       - "examples/**"
       - "product/**"
       - ".github/workflows/gdnext-ci.yml"
+  workflow_dispatch:
 
 # Only one run per branch at a time. A new push cancels any in-flight
 # run for the same ref so we don't burn runner-minutes on stale work.
