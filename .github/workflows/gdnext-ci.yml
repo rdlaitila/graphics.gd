@@ -207,5 +207,4 @@ jobs:
             --repo "${{ github.repository }}" \
             --workflow gdnext-ci.yml \
             --branch "${{ github.ref_name }}" \
-            --runs 14 \
-            >> "$GITHUB_STEP_SUMMARY"
+            --runs 14 >> "$GITHUB_STEP_SUMMARY"
