@@ -226,6 +226,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	// always prefer the GDPATH-installed version if it matches the expected version.
 	if _, err := os.Stat(install_path); err == nil {
 		if exe.IsLibrary {
+			exe.Path = install_path
 			return install_path, nil
 		}
 		var exe_path = install_path
