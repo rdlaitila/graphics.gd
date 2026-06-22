@@ -8,18 +8,33 @@ import (
 	"sort"
 	"strings"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// PlayMatrixCommand exposes `gdnext ci play-matrix`: emit a GHA
-// strategy.matrix JSON document for the `gdnext-run` job, one row
-// per (play-host, build-host, target, link, example) where
-// Platform.PlayHosts contains the play host.
+// PlayMatrixCommand wires `gdnext ci play-matrix`. Runtime state
+// lives on *PlayMatrixActions. Emits one row per (play-host,
+// build-host, target, link, example) where Platform.PlayHosts
+// contains the play host.
 type PlayMatrixCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
+}
+
+// PlayMatrixActions carries the runtime state.
+type PlayMatrixActions struct{}
+
+type playMatrixRow struct {
+	OS           string `json:"os"`
+	BuildOS      string `json:"build_os"`
+	Example      string `json:"example"`
+	Target       string `json:"target"`
+	Link         string `json:"link,omitempty"`
+	Experimental bool   `json:"experimental"`
+	Artifact     string `json:"artifact"`
 }
 
 // NewPlayMatrixCommand constructs the play-matrix subcommand.
@@ -39,12 +54,17 @@ func NewPlayMatrixCommand(di do.Injector) (*PlayMatrixCommand, error) {
 				Usage: "also print a human-readable matrix to stderr",
 			},
 		},
-		Action: t.action,
+		Action: shared.BindAction(t.Injector, (*PlayMatrixActions).action),
 	}
 	return t, nil
 }
 
-func (t *PlayMatrixCommand) action(_ context.Context, cmd *cli.Command) error {
+// NewPlayMatrixActions resolves the runtime state.
+func NewPlayMatrixActions(di do.Injector) (*PlayMatrixActions, error) {
+	return do.InvokeStruct[*PlayMatrixActions](di)
+}
+
+func (t *PlayMatrixActions) action(_ context.Context, cmd *cli.Command) error {
 	examples := cmd.StringSlice("example")
 	rows := buildPlayMatrix(examples)
 	doc := struct {
@@ -67,16 +87,6 @@ func (t *PlayMatrixCommand) action(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 	return nil
-}
-
-type playMatrixRow struct {
-	OS           string `json:"os"`
-	BuildOS      string `json:"build_os"`
-	Example      string `json:"example"`
-	Target       string `json:"target"`
-	Link         string `json:"link,omitempty"`
-	Experimental bool   `json:"experimental"`
-	Artifact     string `json:"artifact"`
 }
 
 // buildPlayMatrix emits one row per (build-host, platform, mode,

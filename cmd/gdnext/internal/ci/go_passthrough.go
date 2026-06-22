@@ -5,15 +5,21 @@ import (
 	"fmt"
 	"strings"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
+
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// GoPassthroughCommand exposes `gdnext ci go-passthrough`: confirm
-// gdnext forwards unknown verbs to the underlying go toolchain.
+// GoPassthroughCommand wires `gdnext ci go-passthrough`. Runtime
+// state lives on *GoPassthroughActions.
 type GoPassthroughCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
+
+// GoPassthroughActions carries the runtime state.
+type GoPassthroughActions struct{}
 
 // NewGoPassthroughCommand constructs the go-passthrough subcommand.
 func NewGoPassthroughCommand(di do.Injector) (*GoPassthroughCommand, error) {
@@ -21,12 +27,17 @@ func NewGoPassthroughCommand(di do.Injector) (*GoPassthroughCommand, error) {
 	t.Command = &cli.Command{
 		Name:   "go-passthrough",
 		Usage:  "confirm gdnext forwards unknown verbs to the underlying go toolchain",
-		Action: t.action,
+		Action: shared.BindAction(t.Injector, (*GoPassthroughActions).action),
 	}
 	return t, nil
 }
 
-func (t *GoPassthroughCommand) action(_ context.Context, _ *cli.Command) error {
+// NewGoPassthroughActions resolves the runtime state.
+func NewGoPassthroughActions(di do.Injector) (*GoPassthroughActions, error) {
+	return do.InvokeStruct[*GoPassthroughActions](di)
+}
+
+func (t *GoPassthroughActions) action(_ context.Context, _ *cli.Command) error {
 	if err := run("gdnext", "env", "GOVERSION"); err != nil {
 		return err
 	}

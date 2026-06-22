@@ -13,13 +13,23 @@ import (
 
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
+	"graphics.gd/cmd/gdnext/internal/shared"
 )
 
-// DocCommand exposes `gdnext doc`: go doc with //gd: tag lookup
-// against classdb.
+// DocCommand wires `gdnext doc`. Runtime state lives on *DocActions.
 type DocCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
+}
+
+// DocActions carries the runtime state for doc lookups.
+type DocActions struct {
 	ToolCatalog tooling.Catalog `do:""`
+}
+
+type gdDocMatch struct {
+	gdTag     string
+	goDocPath string
 }
 
 // NewDocCommand constructs the `gdnext doc` subcommand
@@ -30,12 +40,17 @@ func NewDocCommand(di do.Injector) (*DocCommand, error) {
 		Usage:           "go doc with //gd: tag lookup against classdb",
 		ArgsUsage:       "[symbol] [args...]",
 		SkipFlagParsing: true,
-		Action:          t.doc,
+		Action:          shared.BindAction(t.Injector, (*DocActions).doc),
 	}
 	return t, nil
 }
 
-func (t *DocCommand) doc(_ context.Context, cmd *cli.Command) error {
+// NewDocActions resolves the runtime state for doc.
+func NewDocActions(di do.Injector) (*DocActions, error) {
+	return do.InvokeStruct[*DocActions](di)
+}
+
+func (t *DocActions) doc(_ context.Context, cmd *cli.Command) error {
 	if helpRequested(cmd) {
 		return cli.ShowSubcommandHelp(cmd)
 	}
@@ -73,12 +88,7 @@ func (t *DocCommand) doc(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-type gdDocMatch struct {
-	gdTag     string
-	goDocPath string
-}
-
-func (t *DocCommand) findGdDocMatches(query string) ([]gdDocMatch, error) {
+func (t *DocActions) findGdDocMatches(query string) ([]gdDocMatch, error) {
 	goPath, err := t.ToolCatalog.Go.Lookup()
 	if err != nil {
 		return nil, err

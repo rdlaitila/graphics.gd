@@ -6,15 +6,21 @@ import (
 	"os"
 	"path/filepath"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
+
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// TestHeadlessCommand exposes `gdnext ci test-headless`: run
-// `gdnext test` against the staged example.
+// TestHeadlessCommand wires `gdnext ci test-headless`. Runtime state
+// lives on *TestHeadlessActions.
 type TestHeadlessCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
+
+// TestHeadlessActions carries the runtime state.
+type TestHeadlessActions struct{}
 
 // NewTestHeadlessCommand constructs the test-headless subcommand.
 func NewTestHeadlessCommand(di do.Injector) (*TestHeadlessCommand, error) {
@@ -25,12 +31,17 @@ func NewTestHeadlessCommand(di do.Injector) (*TestHeadlessCommand, error) {
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "scratch", Usage: "staged example directory to test in", Required: true},
 		},
-		Action: t.action,
+		Action: shared.BindAction(t.Injector, (*TestHeadlessActions).action),
 	}
 	return t, nil
 }
 
-func (t *TestHeadlessCommand) action(_ context.Context, cmd *cli.Command) error {
+// NewTestHeadlessActions resolves the runtime state.
+func NewTestHeadlessActions(di do.Injector) (*TestHeadlessActions, error) {
+	return do.InvokeStruct[*TestHeadlessActions](di)
+}
+
+func (t *TestHeadlessActions) action(_ context.Context, cmd *cli.Command) error {
 	scratch, err := filepath.Abs(cmd.String("scratch"))
 	if err != nil {
 		return err

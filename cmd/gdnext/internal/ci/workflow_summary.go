@@ -12,18 +12,67 @@ import (
 	"strings"
 	"time"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// WorkflowSummaryCommand exposes `gdnext ci workflow-summary`: fetches
-// the last N gdnext runs and renders a markdown report to stdout.
-// The workflow step pipes stdout into $GITHUB_STEP_SUMMARY.
+// WorkflowSummaryCommand wires `gdnext ci workflow-summary`. Runtime
+// state lives on *WorkflowSummaryActions. The workflow step pipes
+// stdout into $GITHUB_STEP_SUMMARY.
 type WorkflowSummaryCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
+
+// WorkflowSummaryActions carries the runtime state.
+type WorkflowSummaryActions struct{}
+
+// --- GitHub API DTOs -------------------------------------------------
+// Raw shapes returned by `gh api`. Network-only — domain code reads
+// from the typed model below, not these.
+
+type ghRun struct {
+	ID           int64     `json:"id"`
+	Number       int       `json:"run_number"`
+	Status       string    `json:"status"`
+	Conclusion   string    `json:"conclusion"`
+	HeadBranch   string    `json:"head_branch"`
+	HeadSHA      string    `json:"head_sha"`
+	DisplayTitle string    `json:"display_title"`
+	Event        string    `json:"event"`
+	CreatedAt    time.Time `json:"created_at"`
+	HTMLURL      string    `json:"html_url"`
+}
+
+type ghJob struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Status      string    `json:"status"`
+	Conclusion  string    `json:"conclusion"`
+	HTMLURL     string    `json:"html_url"`
+	StartedAt   time.Time `json:"started_at"`
+	CompletedAt time.Time `json:"completed_at"`
+	Steps       []ghStep  `json:"steps"`
+}
+
+type ghStep struct {
+	Name       string `json:"name"`
+	Number     int    `json:"number"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+}
+
+type runWithJobs struct {
+	Run  ghRun
+	Jobs []ghJob
+}
+
+// ghaTimestamp matches the ISO timestamp GHA prepends to every log
+// line; stripping it claws back ~30 columns.
+var ghaTimestamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s`)
 
 // NewWorkflowSummaryCommand constructs the workflow-summary subcommand.
 func NewWorkflowSummaryCommand(di do.Injector) (*WorkflowSummaryCommand, error) {
@@ -38,12 +87,17 @@ func NewWorkflowSummaryCommand(di do.Injector) (*WorkflowSummaryCommand, error) 
 			&cli.IntFlag{Name: "log-tail", Value: 60, Usage: "lines of log to tail per failed job in the latest run"},
 			&cli.StringFlag{Name: "branch", Usage: "limit to a single branch (e.g. gdnext-cli)"},
 		},
-		Action: t.action,
+		Action: shared.BindAction(t.Injector, (*WorkflowSummaryActions).action),
 	}
 	return t, nil
 }
 
-func (t *WorkflowSummaryCommand) action(_ context.Context, cmd *cli.Command) error {
+// NewWorkflowSummaryActions resolves the runtime state.
+func NewWorkflowSummaryActions(di do.Injector) (*WorkflowSummaryActions, error) {
+	return do.InvokeStruct[*WorkflowSummaryActions](di)
+}
+
+func (t *WorkflowSummaryActions) action(_ context.Context, cmd *cli.Command) error {
 	repo := cmd.String("repo")
 	workflow := cmd.String("workflow")
 	n := int(cmd.Int("runs"))
@@ -90,42 +144,6 @@ func (t *WorkflowSummaryCommand) action(_ context.Context, cmd *cli.Command) err
 // --- GitHub API DTOs -------------------------------------------------
 // Raw shapes returned by `gh api`. Network-only — domain code reads
 // from the typed model below, not these.
-
-type ghRun struct {
-	ID           int64     `json:"id"`
-	Number       int       `json:"run_number"`
-	Status       string    `json:"status"`
-	Conclusion   string    `json:"conclusion"`
-	HeadBranch   string    `json:"head_branch"`
-	HeadSHA      string    `json:"head_sha"`
-	DisplayTitle string    `json:"display_title"`
-	Event        string    `json:"event"`
-	CreatedAt    time.Time `json:"created_at"`
-	HTMLURL      string    `json:"html_url"`
-}
-
-type ghJob struct {
-	ID          int64     `json:"id"`
-	Name        string    `json:"name"`
-	Status      string    `json:"status"`
-	Conclusion  string    `json:"conclusion"`
-	HTMLURL     string    `json:"html_url"`
-	StartedAt   time.Time `json:"started_at"`
-	CompletedAt time.Time `json:"completed_at"`
-	Steps       []ghStep  `json:"steps"`
-}
-
-type ghStep struct {
-	Name       string `json:"name"`
-	Number     int    `json:"number"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-}
-
-type runWithJobs struct {
-	Run  ghRun
-	Jobs []ghJob
-}
 
 func fetchRuns(repo, workflow string, n int, branch string) ([]ghRun, error) {
 	args := []string{
@@ -190,10 +208,6 @@ func ghError(err error) error {
 	}
 	return err
 }
-
-// ghaTimestamp matches the ISO timestamp GHA prepends to every log
-// line; stripping it claws back ~30 columns.
-var ghaTimestamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s`)
 
 // tailLines returns the last n content lines of text with GHA
 // timestamps and group markers stripped.

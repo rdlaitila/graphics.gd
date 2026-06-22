@@ -5,6 +5,7 @@ unrelated files when making a change.
 
 - [graphics.gd style](#graphicsgd-style)
   - [Go](#go)
+    - [Order declarations top-down: types → vars → constructors → methods → helpers](#order-declarations-top-down-types--vars--constructors--methods--helpers)
     - [No spurious spacing in types or functions](#no-spurious-spacing-in-types-or-functions)
     - [Method receivers are always named `t`](#method-receivers-are-always-named-t)
     - [Don't over-comment](#dont-over-comment)
@@ -14,6 +15,101 @@ unrelated files when making a change.
 
 
 ## Go
+
+### Order declarations top-down: types → vars → constructors → methods → helpers
+
+A reader (human or agent) opening an unfamiliar `.go` file should be
+able to skim it once, top to bottom, and pick up the shape before the
+behaviour. Order declarations the way they're discovered:
+
+1. **Types** — the nouns of the file. Group related types together
+   (e.g. a `*XxxCommand` and its companion `*XxxActions`).
+2. **Package-level vars and consts** — fixed state and tables the
+   types and functions below operate on.
+3. **Constructors** — the `NewXxx` factories, one per type, in the
+   same order the types appear above.
+4. **Methods** — grouped by receiver type, with receivers appearing
+   in the same order as the type declarations. Within one receiver,
+   public methods before private; otherwise call order or logical
+   pairing (e.g. `Encode` next to `Decode`).
+5. **Unexported helpers** — package-level functions used by the
+   methods above. Last, so the load-bearing API stays at the top of
+   the file.
+
+Deviate when it actively helps the reader: a tiny helper used by
+exactly one function can sit immediately below that function; a
+cohesive trio (type + constructor + its two methods) can stay
+clustered even if it breaks the global ordering. The rule is a
+default, not a straitjacket.
+
+**Rationale:** the layout mirrors the dependency direction —
+constructors reference types, methods reference constructors and
+types, helpers reference everything. Reading top-down is reading in
+dependency order, so each declaration is fully defined by the time it
+appears. It also collapses the "where does Foo live?" search: types at
+the top, factories next, behaviour in the middle, plumbing at the
+bottom. Every file in the repo following the same shape compounds the
+benefit.
+
+**Avoid**
+
+```go
+func helperDecode(b []byte) string { /* ... */ }
+
+func (t *BuildActions) build(ctx context.Context, cmd *cli.Command) error {
+    /* ... */
+}
+
+func NewBuildActions(di do.Injector) (*BuildActions, error) {
+    return do.InvokeStruct[*BuildActions](di)
+}
+
+type BuildActions struct {
+    Injector do.Injector `do:""`
+}
+
+var defaultLDFlags = []string{"-s", "-w"}
+
+type BuildCommand struct {
+    *cli.Command
+    Injector do.Injector `do:""`
+}
+
+func NewBuildCommand(di do.Injector) (*BuildCommand, error) {
+    /* ... */
+}
+```
+
+**Prefer**
+
+```go
+// types
+type BuildCommand struct {
+    *cli.Command
+    Injector do.Injector `do:""`
+}
+
+type BuildActions struct {
+    Injector do.Injector `do:""`
+}
+
+// vars
+var defaultLDFlags = []string{"-s", "-w"}
+
+// constructors (types order)
+func NewBuildCommand(di do.Injector) (*BuildCommand, error) { /* ... */ }
+func NewBuildActions(di do.Injector) (*BuildActions, error) {
+    return do.InvokeStruct[*BuildActions](di)
+}
+
+// methods (receivers in types order)
+func (t *BuildActions) build(ctx context.Context, cmd *cli.Command) error {
+    /* ... */
+}
+
+// helpers
+func helperDecode(b []byte) string { /* ... */ }
+```
 
 ### No spurious spacing in types or functions
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
@@ -17,11 +18,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// PlatformCommand exposes `gdnext platform`: show the graphics.gd
-// platform / host / target matrix.
+// PlatformCommand wires `gdnext platform`. Runtime state lives on
+// *PlatformActions.
 type PlatformCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
+
+// PlatformActions carries the runtime state.
+type PlatformActions struct{}
 
 // NewPlatformCommand constructs the `gdnext platform` subcommand
 func NewPlatformCommand(di do.Injector) (*PlatformCommand, error) {
@@ -51,12 +56,17 @@ func NewPlatformCommand(di do.Injector) (*PlatformCommand, error) {
 				Usage:   "render one field per line per row (useful when the table is too wide)",
 			},
 		},
-		Action: t.platform,
+		Action: shared.BindAction(t.Injector, (*PlatformActions).platform),
 	}
 	return t, nil
 }
 
-func (t *PlatformCommand) platform(_ context.Context, cmd *cli.Command) error {
+// NewPlatformActions resolves the runtime state for platform.
+func NewPlatformActions(di do.Injector) (*PlatformActions, error) {
+	return do.InvokeStruct[*PlatformActions](di)
+}
+
+func (t *PlatformActions) platform(_ context.Context, cmd *cli.Command) error {
 	format := strings.ToLower(cmd.String("format"))
 	vertical := cmd.Bool("vertical")
 	hostsOnly := cmd.Bool("hosts")

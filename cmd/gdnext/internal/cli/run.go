@@ -6,21 +6,22 @@ import (
 
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/setup"
-	"graphics.gd/cmd/gdnext/internal/tooling"
-	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"github.com/urfave/cli/v3"
 	"runtime.link/api/xray"
 )
 
-// RunCommand exposes `gdnext run`: build the project as a shared
-// library and launch it via Godot (or adb / web server).
+// RunCommand wires `gdnext run`. Runtime state lives on *RunActions.
 type RunCommand struct {
 	*cli.Command
-	Injector    do.Injector      `do:""`
-	BuildEnv    product.BuildEnv `do:""`
-	ToolCatalog tooling.Catalog  `do:""`
+	Injector do.Injector `do:""`
+}
+
+// RunActions carries the runtime state.
+type RunActions struct {
+	Injector do.Injector `do:""`
 }
 
 // NewRunCommand constructs the `gdnext run` subcommand
@@ -31,12 +32,17 @@ func NewRunCommand(di do.Injector) (*RunCommand, error) {
 		Usage:           "build the project as a shared library and launch it via Godot (or adb / web server)",
 		ArgsUsage:       "[-- go-build-flags...]",
 		SkipFlagParsing: true,
-		Action:          t.run,
+		Action:          shared.BindAction(t.Injector, (*RunActions).run),
 	}
 	return t, nil
 }
 
-func (t *RunCommand) run(_ context.Context, cmd *cli.Command) error {
+// NewRunActions resolves the runtime state for run.
+func NewRunActions(di do.Injector) (*RunActions, error) {
+	return do.InvokeStruct[*RunActions](di)
+}
+
+func (t *RunActions) run(_ context.Context, cmd *cli.Command) error {
 	if helpRequested(cmd) {
 		return cli.ShowSubcommandHelp(cmd)
 	}

@@ -13,14 +13,20 @@ import (
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )
 
-// ToolchainCommand exposes `gdnext toolchain`: manage the external
-// programs gdnext drives.
+// ToolchainCommand wires `gdnext toolchain`. Runtime state lives on
+// *ToolchainActions.
 type ToolchainCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
+}
+
+// ToolchainActions carries the runtime state.
+type ToolchainActions struct {
 	BuildEnv    product.BuildEnv `do:""`
 	ToolCatalog tooling.Catalog  `do:""`
 }
@@ -35,13 +41,13 @@ func NewToolchainCommand(di do.Injector) (*ToolchainCommand, error) {
 			{
 				Name:   "list",
 				Usage:  "list every toolchain gdnext can manage",
-				Action: t.list,
+				Action: shared.BindAction(t.Injector, (*ToolchainActions).list),
 			},
 			{
 				Name:      "path",
 				Usage:     "print the absolute install path of a toolchain (lookup only, no download)",
 				ArgsUsage: "<name>",
-				Action:    t.path,
+				Action:    shared.BindAction(t.Injector, (*ToolchainActions).path),
 			},
 			{
 				Name:      "install",
@@ -53,7 +59,7 @@ func NewToolchainCommand(di do.Injector) (*ToolchainCommand, error) {
 						Usage: "skip product.Toolchain.KnownChecksums verification after download (sets GDNEXT_SKIP_CHECKSUM=1)",
 					},
 				},
-				Action: t.install,
+				Action: shared.BindAction(t.Injector, (*ToolchainActions).install),
 			},
 			{
 				Name:  "doctor",
@@ -74,14 +80,19 @@ func NewToolchainCommand(di do.Injector) (*ToolchainCommand, error) {
 						Usage:   "output format: table | json | yaml | xml",
 					},
 				},
-				Action: t.doctor,
+				Action: shared.BindAction(t.Injector, (*ToolchainActions).doctor),
 			},
 		},
 	}
 	return t, nil
 }
 
-func (t *ToolchainCommand) list(_ context.Context, _ *cli.Command) error {
+// NewToolchainActions resolves the runtime state for toolchain.
+func NewToolchainActions(di do.Injector) (*ToolchainActions, error) {
+	return do.InvokeStruct[*ToolchainActions](di)
+}
+
+func (t *ToolchainActions) list(_ context.Context, _ *cli.Command) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer tw.Flush()
 	fmt.Fprintln(tw, "NAME\tVERSION\tPURPOSE\tINSTALLABLE HOSTS")
@@ -95,7 +106,7 @@ func (t *ToolchainCommand) list(_ context.Context, _ *cli.Command) error {
 	return nil
 }
 
-func (t *ToolchainCommand) path(_ context.Context, cmd *cli.Command) error {
+func (t *ToolchainActions) path(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() != 1 {
 		return fmt.Errorf("usage: gdnext toolchain path <name>")
 	}
@@ -113,7 +124,7 @@ func (t *ToolchainCommand) path(_ context.Context, cmd *cli.Command) error {
 
 // install installs one named toolchain, or every tool needed by any
 // target the current host can build.
-func (t *ToolchainCommand) install(_ context.Context, cmd *cli.Command) error {
+func (t *ToolchainActions) install(_ context.Context, cmd *cli.Command) error {
 	if cmd.Bool("skip-checksum") {
 		os.Setenv("GDNEXT_SKIP_CHECKSUM", "1")
 	}
@@ -149,7 +160,7 @@ func (t *ToolchainCommand) install(_ context.Context, cmd *cli.Command) error {
 
 // doctor renders the per-target install status for every tool host can
 // build a target with. With --fix runs install and re-renders.
-func (t *ToolchainCommand) doctor(_ context.Context, cmd *cli.Command) error {
+func (t *ToolchainActions) doctor(_ context.Context, cmd *cli.Command) error {
 	if cmd.Bool("skip-checksum") {
 		os.Setenv("GDNEXT_SKIP_CHECKSUM", "1")
 	}

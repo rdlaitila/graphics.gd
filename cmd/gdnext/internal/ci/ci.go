@@ -20,6 +20,7 @@ import (
 // structs registered in Provides.
 type CICommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
 
 // Provides is the package-level provider set for every CI verb plus
@@ -28,18 +29,31 @@ type CICommand struct {
 var Provides = do.Package(
 	do.Lazy(NewCICommand),
 	do.Lazy(NewBuildTargetCommand),
+	do.Lazy(NewBuildTargetActions),
 	do.Lazy(NewBuildVetTestCommand),
+	do.Lazy(NewBuildVetTestActions),
 	do.Lazy(NewDiagnosticVerbsCommand),
+	do.Lazy(NewDiagnosticVerbsActions),
 	do.Lazy(NewGoPassthroughCommand),
+	do.Lazy(NewGoPassthroughActions),
 	do.Lazy(NewHelpTextCommand),
+	do.Lazy(NewHelpTextActions),
 	do.Lazy(NewMatrixCommand),
+	do.Lazy(NewMatrixActions),
 	do.Lazy(NewPlayCellCommand),
+	do.Lazy(NewPlayCellActions),
 	do.Lazy(NewPlayMatrixCommand),
+	do.Lazy(NewPlayMatrixActions),
 	do.Lazy(NewShortFlagRewriteCommand),
+	do.Lazy(NewShortFlagRewriteActions),
 	do.Lazy(NewStageExampleCommand),
+	do.Lazy(NewStageExampleActions),
 	do.Lazy(NewTestHeadlessCommand),
+	do.Lazy(NewTestHeadlessActions),
 	do.Lazy(NewToolchainInstallCommand),
+	do.Lazy(NewToolchainInstallActions),
 	do.Lazy(NewWorkflowSummaryCommand),
+	do.Lazy(NewWorkflowSummaryActions),
 )
 
 // NewCICommand constructs the `gdnext ci` subcommand tree.

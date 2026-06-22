@@ -21,6 +21,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 	"graphics.gd/cmd/gdnext/internal/refactor/eg"
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/variant/String"
 	"runtime.link/api/xray"
 
@@ -28,16 +29,19 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-//go:embed deprecated.txt
-var fixes string
-
-// FixCommand exposes `gdnext fix`: rewrite Go source code in the
-// current module to migrate uses of deprecated graphics.gd symbols
-// to their replacements via golang.org/x/tools/refactor/eg example-
-// based transforms.
+// FixCommand wires `gdnext fix`. Runtime state lives on *FixActions.
 type FixCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
+
+// FixActions carries the runtime state.
+type FixActions struct{}
+
+type pkgsImporter []*packages.Package
+
+//go:embed deprecated.txt
+var fixes string
 
 // NewFixCommand constructs the `gdnext fix` subcommand
 func NewFixCommand(di do.Injector) (*FixCommand, error) {
@@ -45,13 +49,18 @@ func NewFixCommand(di do.Injector) (*FixCommand, error) {
 	t.Command = &cli.Command{
 		Name:   "fix",
 		Usage:  "rewrite code to migrate from deprecated graphics.gd APIs",
-		Action: t.fix,
+		Action: shared.BindAction(t.Injector, (*FixActions).fix),
 	}
 	return t, nil
 }
 
+// NewFixActions resolves the runtime state for fix.
+func NewFixActions(di do.Injector) (*FixActions, error) {
+	return do.InvokeStruct[*FixActions](di)
+}
+
 // fix runs the eg transformer over every package in the current module.
-func (t *FixCommand) fix(_ context.Context, _ *cli.Command) error {
+func (t *FixActions) fix(_ context.Context, _ *cli.Command) error {
 	cfg := &packages.Config{
 		Fset:  token.NewFileSet(),
 		Mode:  packages.NeedName | packages.NeedTypes | packages.NeedSyntax | packages.NeedImports | packages.NeedDeps | packages.NeedCompiledGoFiles,
@@ -135,8 +144,6 @@ func fixHint(undefined []string) {
 		}
 	}
 }
-
-type pkgsImporter []*packages.Package
 
 func (p pkgsImporter) Import(path string) (tpkg *types.Package, err error) {
 	packages.Visit([]*packages.Package(p), func(pkg *packages.Package) bool {

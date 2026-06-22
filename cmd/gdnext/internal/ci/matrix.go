@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
@@ -29,13 +30,26 @@ var gha = []struct {
 // Keyed by "goos/goarch".
 var excludedTargets = map[string]string{}
 
-// MatrixCommand exposes `gdnext ci matrix`: emit a GHA strategy.matrix
-// JSON document with one include: entry per (host, target) pair that
-// the workflow should actually run. The build matrix consumes it via
-// fromJSON, so adding a row to product.PlatformMatrix lands in CI with
-// zero workflow edits.
+// MatrixCommand wires `gdnext ci matrix`. Runtime state lives on
+// *MatrixActions. The build matrix consumes the emitted JSON via
+// fromJSON, so adding a row to product.PlatformMatrix lands in CI
+// with zero workflow edits.
 type MatrixCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
+}
+
+// MatrixActions carries the runtime state.
+type MatrixActions struct{}
+
+type matrixRow struct {
+	OS           string `json:"os"`
+	Example      string `json:"example"`
+	Target       string `json:"target"`
+	Link         string `json:"link,omitempty"`
+	Experimental bool   `json:"experimental"`
+	Playable     bool   `json:"playable"`
+	Artifact     string `json:"artifact,omitempty"`
 }
 
 // NewMatrixCommand constructs the matrix subcommand.
@@ -55,12 +69,17 @@ func NewMatrixCommand(di do.Injector) (*MatrixCommand, error) {
 				Usage: "also print a human-readable matrix to stderr",
 			},
 		},
-		Action: t.action,
+		Action: shared.BindAction(t.Injector, (*MatrixActions).action),
 	}
 	return t, nil
 }
 
-func (t *MatrixCommand) action(_ context.Context, cmd *cli.Command) error {
+// NewMatrixActions resolves the runtime state.
+func NewMatrixActions(di do.Injector) (*MatrixActions, error) {
+	return do.InvokeStruct[*MatrixActions](di)
+}
+
+func (t *MatrixActions) action(_ context.Context, cmd *cli.Command) error {
 	examples := cmd.StringSlice("example")
 	rows := buildMatrix(examples)
 	doc := struct {
@@ -86,16 +105,6 @@ func (t *MatrixCommand) action(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 	return nil
-}
-
-type matrixRow struct {
-	OS           string `json:"os"`
-	Example      string `json:"example"`
-	Target       string `json:"target"`
-	Link         string `json:"link,omitempty"`
-	Experimental bool   `json:"experimental"`
-	Playable     bool   `json:"playable"`
-	Artifact     string `json:"artifact,omitempty"`
 }
 
 // buildMatrix emits one include: row per (host, platform, linkMode,

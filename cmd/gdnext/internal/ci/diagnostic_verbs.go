@@ -7,19 +7,23 @@ import (
 	"path/filepath"
 	"strings"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// DiagnosticVerbsCommand exposes `gdnext ci diagnostic-verbs`: verify
-// the diagnostic verbs that must work without any toolchain installed.
-// Must run BEFORE toolchain-install so the no-download invariant on
+// DiagnosticVerbsCommand wires `gdnext ci diagnostic-verbs`. Must run
+// BEFORE toolchain-install so the no-download invariant on
 // `gdnext toolchain doctor` is meaningful (the $GDPATH is still empty).
 type DiagnosticVerbsCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
+
+// DiagnosticVerbsActions carries the runtime state.
+type DiagnosticVerbsActions struct{}
 
 // NewDiagnosticVerbsCommand constructs the diagnostic-verbs subcommand.
 func NewDiagnosticVerbsCommand(di do.Injector) (*DiagnosticVerbsCommand, error) {
@@ -27,12 +31,17 @@ func NewDiagnosticVerbsCommand(di do.Injector) (*DiagnosticVerbsCommand, error) 
 	t.Command = &cli.Command{
 		Name:   "diagnostic-verbs",
 		Usage:  "verify the diagnostic verbs that must work without any toolchain installed",
-		Action: t.action,
+		Action: shared.BindAction(t.Injector, (*DiagnosticVerbsActions).action),
 	}
 	return t, nil
 }
 
-func (t *DiagnosticVerbsCommand) action(_ context.Context, _ *cli.Command) error {
+// NewDiagnosticVerbsActions resolves the runtime state.
+func NewDiagnosticVerbsActions(di do.Injector) (*DiagnosticVerbsActions, error) {
+	return do.InvokeStruct[*DiagnosticVerbsActions](di)
+}
+
+func (t *DiagnosticVerbsActions) action(_ context.Context, _ *cli.Command) error {
 	if err := run("gdnext", "version"); err != nil {
 		return err
 	}

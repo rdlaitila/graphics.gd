@@ -6,16 +6,21 @@ import (
 	"os"
 	"path/filepath"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
+
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// StageExampleCommand exposes `gdnext ci stage-example`: stage
-// examples/<name>/ into an empty scratch dir, rewriting graphics.gd
-// to the local checkout.
+// StageExampleCommand wires `gdnext ci stage-example`. Runtime state
+// lives on *StageExampleActions.
 type StageExampleCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
+
+// StageExampleActions carries the runtime state.
+type StageExampleActions struct{}
 
 // NewStageExampleCommand constructs the stage-example subcommand.
 func NewStageExampleCommand(di do.Injector) (*StageExampleCommand, error) {
@@ -28,12 +33,17 @@ func NewStageExampleCommand(di do.Injector) (*StageExampleCommand, error) {
 			&cli.StringFlag{Name: "scratch", Usage: "empty target directory to stage into", Required: true},
 			&cli.StringFlag{Name: "root", Usage: "path to the graphics.gd checkout (overrides env)"},
 		},
-		Action: t.action,
+		Action: shared.BindAction(t.Injector, (*StageExampleActions).action),
 	}
 	return t, nil
 }
 
-func (t *StageExampleCommand) action(_ context.Context, cmd *cli.Command) error {
+// NewStageExampleActions resolves the runtime state.
+func NewStageExampleActions(di do.Injector) (*StageExampleActions, error) {
+	return do.InvokeStruct[*StageExampleActions](di)
+}
+
+func (t *StageExampleActions) action(_ context.Context, cmd *cli.Command) error {
 	name := cmd.String("example")
 	target := cmd.String("scratch")
 

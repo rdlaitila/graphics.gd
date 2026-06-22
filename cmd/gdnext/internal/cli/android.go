@@ -11,12 +11,19 @@ import (
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"github.com/urfave/cli/v3"
 )
 
-// AndroidCommand wraps the urfave Command with any Android-specific helpers or context needed by gdnext.
+// AndroidCommand wires `gdnext android`. Runtime state lives on
+// *AndroidActions.
 type AndroidCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
+}
+
+// AndroidActions carries the runtime state.
+type AndroidActions struct {
 	ToolCatalog tooling.Catalog  `do:""`
 	BuildEnv    product.BuildEnv `do:""`
 }
@@ -33,13 +40,13 @@ func NewAndroidCommand(di do.Injector) (*AndroidCommand, error) {
 				Usage:           "raw passthrough to the bundled adb binary",
 				ArgsUsage:       "[adb-args...]",
 				SkipFlagParsing: true,
-				Action:          t.androidAdb,
+				Action:          shared.BindAction(t.Injector, (*AndroidActions).androidAdb),
 			},
 			{
 				Name:      "install",
 				Usage:     "adb install the supplied APK",
 				ArgsUsage: "<path-to-apk>",
-				Action:    t.androidInstall,
+				Action:    shared.BindAction(t.Injector, (*AndroidActions).androidInstall),
 			},
 			{
 				Name:  "logcat",
@@ -50,7 +57,7 @@ func NewAndroidCommand(di do.Injector) (*AndroidCommand, error) {
 						Usage: "filter to the pid of the named package (uses adb shell pidof)",
 					},
 				},
-				Action: t.androidLogcat,
+				Action: shared.BindAction(t.Injector, (*AndroidActions).androidLogcat),
 			},
 			{
 				Name:  "apk",
@@ -61,19 +68,19 @@ func NewAndroidCommand(di do.Injector) (*AndroidCommand, error) {
 						Usage:           "apksigner v1 + v2 sign of the supplied apk",
 						ArgsUsage:       "<apk> [extra apksigner flags]",
 						SkipFlagParsing: true,
-						Action:          t.androidApkSign,
+						Action:          shared.BindAction(t.Injector, (*AndroidActions).androidApkSign),
 					},
 					{
 						Name:      "verify",
 						Usage:     "apksigner verify",
 						ArgsUsage: "<apk>",
-						Action:    t.androidApkVerify,
+						Action:    shared.BindAction(t.Injector, (*AndroidActions).androidApkVerify),
 					},
 					{
 						Name:      "packagename",
 						Usage:     "print the package name of an apk via aapt2 dump packagename",
 						ArgsUsage: "<apk>",
-						Action:    t.androidApkPackagename,
+						Action:    shared.BindAction(t.Injector, (*AndroidActions).androidApkPackagename),
 					},
 				},
 			},
@@ -84,7 +91,7 @@ func NewAndroidCommand(di do.Injector) (*AndroidCommand, error) {
 					{
 						Name:   "show",
 						Usage:  "print the debug.keystore path that gdnext build/run uses",
-						Action: t.androidKeystoreShow,
+						Action: shared.BindAction(t.Injector, (*AndroidActions).androidKeystoreShow),
 					},
 				},
 			},
@@ -93,13 +100,18 @@ func NewAndroidCommand(di do.Injector) (*AndroidCommand, error) {
 	return t, nil
 }
 
+// NewAndroidActions resolves the runtime state for android.
+func NewAndroidActions(di do.Injector) (*AndroidActions, error) {
+	return do.InvokeStruct[*AndroidActions](di)
+}
+
 // androidAdb is the action handler for the `gdnext android adb` subcommand
-func (t *AndroidCommand) androidAdb(_ context.Context, cmd *cli.Command) error {
+func (t *AndroidActions) androidAdb(_ context.Context, cmd *cli.Command) error {
 	return t.ToolCatalog.AndroidDebugBridge.Exec(cmd.Args().Slice()...)
 }
 
 // androidInstall is the action handler for the `gdnext android install` subcommand
-func (t *AndroidCommand) androidInstall(_ context.Context, cmd *cli.Command) error {
+func (t *AndroidActions) androidInstall(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() != 1 {
 		return fmt.Errorf("usage: gdnext android install <apk>")
 	}
@@ -107,7 +119,7 @@ func (t *AndroidCommand) androidInstall(_ context.Context, cmd *cli.Command) err
 }
 
 // androidLogcat is the action handler for the `gdnext android logcat` subcommand
-func (t *AndroidCommand) androidLogcat(_ context.Context, cmd *cli.Command) error {
+func (t *AndroidActions) androidLogcat(_ context.Context, cmd *cli.Command) error {
 	adb, err := t.ToolCatalog.AndroidDebugBridge.Lookup()
 	if err != nil {
 		return err
@@ -128,7 +140,7 @@ func (t *AndroidCommand) androidLogcat(_ context.Context, cmd *cli.Command) erro
 }
 
 // androidApkSign is the action handler for the `gdnext android apk sign` subcommand
-func (t *AndroidCommand) androidApkSign(_ context.Context, cmd *cli.Command) error {
+func (t *AndroidActions) androidApkSign(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() == 0 {
 		return fmt.Errorf("usage: gdnext android apk sign <apk> [flags]")
 	}
@@ -137,7 +149,7 @@ func (t *AndroidCommand) androidApkSign(_ context.Context, cmd *cli.Command) err
 }
 
 // androidApkVerify is the action handler for the `gdnext android apk verify` subcommand
-func (t *AndroidCommand) androidApkVerify(_ context.Context, cmd *cli.Command) error {
+func (t *AndroidActions) androidApkVerify(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() != 1 {
 		return fmt.Errorf("usage: gdnext android apk verify <apk>")
 	}
@@ -145,7 +157,7 @@ func (t *AndroidCommand) androidApkVerify(_ context.Context, cmd *cli.Command) e
 }
 
 // androidApkPackagename is the action handler for the `gdnext android apk packagename` subcommand
-func (t *AndroidCommand) androidApkPackagename(_ context.Context, cmd *cli.Command) error {
+func (t *AndroidActions) androidApkPackagename(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() != 1 {
 		return fmt.Errorf("usage: gdnext android apk packagename <apk>")
 	}
@@ -153,7 +165,7 @@ func (t *AndroidCommand) androidApkPackagename(_ context.Context, cmd *cli.Comma
 }
 
 // androidKeystoreShow is the action handler for the `gdnext android keystore show` subcommand
-func (t *AndroidCommand) androidKeystoreShow(_ context.Context, _ *cli.Command) error {
+func (t *AndroidActions) androidKeystoreShow(_ context.Context, _ *cli.Command) error {
 	p, err := androidKeystorePath(t.BuildEnv.Host)
 	if err != nil {
 		return err

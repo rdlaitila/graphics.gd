@@ -6,20 +6,22 @@ import (
 	"os"
 	"path/filepath"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// BuildTargetCommand exposes `gdnext ci build-target`: the heaviest
-// of the verbs. Runs `gdnext build` for one (GOOS, GOARCH) pair
-// against the staged example, asserts the produced shared library +
-// the distributable bundle landed on disk, and on android additionally
-// exercises apksigner.
+// BuildTargetCommand wires `gdnext ci build-target`. Runtime state
+// lives on *BuildTargetActions.
 type BuildTargetCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
+
+// BuildTargetActions carries the runtime state.
+type BuildTargetActions struct{}
 
 // NewBuildTargetCommand constructs the build-target subcommand.
 func NewBuildTargetCommand(di do.Injector) (*BuildTargetCommand, error) {
@@ -33,12 +35,17 @@ func NewBuildTargetCommand(di do.Injector) (*BuildTargetCommand, error) {
 			&cli.StringFlag{Name: "link", Usage: "link mode (gdextension|libgodot); blank = platform default"},
 			&cli.StringFlag{Name: "scratch", Usage: "staged example directory to build in", Required: true},
 		},
-		Action: t.action,
+		Action: shared.BindAction(t.Injector, (*BuildTargetActions).action),
 	}
 	return t, nil
 }
 
-func (t *BuildTargetCommand) action(ctx context.Context, cmd *cli.Command) error {
+// NewBuildTargetActions resolves the runtime state.
+func NewBuildTargetActions(di do.Injector) (*BuildTargetActions, error) {
+	return do.InvokeStruct[*BuildTargetActions](di)
+}
+
+func (t *BuildTargetActions) action(ctx context.Context, cmd *cli.Command) error {
 	goos := cmd.String("goos")
 	goarch := cmd.String("goarch")
 	link := cmd.String("link")

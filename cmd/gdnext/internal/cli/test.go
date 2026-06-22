@@ -6,20 +6,21 @@ import (
 
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/setup"
-	"graphics.gd/cmd/gdnext/internal/tooling"
-	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"github.com/urfave/cli/v3"
 )
 
-// TestCommand exposes `gdnext test`: cross-compile and run go tests
-// inside the Godot runtime.
+// TestCommand wires `gdnext test`. Runtime state lives on *TestActions.
 type TestCommand struct {
 	*cli.Command
-	Injector    do.Injector      `do:""`
-	BuildEnv    product.BuildEnv `do:""`
-	ToolCatalog tooling.Catalog  `do:""`
+	Injector do.Injector `do:""`
+}
+
+// TestActions carries the runtime state.
+type TestActions struct {
+	Injector do.Injector `do:""`
 }
 
 // NewTestCommand constructs the `gdnext test` subcommand
@@ -30,12 +31,17 @@ func NewTestCommand(di do.Injector) (*TestCommand, error) {
 		Usage:           "cross-compile and run go tests inside the Godot runtime",
 		ArgsUsage:       "[-- go-test-flags...]",
 		SkipFlagParsing: true,
-		Action:          t.test,
+		Action:          shared.BindAction(t.Injector, (*TestActions).test),
 	}
 	return t, nil
 }
 
-func (t *TestCommand) test(_ context.Context, cmd *cli.Command) error {
+// NewTestActions resolves the runtime state for test.
+func NewTestActions(di do.Injector) (*TestActions, error) {
+	return do.InvokeStruct[*TestActions](di)
+}
+
+func (t *TestActions) test(_ context.Context, cmd *cli.Command) error {
 	if helpRequested(cmd) {
 		return cli.ShowSubcommandHelp(cmd)
 	}

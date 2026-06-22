@@ -7,12 +7,19 @@ import (
 	"graphics.gd/cmd/gdnext/internal/builder"
 
 	"github.com/samber/do/v2"
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"github.com/urfave/cli/v3"
 )
 
-// MuslCommand exposes `gdnext musl`: static-musl Linux build helpers.
+// MuslCommand wires `gdnext musl`. Runtime state lives on *MuslActions.
 type MuslCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
+}
+
+// MuslActions carries the runtime state (the *builder.Musl is resolved
+// post-Before so we get a fresh BuildEnv).
+type MuslActions struct {
 	Musl *builder.Musl `do:""`
 }
 
@@ -26,23 +33,28 @@ func NewMuslCommand(di do.Injector) (*MuslCommand, error) {
 			{
 				Name:   "setup",
 				Usage:  "stage the musl build environment by invoking builder.Musl.Build",
-				Action: t.setup,
+				Action: shared.BindAction(t.Injector, (*MuslActions).setup),
 			},
 			{
 				Name:   "patch-malloc",
 				Usage:  "TODO: extract the deterministic malloc.c patch from builder.Musl",
-				Action: t.patchMalloc,
+				Action: shared.BindAction(t.Injector, (*MuslActions).patchMalloc),
 			},
 		},
 	}
 	return t, nil
 }
 
-func (t *MuslCommand) setup(_ context.Context, _ *cli.Command) error {
+// NewMuslActions resolves the runtime state for musl.
+func NewMuslActions(di do.Injector) (*MuslActions, error) {
+	return do.InvokeStruct[*MuslActions](di)
+}
+
+func (t *MuslActions) setup(_ context.Context, _ *cli.Command) error {
 	return t.Musl.Build()
 }
 
-func (t *MuslCommand) patchMalloc(_ context.Context, _ *cli.Command) error {
+func (t *MuslActions) patchMalloc(_ context.Context, _ *cli.Command) error {
 	fmt.Println("`gdnext musl patch-malloc` is queued for a future builder/musl.go refactor.")
 	return nil
 }

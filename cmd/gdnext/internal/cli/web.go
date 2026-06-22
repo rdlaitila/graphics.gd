@@ -11,14 +11,19 @@ import (
 	"graphics.gd/cmd/gdnext/internal/tooling"
 
 	"github.com/samber/do/v2"
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"github.com/urfave/cli/v3"
 	"runtime.link/api/xray"
 )
 
-// WebCommand exposes `gdnext web`: WebAssembly serving and template
-// helpers.
+// WebCommand wires `gdnext web`. Runtime state lives on *WebActions.
 type WebCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
+}
+
+// WebActions carries the runtime state for the wasm dev server.
+type WebActions struct {
 	ToolCatalog tooling.Catalog `do:""`
 }
 
@@ -41,14 +46,19 @@ func NewWebCommand(di do.Injector) (*WebCommand, error) {
 						Sources: cli.EnvVars("PORT"),
 					},
 				},
-				Action: t.serve,
+				Action: shared.BindAction(t.Injector, (*WebActions).serve),
 			},
 		},
 	}
 	return t, nil
 }
 
-func (t *WebCommand) serve(_ context.Context, cmd *cli.Command) error {
+// NewWebActions resolves the runtime state for web.
+func NewWebActions(di do.Injector) (*WebActions, error) {
+	return do.InvokeStruct[*WebActions](di)
+}
+
+func (t *WebActions) serve(_ context.Context, cmd *cli.Command) error {
 	if err := project.Setup(t.ToolCatalog, func() error { return nil }); err != nil {
 		return err
 	}

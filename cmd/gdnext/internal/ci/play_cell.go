@@ -11,18 +11,31 @@ import (
 	"strings"
 	"time"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// PlayCellCommand exposes `gdnext ci play-cell`: launch the produced
-// binary headlessly with the canarybird play-bot enabled and assert
-// the resulting report.
+// PlayCellCommand wires `gdnext ci play-cell`. Runtime state lives
+// on *PlayCellActions.
 type PlayCellCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
+
+// PlayCellActions carries the runtime state.
+type PlayCellActions struct{}
+
+type playReport struct {
+	Score   int     `json:"score"`
+	Flaps   int     `json:"flaps"`
+	Elapsed float64 `json:"elapsed"`
+	Crashed bool    `json:"crashed"`
+}
+
+type target struct{ GOOS, GOARCH string }
 
 // NewPlayCellCommand constructs the play-cell subcommand.
 func NewPlayCellCommand(di do.Injector) (*PlayCellCommand, error) {
@@ -38,19 +51,17 @@ func NewPlayCellCommand(di do.Injector) (*PlayCellCommand, error) {
 			&cli.DurationFlag{Name: "timeout", Value: 90 * time.Second, Usage: "hard kill after this much wall-clock time"},
 			&cli.IntFlag{Name: "min-score", Value: 1, Usage: "minimum score for a passing report"},
 		},
-		Action: t.action,
+		Action: shared.BindAction(t.Injector, (*PlayCellActions).action),
 	}
 	return t, nil
 }
 
-type playReport struct {
-	Score   int     `json:"score"`
-	Flaps   int     `json:"flaps"`
-	Elapsed float64 `json:"elapsed"`
-	Crashed bool    `json:"crashed"`
+// NewPlayCellActions resolves the runtime state.
+func NewPlayCellActions(di do.Injector) (*PlayCellActions, error) {
+	return do.InvokeStruct[*PlayCellActions](di)
 }
 
-func (t *PlayCellCommand) action(_ context.Context, cmd *cli.Command) error {
+func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	scratch, err := filepath.Abs(cmd.String("scratch"))
 	if err != nil {
 		return err
@@ -190,8 +201,6 @@ func readReport(path string) (playReport, error) {
 	}
 	return r, nil
 }
-
-type target struct{ GOOS, GOARCH string }
 
 func parseTuple(s string) (target, bool) {
 	slash := strings.IndexByte(s, '/')

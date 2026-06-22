@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
@@ -33,11 +34,15 @@ var optionalInstall = map[string]bool{
 	"vpk": true,
 }
 
-// ToolchainInstallCommand exposes `gdnext ci toolchain-install`:
-// smoke-test `gdnext toolchain install` and its path round-trip.
+// ToolchainInstallCommand wires `gdnext ci toolchain-install`.
+// Runtime state lives on *ToolchainInstallActions.
 type ToolchainInstallCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
+
+// ToolchainInstallActions carries the runtime state.
+type ToolchainInstallActions struct{}
 
 // NewToolchainInstallCommand constructs the toolchain-install subcommand.
 func NewToolchainInstallCommand(di do.Injector) (*ToolchainInstallCommand, error) {
@@ -45,12 +50,17 @@ func NewToolchainInstallCommand(di do.Injector) (*ToolchainInstallCommand, error
 	t.Command = &cli.Command{
 		Name:   "toolchain-install",
 		Usage:  "smoke-test `gdnext toolchain install` and its path round-trip",
-		Action: t.action,
+		Action: shared.BindAction(t.Injector, (*ToolchainInstallActions).action),
 	}
 	return t, nil
 }
 
-func (t *ToolchainInstallCommand) action(_ context.Context, _ *cli.Command) error {
+// NewToolchainInstallActions resolves the runtime state.
+func NewToolchainInstallActions(di do.Injector) (*ToolchainInstallActions, error) {
+	return do.InvokeStruct[*ToolchainInstallActions](di)
+}
+
+func (t *ToolchainInstallActions) action(_ context.Context, _ *cli.Command) error {
 	// Phase 1 — argless walk. The announce banner from run()
 	// labels the command itself; no extra header needed.
 	if err := run("gdnext", "toolchain", "install"); err != nil {

@@ -9,12 +9,18 @@ import (
 
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
+	"graphics.gd/cmd/gdnext/internal/shared"
 )
 
-// VersionCommand exposes `gdnext version`: print gdnext, go, and
-// godot versions.
+// VersionCommand wires `gdnext version`. Runtime state lives on
+// *VersionActions.
 type VersionCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
+}
+
+// VersionActions carries the runtime state.
+type VersionActions struct {
 	ToolCatalog tooling.Catalog `do:""`
 }
 
@@ -24,22 +30,17 @@ func NewVersionCommand(di do.Injector) (*VersionCommand, error) {
 	t.Command = &cli.Command{
 		Name:   "version",
 		Usage:  "print gdnext, go, and godot versions",
-		Action: t.versionAction,
+		Action: shared.BindAction(t.Injector, (*VersionActions).versionAction),
 	}
 	return t, nil
 }
 
-// version returns the gdnext binary's own module version, falling back
-// to "(devel)" when invoked from a non-vendored build. Kept package-
-// scope so RootCommand can read it without resolving VersionCommand.
-func version() string {
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		return info.Main.Version
-	}
-	return "(devel)"
+// NewVersionActions resolves the runtime state for version.
+func NewVersionActions(di do.Injector) (*VersionActions, error) {
+	return do.InvokeStruct[*VersionActions](di)
 }
 
-func (t *VersionCommand) versionAction(_ context.Context, _ *cli.Command) error {
+func (t *VersionActions) versionAction(_ context.Context, _ *cli.Command) error {
 	fmt.Println("gdnext version", version())
 	if err := t.ToolCatalog.Go.Exec("version"); err != nil {
 		return err
@@ -51,4 +52,14 @@ func (t *VersionCommand) versionAction(_ context.Context, _ *cli.Command) error 
 		}
 	}
 	return nil
+}
+
+// version returns the gdnext binary's own module version, falling back
+// to "(devel)" when invoked from a non-vendored build. Kept package-
+// scope so RootCommand can read it without resolving VersionCommand.
+func version() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "(devel)"
 }

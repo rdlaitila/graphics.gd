@@ -3,6 +3,8 @@ package ci
 import (
 	"context"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
+
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
@@ -17,11 +19,15 @@ var helpVerbs = []string{
 	"android", "ios", "macos", "web", "musl", "ci",
 }
 
-// HelpTextCommand exposes `gdnext ci help-text`: assert every
-// registered gdnext verb resolves --help.
+// HelpTextCommand wires `gdnext ci help-text`. Runtime state lives
+// on *HelpTextActions.
 type HelpTextCommand struct {
 	*cli.Command
+	Injector do.Injector `do:""`
 }
+
+// HelpTextActions carries the runtime state.
+type HelpTextActions struct{}
 
 // NewHelpTextCommand constructs the help-text subcommand.
 func NewHelpTextCommand(di do.Injector) (*HelpTextCommand, error) {
@@ -29,12 +35,17 @@ func NewHelpTextCommand(di do.Injector) (*HelpTextCommand, error) {
 	t.Command = &cli.Command{
 		Name:   "help-text",
 		Usage:  "assert every registered gdnext verb resolves --help",
-		Action: t.action,
+		Action: shared.BindAction(t.Injector, (*HelpTextActions).action),
 	}
 	return t, nil
 }
 
-func (t *HelpTextCommand) action(_ context.Context, _ *cli.Command) error {
+// NewHelpTextActions resolves the runtime state.
+func NewHelpTextActions(di do.Injector) (*HelpTextActions, error) {
+	return do.InvokeStruct[*HelpTextActions](di)
+}
+
+func (t *HelpTextActions) action(_ context.Context, _ *cli.Command) error {
 	out, err := output("gdnext", "--help")
 	if err != nil {
 		return err
