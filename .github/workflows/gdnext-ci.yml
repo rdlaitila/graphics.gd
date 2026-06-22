@@ -105,7 +105,7 @@ jobs:
       # informational, source URL is informational provenance.
       - name: Toolchain audit snapshot
         shell: bash
-        run: gdnext toolchain doctor --format=json > toolchain-audit.json
+        run: gdnext toolchain doctor --format=json | tee toolchain-audit.json
       - name: Upload toolchain audit (${{ runner.os }})
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
