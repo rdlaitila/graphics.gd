@@ -28,7 +28,6 @@ graphics
 /internal/tool/trivial-methods/trivial_methods
 /results.jsonl
 /trivial_methods.json
-CLAUDE.md
 # Re-include the examples tree. The bare `graphics` / `releases` /
 # `testing` rules above were written when those names only meant
 # generated artefacts; under examples/<name>/ they are part of the
