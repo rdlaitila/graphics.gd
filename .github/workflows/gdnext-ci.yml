@@ -97,9 +97,12 @@ jobs:
         shell: bash
         run: gdnext toolchain doctor
 
-      # Snapshot the installed toolchains (size + sha256 + source URL)
-      # so the workflow summary can diff against prior runs and render
-      # a supply-chain audit table.
+      # Snapshot the downloaded-artefact hashes (sha256 + bytes + source URL)
+      # captured by `gdnext toolchain install` into per-tool sidecars during
+      # the step above. The workflow summary diffs against prior runs and
+      # the SHA values feed product.Toolchain.KnownChecksums for supply-chain
+      # verification. SHA alone identifies the artefact; size is
+      # informational, source URL is informational provenance.
       - name: Toolchain audit snapshot
         shell: bash
         run: gdnext toolchain doctor --format=json > toolchain-audit.json

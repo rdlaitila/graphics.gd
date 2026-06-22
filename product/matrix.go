@@ -360,6 +360,11 @@ var (
 			"-x":       "",
 			"-gcflags": "",
 		},
+		// KnownChecksums TBD: each entry is "sha256:hex" of the
+		// downloaded archive (pre-extract). Harvest from the next
+		// post-merge CI toolchain audit (toolchain-audit-*.json,
+		// `sha256` field, populated from <install>.sha256 sidecars
+		// written by `gdnext toolchain install`).
 	}
 	ToolchainGo = Toolchain{
 		Slug:           "go",

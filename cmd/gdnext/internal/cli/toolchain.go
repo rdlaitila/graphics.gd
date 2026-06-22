@@ -2,12 +2,9 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -39,7 +36,13 @@ func toolchainCmd() *cli.Command {
 				Name:      "install",
 				Usage:     "install one named toolchain, or every tool needed by any target buildable from this host",
 				ArgsUsage: "[name]",
-				Action:    toolchainInstall,
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "skip-checksum",
+						Usage: "skip product.Toolchain.KnownChecksums verification after download (sets GDNEXT_SKIP_CHECKSUM=1)",
+					},
+				},
+				Action: toolchainInstall,
 			},
 			{
 				Name:  "doctor",
@@ -48,6 +51,10 @@ func toolchainCmd() *cli.Command {
 					&cli.BoolFlag{
 						Name:  "fix",
 						Usage: "after reporting, run `toolchain install` and re-report",
+					},
+					&cli.BoolFlag{
+						Name:  "skip-checksum",
+						Usage: "skip checksum verification when --fix runs install",
 					},
 					&cli.StringFlag{
 						Name:    "format",
@@ -95,6 +102,9 @@ func toolchainPath(_ context.Context, cmd *cli.Command) error {
 // toolchainInstall installs one named toolchain, or every tool needed
 // by any target the current host can build.
 func toolchainInstall(_ context.Context, cmd *cli.Command) error {
+	if cmd.Bool("skip-checksum") {
+		os.Setenv("GDNEXT_SKIP_CHECKSUM", "1")
+	}
 	if cmd.NArg() == 1 {
 		t := tooling.BySlug(cmd.Args().First())
 		if t == nil {
@@ -128,6 +138,9 @@ func toolchainInstall(_ context.Context, cmd *cli.Command) error {
 // toolchainDoctor renders the per-target install status for every tool
 // host can build a target with. With --fix runs install and re-renders.
 func toolchainDoctor(_ context.Context, cmd *cli.Command) error {
+	if cmd.Bool("skip-checksum") {
+		os.Setenv("GDNEXT_SKIP_CHECKSUM", "1")
+	}
 	format := strings.ToLower(cmd.String("format"))
 	jobs := jobsForHost(buildEnv.Host)
 	if err := validateJobs(buildEnv.Host, jobs); err != nil {
@@ -483,8 +496,11 @@ func hostsString(hosts []product.BuildHost) string {
 // DoctorAuditRow is the per-job audit shape emitted by `gdnext
 // toolchain doctor --format=json|yaml|xml`. Each row is one
 // (tool, target) entry the host needs, with the resolved install
-// path, file size and SHA256 (for supply-chain audit), plus the
-// catalog Source URL the artefact would be fetched from.
+// path, the downloaded archive's byte size and SHA256 (for
+// supply-chain audit), plus the catalog Source URL the artefact
+// was fetched from. Source is informational provenance —
+// KnownChecksums identifies artefacts by hash, so a mirror change
+// does not invalidate the supply-chain check.
 type DoctorAuditRow struct {
 	XMLName  xml.Name `json:"-"                  xml:"entry"               yaml:"-"`
 	Slug     string   `json:"slug"               xml:"slug"                yaml:"slug"`
@@ -550,12 +566,14 @@ func collectDoctorAudit(host product.BuildHost, jobs []toolJob) []DoctorAuditRow
 		}
 		row.Status = "ok"
 		row.Path = path
-		if size, sum, err := digestFile(path); err == nil {
-			row.Size = size
+		// SHA256 + Size come from the install-time sidecar (download
+		// archive, not installed file). Tools satisfied from $PATH or
+		// a pre-existing local install have no sidecar, so they audit
+		// without a hash or size.
+		if sum, size, err := readDownloadSidecar(j.Tool.Path); err == nil {
 			row.SHA256 = sum
-		} else if err.Error() != "" {
-			// directories (.app bundles) leave size/sha empty rather
-			// than carrying a synthetic digest.
+			row.Size = size
+		} else if !os.IsNotExist(err) {
 			row.Error = err.Error()
 		}
 		out = append(out, row)
@@ -587,23 +605,30 @@ func doctorAuditSource(t product.Toolchain, goos, goarch string) string {
 	return r.Replace(t.DownloadURL)
 }
 
-func digestFile(path string) (int64, string, error) {
-	st, err := os.Stat(path)
+// readDownloadSidecar parses the <install_path>.sha256 file written
+// by the installer. Format: two newline-terminated lines,
+// "sha256:hex" then "size:bytes". Returns os.ErrNotExist when the
+// sidecar is absent (system-PATH tools, pre-existing local installs).
+func readDownloadSidecar(installPath string) (string, int64, error) {
+	if installPath == "" {
+		return "", 0, os.ErrNotExist
+	}
+	raw, err := os.ReadFile(installPath + ".sha256")
 	if err != nil {
-		return 0, "", err
+		return "", 0, err
 	}
-	if st.IsDir() {
-		return 0, "", nil
+	var sum string
+	var size int64
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		switch {
+		case strings.HasPrefix(line, "sha256:"):
+			sum = line
+		case strings.HasPrefix(line, "size:"):
+			fmt.Sscanf(strings.TrimPrefix(line, "size:"), "%d", &size)
+		}
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, "", err
+	if sum == "" {
+		return "", 0, fmt.Errorf("sidecar %s.sha256 has no sha256 line", installPath)
 	}
-	defer f.Close()
-	h := sha256.New()
-	n, err := io.Copy(h, f)
-	if err != nil {
-		return 0, "", err
-	}
-	return n, hex.EncodeToString(h.Sum(nil)), nil
+	return sum, size, nil
 }

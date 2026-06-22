@@ -30,9 +30,9 @@ type doctorAuditRow struct {
 }
 
 // toolchainRow is one rendered row of the supply-chain audit table:
-// a single (slug, host, goos/goarch) cell with the current artefact's
-// size + sha256 + source, plus a Changed flag set when the SHA differs
-// from the prior run's artefact.
+// a single (slug, host, goos/goarch) cell with the downloaded
+// archive's byte size + sha256 + source URL, plus a Changed flag
+// set when the SHA differs from the prior run.
 type toolchainRow struct {
 	Slug    string
 	Version string

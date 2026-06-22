@@ -2,6 +2,8 @@ package tooling
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -347,6 +349,28 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	}(); err != nil {
 		return "", xray.New(err)
 	}
+	// Hash the downloaded archive (single file, pre-extract) for the
+	// supply-chain check. We can't tee during io.Copy because the
+	// 416-resume branch writes nothing, and partial writes from a
+	// resumed 206 would only hash the new bytes. Re-reading dest is
+	// trivial vs the download cost. The sha + size are written to
+	// <install_path>.sha256 so the audit can surface them without
+	// re-downloading.
+	dlSize, dlHash, err := sha256File(dest)
+	if err != nil {
+		return "", xray.New(err)
+	}
+	downloadHash := "sha256:" + dlHash
+	if err := verifyChecksum(downloadHash, exe.KnownChecksums); err != nil {
+		// Leave dest in place so the user can inspect what was
+		// served before deciding whether to retry, allow-list, or
+		// rotate the catalog entry.
+		return "", xray.New(fmt.Errorf("checksum verification failed for %s (downloaded from %s, kept at %s): %w", name, url, dest, err))
+	}
+	sidecar := fmt.Sprintf("%s\nsize:%d\n", downloadHash, dlSize)
+	if err := os.WriteFile(install_path+".sha256", []byte(sidecar), 0644); err != nil {
+		return "", xray.New(err)
+	}
 	var unzip = variables.Replace(exe.Unzip)
 	if exe.IsApp && runtime.GOOS == "darwin" {
 		unzip = ""
@@ -385,4 +409,47 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	}
 	exe.Path = install_path
 	return exe.PathToCommand(), nil
+}
+
+// sha256File streams the file at path through sha256 and returns the
+// byte count and hex digest. Returns an error when path is a directory;
+// KnownChecksums targets the downloaded archive, which is always a
+// single file.
+func sha256File(path string) (int64, string, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, "", err
+	}
+	if st.IsDir() {
+		return 0, "", fmt.Errorf("sha256File: %s is a directory", path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	n, err := io.Copy(h, f)
+	if err != nil {
+		return 0, "", err
+	}
+	return n, hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// verifyChecksum returns nil when known is empty (no policy declared),
+// when GDNEXT_SKIP_CHECKSUM is set, or when got matches any entry in
+// known. Returns an error otherwise.
+func verifyChecksum(got string, known []string) error {
+	if len(known) == 0 {
+		return nil
+	}
+	if os.Getenv("GDNEXT_SKIP_CHECKSUM") != "" {
+		return nil
+	}
+	for _, want := range known {
+		if want == got {
+			return nil
+		}
+	}
+	return fmt.Errorf("got %s, none of the %d known checksums matched (override with GDNEXT_SKIP_CHECKSUM=1 or --skip-checksum)", got, len(known))
 }
