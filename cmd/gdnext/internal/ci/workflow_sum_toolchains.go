@@ -31,15 +31,15 @@ type doctorAuditRow struct {
 
 // toolchainRow is one rendered row of the supply-chain audit table:
 // a single (slug, host, goos/goarch) cell with the downloaded
-// archive's byte size + sha256 + source URL, plus a Changed flag
-// set when the SHA differs from the prior run.
+// archive's byte size + sha256 + source URL + on-disk path, plus a
+// Changed flag set when the SHA differs from the prior run.
 type toolchainRow struct {
 	Slug    string
 	Version string
 	Host    string
 	GOOS    string
 	GOARCH  string
-	Library bool
+	Path    string
 	Size    int64
 	SHA256  string
 	Source  string
@@ -60,7 +60,7 @@ func collectToolchains(repo string, runID int64, prior map[string]string) []tool
 			Host:    r.Host,
 			GOOS:    r.GOOS,
 			GOARCH:  r.GOARCH,
-			Library: r.Library,
+			Path:    r.Path,
 			Size:    r.Size,
 			SHA256:  r.SHA256,
 			Source:  r.Source,
@@ -176,16 +176,18 @@ func renderToolchainsMarkdown(w io.Writer, rows []toolchainRow) {
 		fmt.Fprintln(w)
 		return
 	}
-	fmt.Fprintln(w, "| Toolchain | Version | Host | Target | Size | Changed | Source | SHA256 |")
+	fmt.Fprintln(w, "| Toolchain | Version | Build Host | Path | Size | Changed | Source | SHA256 |")
 	fmt.Fprintln(w, "| --- | --- | --- | --- | ---: | :-: | --- | --- |")
 	for _, r := range rows {
 		ver := r.Version
 		if ver == "" {
 			ver = "—"
 		}
-		target := r.GOOS + "/" + r.GOARCH
-		if !r.Library {
-			target = "—"
+		path := r.Path
+		if path == "" {
+			path = "—"
+		} else {
+			path = "`" + path + "`"
 		}
 		size := formatSize(r.Size)
 		changed := ""
@@ -207,7 +209,7 @@ func renderToolchainsMarkdown(w io.Writer, rows []toolchainRow) {
 			sha = "`" + sha + "`"
 		}
 		fmt.Fprintf(w, "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
-			r.Slug, ver, r.Host, target, size, changed, source, sha)
+			r.Slug, ver, r.Host, path, size, changed, source, sha)
 	}
 	fmt.Fprintln(w)
 }

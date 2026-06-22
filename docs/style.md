@@ -4,19 +4,67 @@ Conventions for new code. Existing code may differ; do not churn-format
 unrelated files when making a change.
 
 - [graphics.gd style](#graphicsgd-style)
+  - [General](#general)
+    - [Prefer consistency over variants](#prefer-consistency-over-variants)
   - [Go](#go)
-    - [Order declarations top-down: types → vars → constructors → methods → helpers](#order-declarations-top-down-types--vars--constructors--methods--helpers)
-    - [No spurious spacing in types or functions](#no-spurious-spacing-in-types-or-functions)
-    - [Method receivers are always named `t`](#method-receivers-are-always-named-t)
+    - [Order declarations top-down](#order-declarations-top-down)
+    - [No spurious blank lines](#no-spurious-blank-lines)
+    - [Name method receivers `t`](#name-method-receivers-t)
     - [Don't over-comment](#dont-over-comment)
-    - [Align struct field tags for legibility](#align-struct-field-tags-for-legibility)
+    - [Align struct field tags](#align-struct-field-tags)
   - [Git](#git)
     - [Use Conventional Commits](#use-conventional-commits)
 
 
+## General
+
+### Prefer consistency over variants
+
+When writing new code or conducting a refactor, follow the shape the
+neighbouring code already uses — even when a different shape would be
+marginally cleaner for the one case in front of you. One shared
+pattern across a directory, package, or subsystem is worth more than a
+locally-optimal variant.
+
+Concretely:
+
+- Match the names, field order, constructor signatures, and method
+  groupings of sibling files. If every `*XxxCommand` in a package has
+  an `Injector do.Injector \`do:""\`` field, the new one gets the same
+  field even if it doesn't strictly need it yet.
+- Match the file layout of the rest of the directory (see
+  [the Go ordering rule](#order-declarations-top-down)
+  for the in-file shape).
+- Match the existing naming scheme (verbs vs. nouns, plural vs.
+  singular, `Catalog` vs. `Registry`) rather than introducing a
+  near-synonym for one new entry.
+- Match the existing error-handling, logging, and DI conventions even
+  when a one-off would be terser.
+
+When a refactor changes the pattern, apply the new shape to every
+sibling already in scope of the change — don't leave a half-converted
+file behind. This is not a licence to churn unrelated files: the
+[intro](#graphicsgd-style) still applies. The rule is "stay
+consistent within the blast radius of the diff you're already
+making," not "rewrite the world to match."
+
+**Rationale:** every variant is a small tax on every future reader.
+They have to notice the difference, decide whether it's meaningful,
+and remember which variant applies where. Consistency makes the
+codebase skimmable: pick up one file, and the next twelve read the
+same way. It also makes large-scale edits (cross-file renames, codemod
+passes, AI-assisted refactors) reliable instead of a per-file
+adventure.
+
+The escape hatch is "when prudent". If matching the existing pattern
+would force a clearly worse design — duplicating substantial logic,
+introducing a real bug, papering over a genuine semantic difference —
+don't. But the bar is "clearly worse," not "marginally less elegant."
+
+
 ## Go
 
-### Order declarations top-down: types → vars → constructors → methods → helpers
+### Order declarations top-down
 
 A reader (human or agent) opening an unfamiliar `.go` file should be
 able to skim it once, top to bottom, and pick up the shape before the
@@ -98,6 +146,7 @@ var defaultLDFlags = []string{"-s", "-w"}
 
 // constructors (types order)
 func NewBuildCommand(di do.Injector) (*BuildCommand, error) { /* ... */ }
+
 func NewBuildActions(di do.Injector) (*BuildActions, error) {
     return do.InvokeStruct[*BuildActions](di)
 }
@@ -111,7 +160,7 @@ func (t *BuildActions) build(ctx context.Context, cmd *cli.Command) error {
 func helperDecode(b []byte) string { /* ... */ }
 ```
 
-### No spurious spacing in types or functions
+### No spurious blank lines
 
 Spacing is subjective — the same blank line reads as a logical
 boundary to one author and as noise to another. Inside a type or
@@ -172,7 +221,7 @@ func (t *Canary) tick(delta Float.X) {
 }
 ```
 
-### Method receivers are always named `t`
+### Name method receivers `t`
 
 Every method receiver uses the single-letter name `t`, regardless of
 the enclosing type. This ensures all usage sites are instantly reconizable. 
@@ -271,7 +320,7 @@ func (t *Canary) tick(delta Float.X) {
 }
 ```
 
-### Align struct field tags for legibility
+### Align struct field tags
 
 When a struct's fields carry tags — particularly multi-encoder tags like
 `json` + `xml` + `yaml` — align them into columns when prudent. The eye

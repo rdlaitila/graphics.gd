@@ -70,6 +70,90 @@ type runWithJobs struct {
 	Jobs []ghJob
 }
 
+// --- Domain model ----------------------------------------------------
+// Output of collect() and input of every renderer. Adding a new format
+// (JSON, HTML, ANSI) means writing a new render*() against summary —
+// the collector stays untouched.
+
+// outcome normalises GitHub's (status, conclusion) pair into a single
+// enum so renderers and stats only switch on one value.
+type outcome uint8
+
+// entry is one row's data point for one run: the outcome plus how
+// long the job ran. Zero Duration means timing data is missing. URL
+// links the pip back to the GHA job page.
+type entry struct {
+	Outcome  outcome
+	Duration time.Duration
+	URL      string
+}
+
+// history is one row's chronological appearances, oldest first.
+// Indices align across rows so sparklines line up vertically.
+type history []entry
+
+// summary is the typed snapshot a renderer consumes. Markdown is the
+// only renderer today; JSON / HTML / ANSI slot in next to it without
+// touching the collector or the GitHub API layer.
+type summary struct {
+	Branch       string
+	Window       []runMeta
+	Checks       []checkRow
+	Builds       []buildRow
+	Plays        []playRow
+	Toolchains   []toolchainRow
+	LastFailures []failureRow
+}
+
+// summaryCounts is the at-a-glance rollup of summary numbers a
+// renderer can show without re-walking the typed model. Computed by
+// summary.counts().
+type summaryCounts struct {
+	LatestFailures      int
+	DecisiveJobs        int
+	WindowPasses        int
+	WindowFailures      int
+	Hosts               int
+	BuildCells          int
+	PlayCells           int
+	PlatformsCatalogued int
+}
+
+// failureRow definition lives in workflow_sum_failures.go.
+
+type runMeta struct {
+	Number     int
+	CreatedAt  time.Time
+	HeadBranch string
+	HeadSHA    string
+	Title      string
+	Event      string
+	Conclusion string
+	URL        string
+	Pass       int
+	Fail       int
+}
+
+// checkRow / buildRow / playRow / failureRow definitions and their
+// collectors live in workflow_sum_*.go. summary stays here because the
+// orchestrator does, and renderMarkdown dispatches into each section.
+
+const (
+	outcomeMissing outcome = iota
+	outcomeSuccess
+	outcomeFailure
+	outcomeSkipped
+	outcomeRunning
+)
+
+const (
+	iconPass    = "🟩"
+	iconFail    = "🟥"
+	iconSkip    = "⬜"
+	iconRunning = "🟨"
+	iconMissing = "·"
+)
+
 // ghaTimestamp matches the ISO timestamp GHA prepends to every log
 // line; stripping it claws back ~30 columns.
 var ghaTimestamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s`)
@@ -233,21 +317,8 @@ func tailLines(text string, n int) []string {
 func stripTimestamp(s string) string { return ghaTimestamp.ReplaceAllString(s, "") }
 
 // --- Domain model ----------------------------------------------------
-// Output of collect() and input of every renderer. Adding a new format
-// (JSON, HTML, ANSI) means writing a new render*() against summary —
-// the collector stays untouched.
-
-// outcome normalises GitHub's (status, conclusion) pair into a single
-// enum so renderers and stats only switch on one value.
-type outcome uint8
-
-const (
-	outcomeMissing outcome = iota
-	outcomeSuccess
-	outcomeFailure
-	outcomeSkipped
-	outcomeRunning
-)
+// outcomeFromJob, entryFromJob and the methods on history live here;
+// the type declarations sit at the top of the file.
 
 func outcomeFromJob(j ghJob) outcome {
 	switch j.Conclusion {
@@ -270,12 +341,6 @@ func outcomeFromJob(j ghJob) outcome {
 // entry is one row's data point for one run: the outcome plus how
 // long the job ran. Zero Duration means timing data is missing. URL
 // links the pip back to the GHA job page.
-type entry struct {
-	Outcome  outcome
-	Duration time.Duration
-	URL      string
-}
-
 func entryFromJob(j ghJob) entry {
 	var d time.Duration
 	if !j.StartedAt.IsZero() && !j.CompletedAt.IsZero() && j.CompletedAt.After(j.StartedAt) {
@@ -283,10 +348,6 @@ func entryFromJob(j ghJob) entry {
 	}
 	return entry{Outcome: outcomeFromJob(j), Duration: d, URL: j.HTMLURL}
 }
-
-// history is one row's chronological appearances, oldest first.
-// Indices align across rows so sparklines line up vertically.
-type history []entry
 
 func (t history) pass() int { return t.count(outcomeSuccess) }
 func (t history) fail() int { return t.count(outcomeFailure) }
@@ -389,32 +450,9 @@ func (t history) median() (time.Duration, bool) {
 	return (d[len(d)/2-1] + d[len(d)/2]) / 2, true
 }
 
-// summary is the typed snapshot a renderer consumes. Markdown is the
-// only renderer today; JSON / HTML / ANSI slot in next to it without
-// touching the collector or the GitHub API layer.
-type summary struct {
-	Branch       string
-	Window       []runMeta
-	Checks       []checkRow
-	Builds       []buildRow
-	Plays        []playRow
-	Toolchains   []toolchainRow
-	LastFailures []failureRow
-}
-
-// summaryCounts is the at-a-glance rollup of summary numbers a
-// renderer can show without re-walking the typed model. Computed by
-// summary.counts().
-type summaryCounts struct {
-	LatestFailures      int
-	DecisiveJobs        int
-	WindowPasses        int
-	WindowFailures      int
-	Hosts               int
-	BuildCells          int
-	PlayCells           int
-	PlatformsCatalogued int
-}
+// --- Summary collector -----------------------------------------------
+// gh API → summary. Sorts everything into deterministic order so
+// renderers can be straight-line printers.
 
 func (t summary) counts() summaryCounts {
 	c := summaryCounts{
@@ -443,62 +481,6 @@ func (t summary) counts() summaryCounts {
 	c.DecisiveJobs = c.WindowPasses + c.WindowFailures
 	return c
 }
-
-// failureRow is one failed job from the most recent run, with enough
-// context (title, link, log tail) to triage from the summary alone.
-type failureRow struct {
-	Job     string
-	Title   string
-	Step    string
-	URL     string
-	LogTail []string
-}
-
-type runMeta struct {
-	Number     int
-	CreatedAt  time.Time
-	HeadBranch string
-	HeadSHA    string
-	Title      string
-	Event      string
-	Conclusion string
-	URL        string
-	Pass       int
-	Fail       int
-}
-
-// checkRow is one host's smoke-check job across the window.
-type checkRow struct {
-	Host    string
-	History history
-}
-
-// buildRow is one (host, example, target, link) build cell across the
-// window.
-type buildRow struct {
-	Host         string
-	Example      string
-	Target       string
-	Link         string
-	Experimental bool
-	History      history
-}
-
-// playRow is one (play-host, build-host, target, link) play cell
-// across the window. Populated from `gdnext-play` jobs only.
-type playRow struct {
-	PlayHost     string
-	BuildHost    string
-	Example      string
-	Target       string
-	Link         string
-	Experimental bool
-	History      history
-}
-
-// --- Collector -------------------------------------------------------
-// gh API → summary. Sorts everything into deterministic order so
-// renderers can be straight-line printers.
 
 func collect(window []runWithJobs, branch string) summary {
 	asc := append([]runWithJobs(nil), window...)
@@ -539,76 +521,6 @@ func collect(window []runWithJobs, branch string) summary {
 	return s
 }
 
-func collectChecks(asc []runWithJobs) []checkRow {
-	rows := map[string]*checkRow{}
-	var keys []string
-	for i, r := range asc {
-		for _, j := range r.Jobs {
-			head, axes, ok := splitJobName(j.Name)
-			if !ok || head != "gdnext-checks" || len(axes) < 1 {
-				continue
-			}
-			host := axes[0]
-			row, exists := rows[host]
-			if !exists {
-				row = &checkRow{Host: host, History: make(history, len(asc))}
-				rows[host] = row
-				keys = append(keys, host)
-			}
-			row.History[i] = entryFromJob(j)
-		}
-	}
-	sort.Slice(keys, func(a, b int) bool { return hostRank(keys[a]) < hostRank(keys[b]) })
-	out := make([]checkRow, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, *rows[k])
-	}
-	return out
-}
-
-type buildKey struct{ host, example, target, link string }
-
-func collectBuilds(asc []runWithJobs) []buildRow {
-	rows := map[buildKey]*buildRow{}
-	var order []buildKey
-	for i, r := range asc {
-		for _, j := range r.Jobs {
-			head, axes, ok := splitJobName(j.Name)
-			if !ok || head != "gdnext-build" || len(axes) < 3 {
-				continue
-			}
-			link, exp := parseLinkExp(axes[3:])
-			k := buildKey{host: axes[0], example: axes[1], target: axes[2], link: link}
-			row, exists := rows[k]
-			if !exists {
-				row = &buildRow{
-					Host:    k.host,
-					Example: k.example,
-					Target:  k.target,
-					Link:    k.link,
-					History: make(history, len(asc)),
-				}
-				rows[k] = row
-				order = append(order, k)
-			}
-			// asc is oldest-first, so this leaves the newest run's
-			// experimental flag in place — flipping a platform between
-			// experimental and stable in product.PlatformMatrix is
-			// reflected immediately, not on a window-rotation delay.
-			row.Experimental = exp
-			row.History[i] = entryFromJob(j)
-		}
-	}
-	sort.Slice(order, func(a, b int) bool {
-		return buildRank(order[a]) < buildRank(order[b])
-	})
-	out := make([]buildRow, 0, len(order))
-	for _, k := range order {
-		out = append(out, *rows[k])
-	}
-	return out
-}
-
 // parseLinkExp pulls (link, experimental) out of the suffix axes
 // after (host, example, target). Pinned build job names render the
 // suffix as `(link, experimental)`; pre-rename runs in the window
@@ -639,50 +551,6 @@ func isLinkMode(s string) bool {
 	return false
 }
 
-type playKey struct{ playHost, buildHost, example, target, link string }
-
-func collectPlays(asc []runWithJobs) []playRow {
-	rows := map[playKey]*playRow{}
-	var order []playKey
-	for i, r := range asc {
-		for _, j := range r.Jobs {
-			head, axes, ok := splitJobName(j.Name)
-			if !ok || head != "gdnext-play" || len(axes) < 5 {
-				continue
-			}
-			link, exp := parseLinkExp(axes[4:])
-			k := playKey{playHost: axes[0], buildHost: axes[1], example: axes[2], target: axes[3], link: link}
-			row, exists := rows[k]
-			if !exists {
-				row = &playRow{
-					PlayHost:  k.playHost,
-					BuildHost: k.buildHost,
-					Example:   k.example,
-					Target:    k.target,
-					Link:      k.link,
-					History:   make(history, len(asc)),
-				}
-				rows[k] = row
-				order = append(order, k)
-			}
-			row.Experimental = exp
-			row.History[i] = entryFromJob(j)
-		}
-	}
-	sort.Slice(order, func(a, b int) bool {
-		return playRank(order[a]) < playRank(order[b])
-	})
-	out := make([]playRow, 0, len(order))
-	for _, k := range order {
-		out = append(out, *rows[k])
-	}
-	return out
-}
-
-func playRank(k playKey) int {
-	return targetRank(k.target)*1_000_000_000 + linkSubrank(k.link)*10_000_000 + hostRank(k.buildHost)*10_000 + hostRank(k.playHost)*10
-}
-
 // latestRun returns the newest run in window by created_at, ok=false
 // when the window is empty.
 func latestRun(window []runWithJobs) (runWithJobs, bool) {
@@ -696,156 +564,6 @@ func latestRun(window []runWithJobs) (runWithJobs, bool) {
 		}
 	}
 	return best, true
-}
-
-// collectFailures walks the newest run's failed jobs, fetches the log
-// of the step that actually failed, and returns one failureRow per.
-// Returns an empty slice (not nil) when the run had no failures so
-// renderers can distinguish "no failures" from "no run".
-func collectFailures(repo string, window []runWithJobs, tail int) []failureRow {
-	latest, ok := latestRun(window)
-	if !ok {
-		return nil
-	}
-	out := make([]failureRow, 0)
-	for _, j := range latest.Jobs {
-		if j.Conclusion != "failure" {
-			continue
-		}
-		step, stepOK := firstFailedStep(j)
-		log, err := fetchJobLog(repo, j.ID)
-		var lines []string
-		switch {
-		case err != nil:
-			lines = []string{fmt.Sprintf("(log unavailable: %v)", err)}
-		case !stepOK:
-			lines = tailLines(log, tail)
-		default:
-			lines = tailLines(extractStepLog(log, step.Number), tail)
-		}
-		name := ""
-		if stepOK {
-			name = step.Name
-		}
-		out = append(out, failureRow{
-			Job:     j.Name,
-			Title:   failureTitle(j.Name),
-			Step:    name,
-			URL:     j.HTMLURL,
-			LogTail: lines,
-		})
-	}
-	sort.SliceStable(out, func(a, b int) bool {
-		return failureRank(out[a]) < failureRank(out[b])
-	})
-	return out
-}
-
-// firstFailedStep returns the lowest-numbered step in the job that
-// GitHub marked as failed. ok=false when the job has no per-step
-// data (e.g. setup failure before any user step ran).
-func firstFailedStep(j ghJob) (ghStep, bool) {
-	steps := append([]ghStep(nil), j.Steps...)
-	sort.Slice(steps, func(a, b int) bool { return steps[a].Number < steps[b].Number })
-	for _, s := range steps {
-		if s.Conclusion == "failure" {
-			return s, true
-		}
-	}
-	return ghStep{}, false
-}
-
-// extractStepLog returns just the failing step's section of the
-// per-job log. The runner wraps each step's metadata in a top-level
-// `##[group]Run …` but the step's actual command output runs at
-// depth 0 between that group's endgroup and the next step's
-// boundary marker. Nested user-emitted `::group::` is depth-tracked.
-// API step numbering starts at 1 for "Set up job", so (number-1)
-// counts user `Run ` markers.
-func extractStepLog(log string, stepNumber int) string {
-	target := stepNumber - 1
-	if target < 1 {
-		return log
-	}
-	lines := strings.Split(log, "\n")
-	depth, runs := 0, 0
-	start := -1
-	for i, l := range lines {
-		s := strings.TrimSpace(stripTimestamp(l))
-		if strings.HasPrefix(s, "##[group]") {
-			if depth == 0 && isStepBoundary(s) {
-				if start >= 0 {
-					return strings.Join(lines[start:i], "\n")
-				}
-				if strings.HasPrefix(s, "##[group]Run ") {
-					runs++
-					if runs == target {
-						start = i
-					}
-				}
-			}
-			depth++
-			continue
-		}
-		if s == "##[endgroup]" {
-			depth--
-		}
-	}
-	if start >= 0 {
-		return strings.Join(lines[start:], "\n")
-	}
-	return log
-}
-
-func isStepBoundary(line string) bool {
-	body := strings.TrimPrefix(line, "##[group]")
-	return strings.HasPrefix(body, "Run ") ||
-		strings.HasPrefix(body, "Post Run ") ||
-		body == "Complete job"
-}
-
-// failureTitle formats a job name into a vertical-friendly identifier.
-// Falls back to the raw name when the job isn't matrix-shaped.
-func failureTitle(name string) string {
-	head, axes, ok := splitJobName(name)
-	if !ok {
-		return name
-	}
-	switch head {
-	case "gdnext-checks":
-		if len(axes) >= 1 {
-			return "Check on " + axes[0]
-		}
-	case "gdnext-build":
-		if len(axes) >= 4 {
-			return fmt.Sprintf("Build %s [%s] on %s", axes[2], axes[3], axes[0])
-		}
-	case "gdnext-play":
-		if len(axes) >= 5 {
-			return fmt.Sprintf("Play %s [%s] on %s (built on %s)", axes[3], axes[4], axes[0], axes[1])
-		}
-	}
-	return name
-}
-
-func failureRank(f failureRow) int {
-	head, axes, ok := splitJobName(f.Job)
-	if !ok {
-		return 1_000_000_000
-	}
-	switch head {
-	case "gdnext-checks":
-		if len(axes) >= 1 {
-			return hostRank(axes[0])
-		}
-	case "gdnext-build":
-		if len(axes) >= 4 {
-			return 1_000_000 + buildRank(buildKey{host: axes[0], example: axes[1], target: axes[2], link: axes[3]})
-		}
-	case "gdnext-play":
-		return 500_000_000
-	}
-	return 1_000_000_000
 }
 
 // splitJobName splits "head (axis1, axis2, …)" into the leading job id
@@ -897,19 +615,7 @@ func linkSubrank(link string) int {
 	}
 }
 
-func buildRank(k buildKey) int {
-	return hostRank(k.host)*1_000_000 + targetRank(k.target)*1000 + linkSubrank(k.link)
-}
-
 // --- Markdown renderer -----------------------------------------------
-
-const (
-	iconPass    = "🟩"
-	iconFail    = "🟥"
-	iconSkip    = "⬜"
-	iconRunning = "🟨"
-	iconMissing = "·"
-)
 
 func renderMarkdown(w io.Writer, s summary) error {
 	fmt.Fprintln(w, "# gdnext")
@@ -957,74 +663,6 @@ func renderCountsMarkdown(w io.Writer, s summary) {
 
 func renderTOCMarkdown(w io.Writer, s summary) {
 	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Plays](#plays) · [Latest run failures](#latest-run-failures) · [Commits](#commits) · [Toolchains](#toolchains)")
-	fmt.Fprintln(w)
-}
-
-func renderChecksMarkdown(w io.Writer, rows []checkRow) {
-	var histories []history
-	for _, r := range rows {
-		histories = append(histories, r.History)
-	}
-	writeSectionHeader(w, "checks", "Checks", histories)
-	if len(rows) == 0 {
-		fmt.Fprintln(w, "_No `gdnext-checks` jobs in this window._")
-		fmt.Fprintln(w)
-		return
-	}
-	writeMarkdownHeader(w, "Host")
-	for _, r := range rows {
-		writeMarkdownRow(w, []string{r.Host}, r.History)
-	}
-	fmt.Fprintln(w)
-}
-
-func renderBuildsMarkdown(w io.Writer, rows []buildRow) {
-	var histories []history
-	for _, r := range rows {
-		histories = append(histories, r.History)
-	}
-	writeSectionHeader(w, "builds", "Builds", histories)
-	if len(rows) == 0 {
-		fmt.Fprintln(w, "_No `gdnext-build` jobs in this window._")
-		fmt.Fprintln(w)
-		return
-	}
-	writeMarkdownHeader(w, "Example", "Target", "Link", "Build host")
-	for _, r := range rows {
-		link := r.Link
-		if link == "" {
-			link = "—"
-		}
-		if r.Experimental {
-			link += " (exp.)"
-		}
-		writeMarkdownRow(w, []string{r.Example, r.Target, link, r.Host}, r.History)
-	}
-	fmt.Fprintln(w)
-}
-
-func renderPlaysMarkdown(w io.Writer, rows []playRow) {
-	var histories []history
-	for _, r := range rows {
-		histories = append(histories, r.History)
-	}
-	writeSectionHeader(w, "plays", "Plays", histories)
-	if len(rows) == 0 {
-		fmt.Fprintln(w, "_No `gdnext-play` jobs in this window._")
-		fmt.Fprintln(w)
-		return
-	}
-	writeMarkdownHeader(w, "Example", "Target", "Link", "Build host", "Play host")
-	for _, r := range rows {
-		link := r.Link
-		if link == "" {
-			link = "—"
-		}
-		if r.Experimental {
-			link += " (exp.)"
-		}
-		writeMarkdownRow(w, []string{r.Example, r.Target, link, r.BuildHost, r.PlayHost}, r.History)
-	}
 	fmt.Fprintln(w)
 }
 
@@ -1171,94 +809,4 @@ func htmlEscape(s string) string {
 	s = strings.ReplaceAll(s, ">", "&gt;")
 	s = strings.ReplaceAll(s, "\"", "&quot;")
 	return s
-}
-
-func renderFailuresMarkdown(w io.Writer, rows []failureRow) {
-	fmt.Fprintln(w, `<h2 id="latest-run-failures">Latest run failures</h2>`)
-	fmt.Fprintln(w)
-	if rows == nil {
-		fmt.Fprintln(w, "_No runs in the window._")
-		fmt.Fprintln(w)
-		return
-	}
-	if len(rows) == 0 {
-		fmt.Fprintln(w, "_No failures in the most recent run._ 🎉")
-		fmt.Fprintln(w)
-		return
-	}
-	fmt.Fprintf(w, "**%d** job(s) failed in the most recent run. Expand to see the log tail.\n\n", len(rows))
-	for _, r := range rows {
-		fmt.Fprintln(w, "<details>")
-		title := htmlEscape(r.Title)
-		if r.URL != "" {
-			title += fmt.Sprintf(" (<a href=\"%s\">open job</a>)", r.URL)
-		}
-		fmt.Fprintf(w, "<summary><b>%s</b></summary>\n\n", title)
-		if len(r.LogTail) == 0 {
-			fmt.Fprintln(w, "_log empty_")
-		} else {
-			fmt.Fprintln(w, "```log")
-			for _, line := range r.LogTail {
-				fmt.Fprintln(w, line)
-			}
-			fmt.Fprintln(w, "```")
-		}
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "</details>")
-		fmt.Fprintln(w)
-	}
-}
-
-// renderCommitsMarkdown prints one row per run in the window: the
-// commit that triggered it, the event type, the run's conclusion, and
-// a link to the run page. Newest-first to match how a reader scans
-// the history (most recent activity first).
-func renderCommitsMarkdown(w io.Writer, runs []runMeta) {
-	fmt.Fprintln(w, `<h2 id="commits">Commits</h2>`)
-	fmt.Fprintln(w)
-	if len(runs) == 0 {
-		fmt.Fprintln(w, "_No runs in the window._")
-		fmt.Fprintln(w)
-		return
-	}
-	fmt.Fprintln(w, "| When | SHA | Event | Branch | Pass | Subject |")
-	fmt.Fprintln(w, "| --- | --- | --- | --- | ---: | --- |")
-	for i := len(runs) - 1; i >= 0; i-- {
-		r := runs[i]
-		sha := r.HeadSHA
-		if len(sha) > 7 {
-			sha = sha[:7]
-		}
-		shaCell := "`" + sha + "`"
-		if r.URL != "" {
-			shaCell = fmt.Sprintf("[`%s`](%s)", sha, r.URL)
-		}
-		passCell := runPassCell(r)
-		fmt.Fprintf(w, "| %s | %s | %s | `%s` | %s | %s |\n",
-			r.CreatedAt.Format("2006-01-02 15:04"),
-			shaCell,
-			r.Event,
-			r.HeadBranch,
-			passCell,
-			mdEscape(r.Title),
-		)
-	}
-	fmt.Fprintln(w)
-}
-
-// runPassCell renders "P/N" plus a pass percentage for a run. Falls
-// back to the run-level conclusion ("in progress", "cancelled") when
-// no decisive jobs are present, so still-running or aborted runs are
-// distinguishable from runs with zero passing jobs.
-func runPassCell(r runMeta) string {
-	total := r.Pass + r.Fail
-	if total == 0 {
-		label := r.Conclusion
-		if label == "" {
-			label = "—"
-		}
-		return label
-	}
-	pct := int(float64(r.Pass) / float64(total) * 100)
-	return fmt.Sprintf("%d%% (%d/%d)", pct, r.Pass, total)
 }
