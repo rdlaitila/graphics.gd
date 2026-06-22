@@ -258,7 +258,7 @@ Common types in this repo:
 - `chore` — tooling, deps, gitignore, etc.
 
 Pick the **narrowest accurate scope** — usually a package or component:
-`feat(gdnext)`, `refactor(product)`, `fix(android)`, `ci(gdnext-ci)`,
+`feat(gdnext)`, `refactor(product)`, `fix(android)`, `ci(workflow)`,
 `docs(plans)`. Skip the scope only when a change genuinely spans the
 whole module.
 
@@ -275,7 +275,7 @@ WIP fixing the thing
 ```
 feat(gdnext): add --vertical flag to platforms subcommand
 refactor(product): move Status to product.go for cross-entity reuse
-ci(gdnext-ci): derive install matrix from product.ToolchainMatrix
+ci(gdnext): derive install matrix from product.ToolchainMatrix
 ```
 
 **Rationale:** consistent commit shapes turn history into a queryable

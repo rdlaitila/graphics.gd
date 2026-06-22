@@ -1,4 +1,4 @@
-package internal
+package ci
 
 import (
 	"context"
@@ -10,14 +10,22 @@ import (
 
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// PlayMatrixCmd emits a GHA strategy.matrix JSON document for the
-// `gdnext-ci-run` job, one row per (play-host, build-host, target,
-// link, example) where Platform.PlayHosts contains the play host.
-func PlayMatrixCmd() *cli.Command {
-	return &cli.Command{
+// PlayMatrixCommand exposes `gdnext ci play-matrix`: emit a GHA
+// strategy.matrix JSON document for the `gdnext-run` job, one row
+// per (play-host, build-host, target, link, example) where
+// Platform.PlayHosts contains the play host.
+type PlayMatrixCommand struct {
+	*cli.Command
+}
+
+// NewPlayMatrixCommand constructs the play-matrix subcommand.
+func NewPlayMatrixCommand(di do.Injector) (*PlayMatrixCommand, error) {
+	t := do.MustInvokeStruct[*PlayMatrixCommand](di)
+	t.Command = &cli.Command{
 		Name:  "play-matrix",
 		Usage: "emit the GHA play matrix derived from product.PlayHosts",
 		Flags: []cli.Flag{
@@ -31,31 +39,34 @@ func PlayMatrixCmd() *cli.Command {
 				Usage: "also print a human-readable matrix to stderr",
 			},
 		},
-		Action: func(_ context.Context, cmd *cli.Command) error {
-			examples := cmd.StringSlice("example")
-			rows := buildPlayMatrix(examples)
-			doc := struct {
-				Include []playMatrixRow `json:"include"`
-			}{Include: rows}
-			out, err := json.Marshal(doc)
-			if err != nil {
-				return err
-			}
-			fmt.Println(string(out))
-			if cmd.Bool("summary") {
-				fmt.Fprintf(os.Stderr, "Play matrix (%d cells):\n", len(rows))
-				for _, r := range rows {
-					link := r.Link
-					if link == "" {
-						link = "-"
-					}
-					fmt.Fprintf(os.Stderr, "  %-16s [%s] built on %-14s played on %-14s × %s\n",
-						r.Target, link, r.BuildOS, r.OS, r.Example)
-				}
-			}
-			return nil
-		},
+		Action: t.action,
 	}
+	return t, nil
+}
+
+func (t *PlayMatrixCommand) action(_ context.Context, cmd *cli.Command) error {
+	examples := cmd.StringSlice("example")
+	rows := buildPlayMatrix(examples)
+	doc := struct {
+		Include []playMatrixRow `json:"include"`
+	}{Include: rows}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(out))
+	if cmd.Bool("summary") {
+		fmt.Fprintf(os.Stderr, "Play matrix (%d cells):\n", len(rows))
+		for _, r := range rows {
+			link := r.Link
+			if link == "" {
+				link = "-"
+			}
+			fmt.Fprintf(os.Stderr, "  %-16s [%s] built on %-14s played on %-14s × %s\n",
+				r.Target, link, r.BuildOS, r.OS, r.Example)
+		}
+	}
+	return nil
 }
 
 type playMatrixRow struct {

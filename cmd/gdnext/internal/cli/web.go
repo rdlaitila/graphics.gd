@@ -8,13 +8,24 @@ import (
 	"path/filepath"
 
 	"graphics.gd/cmd/gdnext/internal/project"
+	"graphics.gd/cmd/gdnext/internal/tooling"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 	"runtime.link/api/xray"
 )
 
-func webCmd() *cli.Command {
-	return &cli.Command{
+// WebCommand exposes `gdnext web`: WebAssembly serving and template
+// helpers.
+type WebCommand struct {
+	*cli.Command
+	ToolCatalog tooling.Catalog `do:""`
+}
+
+// NewWebCommand constructs the `gdnext web` subcommand
+func NewWebCommand(di do.Injector) (*WebCommand, error) {
+	t := do.MustInvokeStruct[*WebCommand](di)
+	t.Command = &cli.Command{
 		Name:  "web",
 		Usage: "WebAssembly serving and template helpers",
 		Commands: []*cli.Command{
@@ -30,14 +41,15 @@ func webCmd() *cli.Command {
 						Sources: cli.EnvVars("PORT"),
 					},
 				},
-				Action: webServe,
+				Action: t.serve,
 			},
 		},
 	}
+	return t, nil
 }
 
-func webServe(_ context.Context, cmd *cli.Command) error {
-	if err := project.Setup(func() error { return nil }); err != nil {
+func (t *WebCommand) serve(_ context.Context, cmd *cli.Command) error {
+	if err := project.Setup(t.ToolCatalog, func() error { return nil }); err != nil {
 		return err
 	}
 	port := fmt.Sprint(cmd.Int("port"))

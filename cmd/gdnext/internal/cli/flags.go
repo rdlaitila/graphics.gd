@@ -17,11 +17,11 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// Flags returns the flag slice attached to the root command. Every flag
+// flags returns the flag slice attached to the root command. Every flag
 // is bound to one or more environment variables so scripts that already
 // export GOOS / GOARCH / CC / CGO_ENABLED / GDPATH / RUNNING_INSIDE_GODOT
 // continue to work without modification.
-func Flags() []cli.Flag {
+func flags() []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{
 			Name:    "goos",

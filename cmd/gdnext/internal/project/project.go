@@ -77,7 +77,7 @@ func SetupVersion() {
 	}
 }
 
-func Setup(build_godot func() error) error {
+func Setup(tools tooling.Catalog, build_godot func() error) error {
 	defer SetupVersion()
 	wd, err := os.Getwd()
 	if err != nil {
@@ -103,13 +103,13 @@ func Setup(build_godot func() error) error {
 	// automatically run go mod init with the directory name.
 	if !hasGoMod && !runningSpecificGoFile {
 		if _, err := os.Stat(filepath.Join(originalWd, "main.go")); err == nil {
-			if err := tooling.Go.Exec("mod", "init", filepath.Base(originalWd)); err != nil {
+			if err := tools.Go.Exec("mod", "init", filepath.Base(originalWd)); err != nil {
 				return xray.New(err)
 			}
-			if err := tooling.Go.Exec("mod", "tidy"); err != nil {
+			if err := tools.Go.Exec("mod", "tidy"); err != nil {
 				return xray.New(err)
 			}
-			if err := tooling.Go.Exec("get", "graphics.gd@release"); err != nil {
+			if err := tools.Go.Exec("get", "graphics.gd@release"); err != nil {
 				return xray.New(err)
 			}
 			hasGoMod = true
@@ -159,11 +159,11 @@ func Setup(build_godot func() error) error {
 	if err := build_godot(); err != nil {
 		return xray.New(err)
 	}
-	gdextension_version, err := tooling.Godot.Output(tooling.Godot.VersionFlags...)
+	gdextension_version, err := tools.Godot.Output(tools.Godot.VersionFlags...)
 	if err != nil {
 		return xray.New(err)
 	}
-	if tooling.Godot.Name == "blazium" {
+	if tools.Godot.Name == "blazium" {
 		gdextension_version = "4.1.0"
 	}
 	if _, err := os.Stat(filepath.Join(GraphicsDirectory, ".godot")); os.IsNotExist(err) {
@@ -174,7 +174,7 @@ func Setup(build_godot func() error) error {
 		if err := os.Chdir(GraphicsDirectory); err != nil {
 			return xray.New(err)
 		}
-		if err := tooling.Godot.Exec("--import", "--headless"); err != nil {
+		if err := tools.Godot.Exec("--import", "--headless"); err != nil {
 			return xray.New(err)
 		}
 		if err := os.Chdir(current); err != nil {

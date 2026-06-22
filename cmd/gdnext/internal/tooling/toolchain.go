@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -49,13 +48,20 @@ const (
 // must not piggy-back on it for gdnext's download gating because that
 // would surprise CI users who only meant to pin go.
 
-// toolchain wraps a product.Toolchain record with the mutable runtime
-// state gdnext needs to drive it: the cached install Path. The embedded
-// product.Toolchain provides every declarative field
-// (Slug/Name/Version/Download*/Required/Available/...) via promotion;
-// methods on *Tool read those fields and manage Path locally.
+// Tool wraps a product.Toolchain record with the mutable runtime
+// state gdnext needs to drive it: the resolved BuildHost (so
+// LookupPlatform can resolve GD*Path / UserHomeRoot without
+// re-deriving them on every call) and the cached install Path.
+// The embedded product.Toolchain provides every declarative field
+// (Slug / Name / Version / Download* / Required / Available / ...)
+// via promotion.
+//
+// Tools are produced by NewCatalog with Host populated from the
+// BuildEnv the CLI's Before hook resolved. Construct one ad-hoc only
+// when the resulting Tool will never be looked up.
 type Tool struct {
 	product.Toolchain
+	Host product.BuildHost
 	Path string // cached by [toolchain.Lookup]
 }
 
@@ -180,15 +186,13 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	if exe.Path != "" {
 		return exe.Path, nil
 	}
-	my, err := user.Current()
-	if err != nil {
-		return "", xray.New(err)
+	if exe.Host.GDRootPath == "" {
+		return "", fmt.Errorf("tooling.Tool.LookupPlatform: %s has no Host populated (construct via tooling.NewCatalog from a resolved BuildEnv)", exe.Slug)
 	}
-	HOME := my.HomeDir
-	GDPATH := os.Getenv("GDPATH")
-	if GDPATH == "" && HOME != "" {
-		GDPATH = filepath.Join(HOME, "gd")
-	}
+	HOME := exe.Host.UserHomeRoot
+	GDPATH := exe.Host.GDRootPath
+	GDBin := exe.Host.GDBinPath
+	GDLib := exe.Host.GDLibPath
 	ARCH := exe.DownloadARCH[GOARCH]
 	if ARCH == "" {
 		ARCH = "$(MISSING)"
@@ -208,9 +212,9 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	var variables = strings.NewReplacer(
 		"$(VERSION)", exe.Version, "$(ARCH)", ARCH, "$(OS)", OS, "$(GOARCH)", MaybeUniversal, "$(GOOS)", GOOS, "$(HOME)", HOME, "$(GDPATH)", GDPATH, "$(EXT)", EXT,
 	)
-	var install_dir = filepath.Join(GDPATH, "bin")
+	var install_dir = GDBin
 	if exe.IsLibrary {
-		install_dir = filepath.Join(GDPATH, "lib")
+		install_dir = GDLib
 	}
 	if dir, ok := exe.Installations[GOOS]; ok {
 		install_dir = variables.Replace(dir)
@@ -256,7 +260,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	// some users (ie. NixOS) don't want things to be automatically installed, they
 	// can set their toolchain to local and download/install everything themselves.
 	// Mode==Find produces the same effect explicitly at the call site.
-	if m == ModeFind || os.Getenv("GDTOOLCHAIN") == "local" || GDPATH == "" {
+	if m == ModeFind || os.Getenv("GDTOOLCHAIN") == "local" {
 		path, err := exec.LookPath(name)
 		if err != nil {
 			return "", fmt.Errorf(

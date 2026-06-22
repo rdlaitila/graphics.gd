@@ -58,10 +58,10 @@ separate decision for after parity is proven in the wild.
   (host side). `gdnext toolchain doctor` classifies every entry per
   (host, target) so a missing prerequisite surfaces with a clear
   message instead of a deeper builder failure.
-- **CI driver — `cmd/gdnext-ci/`.** Go binary, one verb per workflow
-  phase. The workflow YAML at `.github/workflows/gdnext-ci.yml` is a
-  thin wrapper; the help text on each verb is the canonical
-  documentation for what it asserts.
+- **CI driver — `cmd/gdnext/internal/ci/`.** A `gdnext ci` subcommand
+  tree, one verb per workflow phase. The workflow YAML at
+  `.github/workflows/gdnext.yml` is a thin wrapper; the help text on
+  each verb is the canonical documentation for what it asserts.
 - **Canary example — `examples/canarybird/`.** Smallest project that
   touches every subsystem (UI, 2D, 3D, audio, input, Go ↔ Godot
   bindings), so a per-platform regression surfaces as a failed example

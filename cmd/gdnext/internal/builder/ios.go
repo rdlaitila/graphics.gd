@@ -19,6 +19,7 @@ import (
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"runtime.link/api/xray"
 )
 
@@ -56,11 +57,22 @@ extern int32_t __isPlatformVersionAtLeast(uint32_t platform, uint32_t major, uin
 }
 `
 
-type IOS struct{}
+// IOS drives universal iOS builds (xcodeproj + ipa).
+type IOS struct {
+	BuildEnv    product.BuildEnv `do:""`
+	ToolCatalog tooling.Catalog  `do:""`
+}
 
-func (IOS) Build(env product.BuildEnv, args ...string) error {
+// NewIOS constructs the IOS builder via DI.
+func NewIOS(di do.Injector) (*IOS, error) {
+	return do.InvokeStruct[*IOS](di)
+}
+
+func (t *IOS) Build(args ...string) error {
+	env := t.BuildEnv
+	tools := t.ToolCatalog
 	GOARCH := env.Target.GOARCH
-	zig, err := tooling.Zig.Lookup()
+	zig, err := tools.Zig.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
@@ -88,7 +100,7 @@ func (IOS) Build(env product.BuildEnv, args ...string) error {
 	default:
 		return fmt.Errorf("gd build: cannot cross-compile ios %v on %s", GOARCH, env.Host.Tuple())
 	}
-	if err := tooling.Go.Action("build", args, "-tags=ios", "-buildmode=c-archive", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("darwin_%v.a", GOARCH))); err != nil {
+	if err := tools.Go.Action("build", args, "-tags=ios", "-buildmode=c-archive", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("darwin_%v.a", GOARCH))); err != nil {
 		return xray.New(err)
 	}
 	if err := os.MkdirAll(filepath.Join(project.GraphicsDirectory, "go.xcframework", "ios-arm64"), 0755); err != nil {
@@ -106,8 +118,9 @@ func (IOS) Build(env product.BuildEnv, args ...string) error {
 	return nil
 }
 
-func (ios IOS) BuildMain(env product.BuildEnv, args ...string) error {
-	if err := ios.Build(env, args...); err != nil {
+func (t *IOS) BuildMain(args ...string) error {
+	tools := t.ToolCatalog
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
 
@@ -128,10 +141,10 @@ func (ios IOS) BuildMain(env product.BuildEnv, args ...string) error {
 
 	if existing_project {
 		// Subsequent build: only export .pck, preserve Xcode project
-		tooling.Godot.Exec("--headless", "--export-pack", "iOS", filepath.Join(project.ReleasesDirectory, "ios", "arm64", project.Name+".pck"))
+		tools.Godot.Exec("--headless", "--export-pack", "iOS", filepath.Join(project.ReleasesDirectory, "ios", "arm64", project.Name+".pck"))
 	} else {
 		// First build: full export
-		tooling.Godot.Exec("--headless", "--export-release", "iOS")
+		tools.Godot.Exec("--headless", "--export-release", "iOS")
 	}
 
 	// Copy the new go.xcframework
@@ -162,10 +175,10 @@ func (ios IOS) BuildMain(env product.BuildEnv, args ...string) error {
 	// Compile dummy.cpp and swift_stubs.c to .o files using zig cc.
 	dummyObj := filepath.Join(apple_name+".app", "dummy.o")
 	stubsObj := filepath.Join(apple_name+".app", "swift_stubs.o")
-	if err := tooling.Zig.Exec("cc", "-c", "-target", "aarch64-ios", "-O2", filepath.Join(".", project.Name, "dummy.cpp"), "-o", dummyObj); err != nil {
+	if err := tools.Zig.Exec("cc", "-c", "-target", "aarch64-ios", "-O2", filepath.Join(".", project.Name, "dummy.cpp"), "-o", dummyObj); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.Zig.Exec("cc", "-c", "-target", "aarch64-ios", "-O2", swiftStubs, "-o", stubsObj); err != nil {
+	if err := tools.Zig.Exec("cc", "-c", "-target", "aarch64-ios", "-O2", swiftStubs, "-o", stubsObj); err != nil {
 		return xray.New(err)
 	}
 	// Link with ld64.lld to produce a Mach-O binary with LC_DYLD_CHAINED_FIXUPS.
@@ -199,7 +212,7 @@ func (ios IOS) BuildMain(env product.BuildEnv, args ...string) error {
 		"-lswiftSpatial", "-lswiftUIKit", "-lswiftUniformTypeIdentifiers",
 		"-lswiftXPC", "-lswiftsimd",
 	)
-	if err := tooling.LLVM.Exec(append([]string{"ld64.lld"}, lld_args...)...); err != nil {
+	if err := tools.LLVM.Exec(append([]string{"ld64.lld"}, lld_args...)...); err != nil {
 		return xray.New(err)
 	}
 	// Clean up temp files before packaging the .app into an IPA.
@@ -306,8 +319,8 @@ func GetLocalIP() (net.IP, error) {
 	return nil, fmt.Errorf("no non-loopback IPv4 address found")
 }
 
-func (ios IOS) Run(env product.BuildEnv, args ...string) error {
-	if err := ios.BuildMain(env, args...); err != nil {
+func (t *IOS) Run(args ...string) error {
+	if err := t.BuildMain(args...); err != nil {
 		return xray.New(err)
 	}
 
@@ -335,6 +348,6 @@ func (ios IOS) Run(env product.BuildEnv, args ...string) error {
 	}))
 }
 
-func (IOS) Test(env product.BuildEnv, args ...string) error {
+func (t *IOS) Test(args ...string) error {
 	return fmt.Errorf("gd test: ios not supported")
 }

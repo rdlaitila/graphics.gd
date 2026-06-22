@@ -1,4 +1,4 @@
-package internal
+package ci
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
@@ -28,13 +29,19 @@ var gha = []struct {
 // Keyed by "goos/goarch".
 var excludedTargets = map[string]string{}
 
-// MatrixCmd emits a GHA strategy.matrix JSON document with one
-// include: entry per (host, target) pair that the workflow should
-// actually run. The build matrix consumes it via fromJSON, so adding
-// a row to product.PlatformMatrix lands in CI with zero workflow
-// edits.
-func MatrixCmd() *cli.Command {
-	return &cli.Command{
+// MatrixCommand exposes `gdnext ci matrix`: emit a GHA strategy.matrix
+// JSON document with one include: entry per (host, target) pair that
+// the workflow should actually run. The build matrix consumes it via
+// fromJSON, so adding a row to product.PlatformMatrix lands in CI with
+// zero workflow edits.
+type MatrixCommand struct {
+	*cli.Command
+}
+
+// NewMatrixCommand constructs the matrix subcommand.
+func NewMatrixCommand(di do.Injector) (*MatrixCommand, error) {
+	t := do.MustInvokeStruct[*MatrixCommand](di)
+	t.Command = &cli.Command{
 		Name:  "matrix",
 		Usage: "emit the GHA build matrix derived from product.PlatformMatrix",
 		Flags: []cli.Flag{
@@ -48,34 +55,37 @@ func MatrixCmd() *cli.Command {
 				Usage: "also print a human-readable matrix to stderr",
 			},
 		},
-		Action: func(_ context.Context, cmd *cli.Command) error {
-			examples := cmd.StringSlice("example")
-			rows := buildMatrix(examples)
-			doc := struct {
-				Include []matrixRow `json:"include"`
-			}{Include: rows}
-			out, err := json.Marshal(doc)
-			if err != nil {
-				return err
-			}
-			fmt.Println(string(out))
-			if cmd.Bool("summary") {
-				fmt.Fprintf(os.Stderr, "Build matrix (%d cells):\n", len(rows))
-				for _, r := range rows {
-					tag := ""
-					if r.Experimental {
-						tag = "  (experimental)"
-					}
-					link := r.Link
-					if link == "" {
-						link = "-"
-					}
-					fmt.Fprintf(os.Stderr, "  %-14s × %-14s × %-16s × %s%s\n", r.OS, r.Example, r.Target, link, tag)
-				}
-			}
-			return nil
-		},
+		Action: t.action,
 	}
+	return t, nil
+}
+
+func (t *MatrixCommand) action(_ context.Context, cmd *cli.Command) error {
+	examples := cmd.StringSlice("example")
+	rows := buildMatrix(examples)
+	doc := struct {
+		Include []matrixRow `json:"include"`
+	}{Include: rows}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(out))
+	if cmd.Bool("summary") {
+		fmt.Fprintf(os.Stderr, "Build matrix (%d cells):\n", len(rows))
+		for _, r := range rows {
+			tag := ""
+			if r.Experimental {
+				tag = "  (experimental)"
+			}
+			link := r.Link
+			if link == "" {
+				link = "-"
+			}
+			fmt.Fprintf(os.Stderr, "  %-14s × %-14s × %-16s × %s%s\n", r.OS, r.Example, r.Target, link, tag)
+		}
+	}
+	return nil
 }
 
 type matrixRow struct {

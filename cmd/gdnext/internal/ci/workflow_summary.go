@@ -1,4 +1,4 @@
-package internal
+package ci
 
 import (
 	"context"
@@ -14,28 +14,36 @@ import (
 
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// WorkflowSummaryCmd fetches the last N gdnext-ci runs and renders a
-// markdown report to stdout. The workflow step pipes stdout into
-// $GITHUB_STEP_SUMMARY.
-func WorkflowSummaryCmd() *cli.Command {
-	return &cli.Command{
+// WorkflowSummaryCommand exposes `gdnext ci workflow-summary`: fetches
+// the last N gdnext runs and renders a markdown report to stdout.
+// The workflow step pipes stdout into $GITHUB_STEP_SUMMARY.
+type WorkflowSummaryCommand struct {
+	*cli.Command
+}
+
+// NewWorkflowSummaryCommand constructs the workflow-summary subcommand.
+func NewWorkflowSummaryCommand(di do.Injector) (*WorkflowSummaryCommand, error) {
+	t := do.MustInvokeStruct[*WorkflowSummaryCommand](di)
+	t.Command = &cli.Command{
 		Name:  "workflow-summary",
 		Usage: "render a rolling markdown summary of recent runs",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "repo", Required: true, Usage: "owner/repo"},
-			&cli.StringFlag{Name: "workflow", Required: true, Usage: "workflow filename, e.g. gdnext-ci.yml"},
+			&cli.StringFlag{Name: "workflow", Required: true, Usage: "workflow filename, e.g. gdnext.yml"},
 			&cli.IntFlag{Name: "runs", Value: 14, Usage: "max runs to include"},
 			&cli.IntFlag{Name: "log-tail", Value: 60, Usage: "lines of log to tail per failed job in the latest run"},
 			&cli.StringFlag{Name: "branch", Usage: "limit to a single branch (e.g. gdnext-cli)"},
 		},
-		Action: workflowSummaryAction,
+		Action: t.action,
 	}
+	return t, nil
 }
 
-func workflowSummaryAction(_ context.Context, cmd *cli.Command) error {
+func (t *WorkflowSummaryCommand) action(_ context.Context, cmd *cli.Command) error {
 	repo := cmd.String("repo")
 	workflow := cmd.String("workflow")
 	n := int(cmd.Int("runs"))
@@ -463,7 +471,7 @@ type buildRow struct {
 }
 
 // playRow is one (play-host, build-host, target, link) play cell
-// across the window. Populated from `gdnext-ci-play` jobs only.
+// across the window. Populated from `gdnext-play` jobs only.
 type playRow struct {
 	PlayHost     string
 	BuildHost    string
@@ -523,7 +531,7 @@ func collectChecks(asc []runWithJobs) []checkRow {
 	for i, r := range asc {
 		for _, j := range r.Jobs {
 			head, axes, ok := splitJobName(j.Name)
-			if !ok || head != "gdnext-ci-checks" || len(axes) < 1 {
+			if !ok || head != "gdnext-checks" || len(axes) < 1 {
 				continue
 			}
 			host := axes[0]
@@ -552,7 +560,7 @@ func collectBuilds(asc []runWithJobs) []buildRow {
 	for i, r := range asc {
 		for _, j := range r.Jobs {
 			head, axes, ok := splitJobName(j.Name)
-			if !ok || head != "gdnext-ci-build" || len(axes) < 3 {
+			if !ok || head != "gdnext-build" || len(axes) < 3 {
 				continue
 			}
 			link, exp := parseLinkExp(axes[3:])
@@ -625,7 +633,7 @@ func collectPlays(asc []runWithJobs) []playRow {
 	for i, r := range asc {
 		for _, j := range r.Jobs {
 			head, axes, ok := splitJobName(j.Name)
-			if !ok || head != "gdnext-ci-play" || len(axes) < 5 {
+			if !ok || head != "gdnext-play" || len(axes) < 5 {
 				continue
 			}
 			link, exp := parseLinkExp(axes[4:])
@@ -790,15 +798,15 @@ func failureTitle(name string) string {
 		return name
 	}
 	switch head {
-	case "gdnext-ci-checks":
+	case "gdnext-checks":
 		if len(axes) >= 1 {
 			return "Check on " + axes[0]
 		}
-	case "gdnext-ci-build":
+	case "gdnext-build":
 		if len(axes) >= 4 {
 			return fmt.Sprintf("Build %s [%s] on %s", axes[2], axes[3], axes[0])
 		}
-	case "gdnext-ci-play":
+	case "gdnext-play":
 		if len(axes) >= 5 {
 			return fmt.Sprintf("Play %s [%s] on %s (built on %s)", axes[3], axes[4], axes[0], axes[1])
 		}
@@ -812,15 +820,15 @@ func failureRank(f failureRow) int {
 		return 1_000_000_000
 	}
 	switch head {
-	case "gdnext-ci-checks":
+	case "gdnext-checks":
 		if len(axes) >= 1 {
 			return hostRank(axes[0])
 		}
-	case "gdnext-ci-build":
+	case "gdnext-build":
 		if len(axes) >= 4 {
 			return 1_000_000 + buildRank(buildKey{host: axes[0], example: axes[1], target: axes[2], link: axes[3]})
 		}
-	case "gdnext-ci-play":
+	case "gdnext-play":
 		return 500_000_000
 	}
 	return 1_000_000_000
@@ -890,7 +898,7 @@ const (
 )
 
 func renderMarkdown(w io.Writer, s summary) error {
-	fmt.Fprintln(w, "# gdnext-ci")
+	fmt.Fprintln(w, "# gdnext")
 	fmt.Fprintln(w)
 	if len(s.Window) > 0 {
 		fmt.Fprintf(w, "Last **%d** runs (`%s` → `%s`)",
@@ -945,7 +953,7 @@ func renderChecksMarkdown(w io.Writer, rows []checkRow) {
 	}
 	writeSectionHeader(w, "checks", "Checks", histories)
 	if len(rows) == 0 {
-		fmt.Fprintln(w, "_No `gdnext-ci-checks` jobs in this window._")
+		fmt.Fprintln(w, "_No `gdnext-checks` jobs in this window._")
 		fmt.Fprintln(w)
 		return
 	}
@@ -963,7 +971,7 @@ func renderBuildsMarkdown(w io.Writer, rows []buildRow) {
 	}
 	writeSectionHeader(w, "builds", "Builds", histories)
 	if len(rows) == 0 {
-		fmt.Fprintln(w, "_No `gdnext-ci-build` jobs in this window._")
+		fmt.Fprintln(w, "_No `gdnext-build` jobs in this window._")
 		fmt.Fprintln(w)
 		return
 	}
@@ -988,7 +996,7 @@ func renderPlaysMarkdown(w io.Writer, rows []playRow) {
 	}
 	writeSectionHeader(w, "plays", "Plays", histories)
 	if len(rows) == 0 {
-		fmt.Fprintln(w, "_No `gdnext-ci-play` jobs in this window._")
+		fmt.Fprintln(w, "_No `gdnext-play` jobs in this window._")
 		fmt.Fprintln(w)
 		return
 	}

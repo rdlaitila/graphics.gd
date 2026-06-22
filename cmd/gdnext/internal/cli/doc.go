@@ -11,35 +11,46 @@ import (
 
 	"graphics.gd/cmd/gdnext/internal/tooling"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-func docCmd() *cli.Command {
-	return &cli.Command{
+// DocCommand exposes `gdnext doc`: go doc with //gd: tag lookup
+// against classdb.
+type DocCommand struct {
+	*cli.Command
+	ToolCatalog tooling.Catalog `do:""`
+}
+
+// NewDocCommand constructs the `gdnext doc` subcommand
+func NewDocCommand(di do.Injector) (*DocCommand, error) {
+	t := do.MustInvokeStruct[*DocCommand](di)
+	t.Command = &cli.Command{
 		Name:            "doc",
 		Usage:           "go doc with //gd: tag lookup against classdb",
 		ArgsUsage:       "[symbol] [args...]",
 		SkipFlagParsing: true,
-		Action:          docAction,
+		Action:          t.doc,
 	}
+	return t, nil
 }
 
-func docAction(_ context.Context, cmd *cli.Command) error {
+func (t *DocCommand) doc(_ context.Context, cmd *cli.Command) error {
 	if helpRequested(cmd) {
 		return cli.ShowSubcommandHelp(cmd)
 	}
 	args := cmd.Args().Slice()
 	if len(args) == 0 {
-		return tooling.Go.Exec("doc")
+		return t.ToolCatalog.Go.Exec("doc")
 	}
 	query := args[0]
 	remaining := args[1:]
-	matches, err := findGdDocMatches(query)
+	matches, err := t.findGdDocMatches(query)
 	if err != nil {
 		return err
 	}
 	if len(matches) == 0 {
-		return tooling.Go.Exec(append([]string{"doc"}, args...)...)
+		return t.ToolCatalog.Go.Exec(append([]string{"doc"}, args...)...)
 	}
 	var lastErr error
 	var failures int
@@ -50,7 +61,7 @@ func docAction(_ context.Context, cmd *cli.Command) error {
 			fmt.Println()
 		}
 		docArgs := append([]string{"doc", match.goDocPath}, remaining...)
-		if err := tooling.Go.Exec(docArgs...); err != nil {
+		if err := t.ToolCatalog.Go.Exec(docArgs...); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not get doc for %s: %v\n", match.goDocPath, err)
 			lastErr = err
 			failures++
@@ -67,8 +78,8 @@ type gdDocMatch struct {
 	goDocPath string
 }
 
-func findGdDocMatches(query string) ([]gdDocMatch, error) {
-	goPath, err := tooling.Go.Lookup()
+func (t *DocCommand) findGdDocMatches(query string) ([]gdDocMatch, error) {
+	goPath, err := t.ToolCatalog.Go.Lookup()
 	if err != nil {
 		return nil, err
 	}

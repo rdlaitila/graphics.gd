@@ -12,6 +12,7 @@ import (
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"runtime.link/api/xray"
 )
 
@@ -22,12 +23,42 @@ var (
 
 var built_musl bool
 
+// Musl drives static-musl Linux builds (libgodot mode).
 type Musl struct {
-	lib string
-	out string
+	BuildEnv    product.BuildEnv `do:""`
+	ToolCatalog tooling.Catalog  `do:""`
+	lib         string
+	out         string
+	godot       *tooling.Tool // override; nil means "use catalog default"
 }
 
-func (musl Musl) Build(env product.BuildEnv, args ...string) (err error) {
+// NewMusl constructs the Musl builder via DI.
+func NewMusl(di do.Injector) (*Musl, error) {
+	return do.InvokeStruct[*Musl](di)
+}
+
+// godotTool returns the *Tool subsequent godot invocations should
+// use: the freshly-built musl-static editor when [Musl.Build] /
+// [Musl.Test] set it, otherwise the catalog default.
+func (t *Musl) godotTool() *tooling.Tool {
+	if t.godot != nil {
+		return t.godot
+	}
+	return t.ToolCatalog.Godot
+}
+
+// useGodotAt records path as the godot binary every later call should
+// run. Stores a shallow copy of the catalog's *Tool so the catalog
+// itself stays unmodified.
+func (t *Musl) useGodotAt(path string) {
+	godot := *t.ToolCatalog.Godot
+	godot.Path = path
+	t.godot = &godot
+}
+
+func (t *Musl) Build(args ...string) (err error) {
+	env := t.BuildEnv
+	tools := t.ToolCatalog
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
 	goos := os.Getenv("GOOS")
 	os.Setenv("GOOS", "linux")
@@ -42,25 +73,25 @@ func (musl Musl) Build(env product.BuildEnv, args ...string) (err error) {
 		return nil
 	}
 	GOARCH := env.Target.GOARCH
-	zig, err := tooling.Zig.Lookup()
+	zig, err := tools.Zig.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
-	if musl.lib == "" {
-		libgodot, err := tooling.LibGodotEditor.LookupPlatform("musl", GOARCH)
+	if t.lib == "" {
+		libgodot, err := tools.LibGodotEditor.LookupPlatform("musl", GOARCH)
 		if err != nil {
 			return xray.New(err)
 		}
-		musl.lib = libgodot
+		t.lib = libgodot
 	}
-	if musl.out == "" {
-		musl.out = filepath.Join(project.GraphicsDirectory, "musl_"+GOARCH+".editor")
+	if t.out == "" {
+		t.out = filepath.Join(project.GraphicsDirectory, "musl_"+GOARCH+".editor")
 		if env.Host.GOOS == "linux" {
-			version, _ := tooling.ListDynamicDependencies.CombinedOutput("--version")
+			version, _ := tools.ListDynamicDependencies.CombinedOutput("--version")
 			if strings.HasPrefix(version, "musl") {
 				defer func() {
 					if err == nil {
-						tooling.Godot.Path = musl.out
+						t.useGodotAt(t.out)
 					}
 				}()
 			}
@@ -70,10 +101,10 @@ func (musl Musl) Build(env product.BuildEnv, args ...string) (err error) {
 	if err := project.SetupFiles(musl_sdk, "bundled/musl", muslLibPath); err != nil {
 		return xray.New(err)
 	}
-	if err := musl.patch(env); err != nil {
+	if err := t.patch(env); err != nil {
 		return xray.New(err)
 	}
-	GOROOT, err := tooling.Go.Output("env", "GOROOT")
+	GOROOT, err := tools.Go.Output("env", "GOROOT")
 	if err != nil {
 		return xray.New(err)
 	}
@@ -102,16 +133,16 @@ func (musl Musl) Build(env product.BuildEnv, args ...string) (err error) {
 		return fmt.Errorf("gd build: cannot cross-compile linux %v on %s", GOARCH, env.Host.Tuple())
 	}
 	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("musl_%v.a", GOARCH))
-	if err := tooling.Go.Action("build", args, "-tags", "musl", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {
+	if err := tools.Go.Action("build", args, "-tags", "musl", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.Zig.Exec("cc", "-target", target, "-lc++", musl.lib, libgo, "-o", musl.out); err != nil {
+	if err := tools.Zig.Exec("cc", "-target", target, "-lc++", t.lib, libgo, "-o", t.out); err != nil {
 		return xray.New(err)
 	}
 	return nil
 }
 
-func (musl Musl) patch(env product.BuildEnv) error {
+func (t *Musl) patch(env product.BuildEnv) error {
 	musl_malloc := filepath.Join(env.Host.GDBinPath, "lib", "libc", "musl", "src", "malloc", "mallocng", "malloc.c")
 	file, err := os.ReadFile(musl_malloc)
 	if err != nil {
@@ -126,17 +157,19 @@ func (musl Musl) patch(env product.BuildEnv) error {
 	return nil
 }
 
-func (musl Musl) BuildMain(env product.BuildEnv, args ...string) error {
+func (t *Musl) BuildMain(args ...string) error {
+	env := t.BuildEnv
+	tools := t.ToolCatalog
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
 	GOARCH := env.Target.GOARCH
 	var err error
-	musl.out = filepath.Join(project.GraphicsDirectory, ".godot", "godot.musl.template_release.x86_64")
-	musl.lib, err = tooling.LibGodot.LookupPlatform("musl", GOARCH)
+	t.out = filepath.Join(project.GraphicsDirectory, ".godot", "godot.musl.template_release.x86_64")
+	t.lib, err = tools.LibGodot.LookupPlatform("musl", GOARCH)
 	if err != nil {
 		return xray.New(err)
 	}
 	built_musl = false
-	if err := musl.Build(env, args...); err != nil {
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
 	var export []string
@@ -157,27 +190,30 @@ func (musl Musl) BuildMain(env product.BuildEnv, args ...string) error {
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.Godot.Exec(export...); err != nil {
+	if err := t.godotTool().Exec(export...); err != nil {
 		return xray.New(err)
 	}
 	return nil
 }
 
-func (musl Musl) Run(env product.BuildEnv, args ...string) error {
+func (t *Musl) Run(args ...string) error {
+	env := t.BuildEnv
 	GOARCH := env.Target.GOARCH
 	if env.Host.GOOS != "linux" || env.Host.GOARCH != GOARCH {
 		return fmt.Errorf("gd run: cannot run linux/%v executable on %s", GOARCH, env.Host.Tuple())
 	}
-	if err := musl.Build(env, args...); err != nil {
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
-	return tooling.Godot.Exec(args...)
+	return t.godotTool().Exec(args...)
 }
 
-func (musl Musl) Test(env product.BuildEnv, args ...string) error {
+func (t *Musl) Test(args ...string) error {
+	env := t.BuildEnv
+	tools := t.ToolCatalog
 	if built_musl {
 		return nil
 	}
@@ -192,7 +228,7 @@ func (musl Musl) Test(env product.BuildEnv, args ...string) error {
 	if env.Host.GOOS != "linux" || env.Host.GOARCH != GOARCH {
 		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", GOARCH, env.Host.Tuple())
 	}
-	zig, err := tooling.Zig.Lookup()
+	zig, err := tools.Zig.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
@@ -200,10 +236,10 @@ func (musl Musl) Test(env product.BuildEnv, args ...string) error {
 	if err := project.SetupFiles(musl_sdk, "bundled/musl", muslLibPath); err != nil {
 		return xray.New(err)
 	}
-	if err := musl.patch(env); err != nil {
+	if err := t.patch(env); err != nil {
 		return xray.New(err)
 	}
-	GOROOT, err := tooling.Go.Output("env", "GOROOT")
+	GOROOT, err := tools.Go.Output("env", "GOROOT")
 	if err != nil {
 		return xray.New(err)
 	}
@@ -232,21 +268,21 @@ func (musl Musl) Test(env product.BuildEnv, args ...string) error {
 		return fmt.Errorf("gd build: cannot cross-compile linux %v on %s", GOARCH, env.Host.Tuple())
 	}
 	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("musl_%v.a", GOARCH))
-	if err := tooling.Go.Action("test", args, "-c", "-tags", "musl", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {
+	if err := tools.Go.Action("test", args, "-c", "-tags", "musl", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {
 		return xray.New(err)
 	}
-	libgodot, err := tooling.LibGodotEditor.LookupPlatform("musl", GOARCH)
+	libgodot, err := tools.LibGodotEditor.LookupPlatform("musl", GOARCH)
 	if err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.Zig.Exec("c++", "-target", target, libgo, libgodot, "-o", filepath.Join(project.GraphicsDirectory, "musl_"+GOARCH+".editor")); err != nil {
+	if err := tools.Zig.Exec("c++", "-target", target, libgo, libgodot, "-o", filepath.Join(project.GraphicsDirectory, "musl_"+GOARCH+".editor")); err != nil {
 		return xray.New(err)
 	}
-	tooling.Godot.Path = filepath.Join(project.GraphicsDirectory, "musl_"+GOARCH+".editor")
+	t.useGodotAt(filepath.Join(project.GraphicsDirectory, "musl_"+GOARCH+".editor"))
 
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
 	args = append(args, "--headless")
-	return tooling.Godot.Exec(args...)
+	return t.godotTool().Exec(args...)
 }

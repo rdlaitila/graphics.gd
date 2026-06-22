@@ -1,33 +1,31 @@
-name: gdnext-ci
+name: gdnext
 
 on:
   push:
-    branches: ["release", "staging", "gdnext-cli"]
+    branches: ["release", "staging", "gdnext", "gdnext-cli"]
     paths:
       - "cmd/gdnext/**"
-      - "cmd/gdnext-ci/**"
       - "examples/**"
       - "product/**"
-      - ".github/workflows/gdnext-ci.yml"
+      - ".github/workflows/gdnext.yml"
   pull_request:
     branches: ["release"]
     paths:
       - "cmd/gdnext/**"
-      - "cmd/gdnext-ci/**"
       - "examples/**"
       - "product/**"
-      - ".github/workflows/gdnext-ci.yml"
+      - ".github/workflows/gdnext.yml"
   workflow_dispatch:
 
 # Only one run per branch at a time. A new push cancels any in-flight
 # run for the same ref so we don't burn runner-minutes on stale work.
 concurrency:
-  group: gdnext-ci-${{ github.ref }}
+  group: gdnext-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   # Pre-job: enumerate the supported build targets from product data.
-  # `gdnext-ci matrix` emits a fully-expanded include: list keyed by
+  # `gdnext ci matrix` emits a fully-expanded include: list keyed by
   # (os, target, example, experimental); the build job consumes it via
   # fromJSON. Adding a new row to product.PlatformMatrix (or flipping
   # its BuildHosts) lands in CI with zero workflow edits.
@@ -44,13 +42,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go install ./cmd/gdnext-ci
-          matrix=$("$(go env GOPATH)/bin/gdnext-ci" matrix --summary)
+          go install ./cmd/gdnext
+          matrix=$("$(go env GOPATH)/bin/gdnext" ci matrix --summary)
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
 
   # CLI smoke checks that don't depend on (target, example). Runs
   # once per host OS instead of once per matrix cell.
-  gdnext-ci-checks:
+  gdnext-checks:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -63,35 +61,35 @@ jobs:
         with:
           go-version: "1.26"
 
-      - name: Install gdnext + gdnext-ci into PATH
+      - name: Install gdnext into PATH
         shell: bash
         run: |
-          go install ./cmd/gdnext ./cmd/gdnext-ci
+          go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Build + vet + unit tests
         shell: bash
-        run: gdnext-ci build-vet-test
+        run: gdnext ci build-vet-test
 
       - name: Help text smoke
         shell: bash
-        run: gdnext-ci help-text
+        run: gdnext ci help-text
 
       - name: Diagnostic verbs (pre-install)
         shell: bash
-        run: gdnext-ci diagnostic-verbs
+        run: gdnext ci diagnostic-verbs
 
       - name: Go passthrough
         shell: bash
-        run: gdnext-ci go-passthrough
+        run: gdnext ci go-passthrough
 
       - name: Short-flag rewrite
         shell: bash
-        run: gdnext-ci short-flag-rewrite
+        run: gdnext ci short-flag-rewrite
 
       - name: Toolchain install
         shell: bash
-        run: gdnext-ci toolchain-install
+        run: gdnext ci toolchain-install
 
       - name: Toolchain doctor (post-install)
         shell: bash
@@ -127,11 +125,11 @@ jobs:
   # Per-target build matrix. The matrix is supplied by discover-targets
   # as a fully-expanded include: list — host × target gating lives in
   # product.Platform.BuildHosts, not in the workflow.
-  gdnext-ci-build:
-    needs: [discover-targets, gdnext-ci-checks]
+  gdnext-build:
+    needs: [discover-targets, gdnext-checks]
     # Pin the displayed name so the matrix axes (which include long
     # artefact slugs + boolean flags) don't leak into the UI label.
-    name: gdnext-ci-build (${{ matrix.os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.experimental && ', exp' || '' }})
+    name: gdnext-build (${{ matrix.os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.experimental && ', exp' || '' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -149,10 +147,10 @@ jobs:
           path: ~/gd
           key: ${{ runner.os }}-gdnext-${{ github.sha }}
 
-      - name: Install gdnext + gdnext-ci into PATH
+      - name: Install gdnext into PATH
         shell: bash
         run: |
-          go install ./cmd/gdnext ./cmd/gdnext-ci
+          go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Stage example (${{ matrix.example }})
@@ -167,7 +165,7 @@ jobs:
           rm -rf "$tmp"
           mkdir -p "$tmp"
           echo "tmp=$tmp" >> $GITHUB_OUTPUT
-          gdnext-ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
+          gdnext ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
 
       # Confirm the cache restore brought ~/gd in fully. --fix runs
       # install for whatever's missing, so a cold cache still works
@@ -177,7 +175,7 @@ jobs:
         run: gdnext toolchain doctor --fix
 
       # Build the matrix's target. (goos, goarch) is validated against
-      # product.PlatformMatrix inside `gdnext-ci build-target`, so a
+      # product.PlatformMatrix inside `gdnext ci build-target`, so a
       # typo'd target fails with a clear "unknown platform" message
       # instead of a cryptic deeper error. Experimental targets carry
       # continue-on-error so the job stays green when they break —
@@ -187,7 +185,7 @@ jobs:
         shell: bash
         run: |
           IFS=/ read -r goos goarch <<< "${{ matrix.target }}"
-          gdnext-ci build-target --goos "$goos" --goarch "$goarch" --link "${{ matrix.link }}" --scratch "${{ steps.stage.outputs.tmp }}"
+          gdnext ci build-target --goos "$goos" --goarch "$goarch" --link "${{ matrix.link }}" --scratch "${{ steps.stage.outputs.tmp }}"
 
       - name: Tree ${{ matrix.target }} [${{ matrix.link || 'default' }}]
         if: always()
@@ -215,14 +213,14 @@ jobs:
 
       - name: Headless test pipeline
         shell: bash
-        run: gdnext-ci test-headless --scratch "${{ steps.stage.outputs.tmp }}"
+        run: gdnext ci test-headless --scratch "${{ steps.stage.outputs.tmp }}"
 
   # Pre-job: enumerate the (play-host, build-host, target, link) quads
   # the play matrix should drive. Only emitted for Platforms whose
   # PlayHosts is non-empty, so adding a play target lands here without
   # workflow edits.
   discover-plays:
-    needs: [gdnext-ci-build]
+    needs: [gdnext-build]
     if: always()
     runs-on: ubuntu-latest
     outputs:
@@ -237,10 +235,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go install ./cmd/gdnext-ci
-          matrix=$("$(go env GOPATH)/bin/gdnext-ci" play-matrix --summary)
+          go install ./cmd/gdnext
+          matrix=$("$(go env GOPATH)/bin/gdnext" ci play-matrix --summary)
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
-          # Skip the gdnext-ci-play job entirely when no rows exist
+          # Skip the gdnext-play job entirely when no rows exist
           # (e.g. every play target was excluded). Otherwise GHA
           # complains about an empty matrix.
           count=$(echo "$matrix" | jq '.include | length')
@@ -252,12 +250,12 @@ jobs:
 
   # Per-(play-host, build-host, target, link) drive of the produced
   # binary via the canarybird play-bot. Each cell downloads its build
-  # artefact, runs `gdnext-ci play-cell` against it, and surfaces the
+  # artefact, runs `gdnext ci play-cell` against it, and surfaces the
   # bot's pass/fail report.
-  gdnext-ci-play:
+  gdnext-play:
     needs: [discover-plays]
     if: ${{ always() && needs.discover-plays.outputs.empty == 'false' }}
-    name: gdnext-ci-play (${{ matrix.os }}, ${{ matrix.build_os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.experimental && ', exp' || '' }})
+    name: gdnext-play (${{ matrix.os }}, ${{ matrix.build_os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.experimental && ', exp' || '' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -268,10 +266,10 @@ jobs:
         with:
           go-version: "1.26"
 
-      - name: Install gdnext-ci into PATH
+      - name: Install gdnext into PATH
         shell: bash
         run: |
-          go install ./cmd/gdnext-ci
+          go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Download play artefact (${{ matrix.artifact }})
@@ -300,7 +298,7 @@ jobs:
         continue-on-error: ${{ matrix.experimental }}
         shell: bash
         run: |
-          gdnext-ci play-cell \
+          gdnext ci play-cell \
             --scratch scratch \
             --example "${{ matrix.example }}" \
             --target "${{ matrix.target }}" \
@@ -323,7 +321,7 @@ jobs:
   # success / failure history is visible at a glance from the UI.
   summary:
     name: Workflow summary
-    needs: [discover-targets, gdnext-ci-checks, gdnext-ci-build, discover-plays, gdnext-ci-play]
+    needs: [discover-targets, gdnext-checks, gdnext-build, discover-plays, gdnext-play]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -334,18 +332,18 @@ jobs:
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.26"
-      - name: Install gdnext-ci
+      - name: Install gdnext
         shell: bash
         run: |
-          go install ./cmd/gdnext-ci
+          go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
       - name: Render workflow summary
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gdnext-ci workflow-summary \
+          gdnext ci workflow-summary \
             --repo "${{ github.repository }}" \
-            --workflow gdnext-ci.yml \
+            --workflow gdnext.yml \
             --branch "${{ github.ref_name }}" \
             --runs 14 >> "$GITHUB_STEP_SUMMARY"

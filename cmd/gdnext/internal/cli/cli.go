@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/user"
-	"path/filepath"
-	"runtime/debug"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
+	"graphics.gd/cmd/gdnext/internal/ci"
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/setup"
 	"graphics.gd/cmd/gdnext/internal/tooling"
@@ -16,67 +15,73 @@ import (
 	"runtime.link/api/xray"
 )
 
-var buildEnv product.BuildEnv
-
-// Commands returns the full subcommand list attached to the root command.
-// Each entry is defined in its own <name>.go file.
-func Commands() []*cli.Command {
-	return []*cli.Command{
-		buildCmd(),
-		runCmd(),
-		testCmd(),
-		exportCmd(),
-		docCmd(),
-		fixCmd(),
-		versionCmd(),
-		projectCmd(),
-		toolchainCmd(),
-		platformCmd(),
-		androidCmd(),
-		iosCmd(),
-		macosCmd(),
-		webCmd(),
-		muslCmd(),
-	}
+// RootCommand wraps the urfave Command with any additional context or helpers needed by gdnext.
+type RootCommand struct {
+	*cli.Command
+	Injector    do.Injector      `do:""`
+	BuildEnv    product.BuildEnv `do:""`
+	ToolCatalog tooling.Catalog  `do:""`
 }
 
-// Version returns the gdnext binary's own module version, falling back to
-// "(devel)" when invoked from a non-vendored build.
-func Version() string {
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		return info.Main.Version
+// Provides is the package-level provider set for the gdnext CLI
+var Provides = do.Package(
+	do.Lazy(NewRootCommand),
+	do.Lazy(NewAndroidCommand),
+	do.Lazy(NewBuildCommand),
+	do.Lazy(NewExportCommand),
+	do.Lazy(NewRunCommand),
+	do.Lazy(NewTestCommand),
+	do.Lazy(NewDocCommand),
+	do.Lazy(NewFixCommand),
+	do.Lazy(NewVersionCommand),
+	do.Lazy(NewProjectCommand),
+	do.Lazy(NewToolchainCommand),
+	do.Lazy(NewPlatformCommand),
+	do.Lazy(NewIosCommand),
+	do.Lazy(NewMacosCommand),
+	do.Lazy(NewWebCommand),
+	do.Lazy(NewMuslCommand),
+)
+
+// NewRootCommand constructs the root command for gdnext
+func NewRootCommand(di do.Injector) (*RootCommand, error) {
+	t := do.MustInvokeStruct[*RootCommand](di)
+	t.Command = &cli.Command{
+		Name:                  "gdnext",
+		Usage:                 "Drop-in replacement for the go command for Godot-based projects",
+		Version:               version(),
+		Suggest:               true,
+		EnableShellCompletion: true,
+		Flags:                 flags(),
+		Before:                t.before,
+		Action:                t.launchEditor,
+		CommandNotFound:       t.passthroughToGo(),
+		Commands:              commands(di),
 	}
-	return "(devel)"
+	return t, nil
 }
 
-// Before is the urfave Before hook for the root command. It promotes
-// global flags to environment variables so they are visible to all
-// subcommands and the editor launch. It also determines the build
-// environment based on the current GOOS and GOARCH and stores it in
-// the package-level buildEnv variable.
-func Before(ctx context.Context, c *cli.Command) (context.Context, error) {
+// before is the urfave Before hook for the root command.
+func (t *RootCommand) before(ctx context.Context, c *cli.Command) (context.Context, error) {
 	if _, err := promoteFlagsToEnv(ctx, c); err != nil {
-		return ctx, xray.New(err)
-	}
-	if err := prepareBuildEnv(); err != nil {
 		return ctx, xray.New(err)
 	}
 	return ctx, nil
 }
 
-// LaunchEditor is the root no-subcommand handler: build the project as a shared
+// launchEditor is the root no-subcommand handler: build the project as a shared
 // library so the editor sees fresh code, then launch Godot in editor mode.
 // RUNNING_INSIDE_GODOT short-circuits the launch to avoid an infinite spawn
 // loop when the editor is the parent process.
-func LaunchEditor(_ context.Context, cmd *cli.Command) error {
-	platform, err := setup.ForBuild(buildEnv, false, nil)
+func (t *RootCommand) launchEditor(_ context.Context, cmd *cli.Command) error {
+	platform, err := setup.ForBuild(t.Injector, false, nil)
 	if err != nil {
 		return err
 	}
 	if err := os.Chdir(project.Directory); err != nil {
 		return xray.New(err)
 	}
-	if err := platform.Build(buildEnv, "-gcflags=graphics.gd/classdb/...=-N -l"); err != nil {
+	if err := platform.Build("-gcflags=graphics.gd/classdb/...=-N -l"); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
@@ -85,111 +90,45 @@ func LaunchEditor(_ context.Context, cmd *cli.Command) error {
 	if cmd.Bool("inside-godot") || os.Getenv("RUNNING_INSIDE_GODOT") != "" {
 		return nil
 	}
-	return tooling.Godot.Exec("-e")
+	return t.ToolCatalog.Godot.Exec("-e")
 }
 
-func prepareBuildEnv() error {
-	env, err := product.FindBuildEnv(os.Getenv("GOOS"), os.Getenv("GOARCH"), os.Getenv("GOLINK"))
-	if err != nil {
-		return xray.New(err)
-	}
-	buildEnv = env
-	// Only write GOOS/GOARCH back when FindBuildEnv canonicalised an
-	// alias the user passed in (e.g. macos -> darwin, web -> js).
-	// Skipping the no-op write keeps "was this user-set?" introspection
-	// honest for any downstream tool that cares.
-	if os.Getenv("GOOS") != buildEnv.Target.GOOS {
-		if err := os.Setenv("GOOS", buildEnv.Target.GOOS); err != nil {
-			return xray.New(err)
+// passthroughToGo remains the urfave CommandNotFound handler for the rare
+// case where execution reaches urfave with a verb we didn't catch in
+// goPassthrough — defensive backup, not the primary path.
+func (t *RootCommand) passthroughToGo() cli.CommandNotFoundFunc {
+	return func(_ context.Context, cmd *cli.Command, name string) {
+		if name == "" {
+			return
+		}
+		args := append([]string{name}, cmd.Args().Slice()...)
+		if err := t.ToolCatalog.Go.Exec(args...); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
 		}
 	}
-	if os.Getenv("GOARCH") != buildEnv.Target.GOARCH {
-		if err := os.Setenv("GOARCH", buildEnv.Target.GOARCH); err != nil {
-			return xray.New(err)
-		}
-	}
-	if linkStr := buildEnv.Target.LinkMode.String(); os.Getenv("GOLINK") != linkStr {
-		if err := os.Setenv("GOLINK", linkStr); err != nil {
-			return xray.New(err)
-		}
-	}
-	home, err := homeDir()
-	if err != nil {
-		return xray.New(err)
-	}
-	buildEnv.Host.UserHomeRoot = home
-	appdata, err := appdataRoot(buildEnv.Host.GOOS, home)
-	if err != nil {
-		return xray.New(err)
-	}
-	buildEnv.Host.UserAppdataRoot = appdata
-	root := os.Getenv("GDPATH")
-	if root == "" {
-		root = filepath.Join(home, "gd")
-	}
-	buildEnv.Host.GDRootPath = root
-	buildEnv.Host.GDBinPath = filepath.Join(root, "bin")
-	buildEnv.Host.GDLibPath = filepath.Join(root, "lib")
-	// Reflect the canonical GDPATH back into the environment so any
-	// downstream code that still reads it (tooling.Tool.LookupPlatform,
-	// spawned subprocesses) sees the same value the typed BuildEnv
-	// carries. New code should consume BuildEnv.Host.GD*Path instead.
-	if os.Getenv("GDPATH") != root {
-		if err := os.Setenv("GDPATH", root); err != nil {
-			return xray.New(err)
-		}
-	}
-	if err := buildEnv.Validate(); err != nil {
-		return xray.New(err)
-	}
-	return nil
 }
 
-// homeDir resolves the host user's home directory. It tries
-// os.UserHomeDir first (which respects $HOME / %USERPROFILE%) and falls
-// back to user.Current() for environments where neither env var is set
-// but the OS still knows the user (some sandboxed or daemonised shells).
-func homeDir() (string, error) {
-	if h, err := os.UserHomeDir(); err == nil && h != "" {
-		return h, nil
-	}
-	whoami, err := user.Current()
-	if err != nil {
-		return "", fmt.Errorf("could not resolve user home: %w", err)
-	}
-	if whoami.HomeDir == "" {
-		return "", fmt.Errorf("could not resolve user home: empty HomeDir for %s", whoami.Username)
-	}
-	return whoami.HomeDir, nil
-}
-
-// appdataRoot returns the per-user application-data anchor for goos:
-//
-//	linux   $XDG_DATA_HOME or ~/.local/share        (XDG Base Directory)
-//	windows %APPDATA% or ~\AppData\Roaming          (Roaming AppData)
-//	darwin  ~/Library/Application Support           (Apple HIG)
-//
-// Deep callers compose this with the application's own conventional
-// subdir (Godot uses "godot" on linux, "Godot" elsewhere) instead of
-// re-branching on goos themselves. An unknown goos is a hard error;
-// silently returning home would mis-place files on hosts gdnext hasn't
-// been taught about.
-func appdataRoot(goos, home string) (string, error) {
-	switch goos {
-	case product.GOOSLinux:
-		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-			return xdg, nil
-		}
-		return filepath.Join(home, ".local", "share"), nil
-	case product.GOOSWindows:
-		if appdata := os.Getenv("APPDATA"); appdata != "" {
-			return appdata, nil
-		}
-		return filepath.Join(home, "AppData", "Roaming"), nil
-	case product.GOOSDarwin:
-		return filepath.Join(home, "Library", "Application Support"), nil
-	default:
-		return "", fmt.Errorf("appdataRoot: no per-user app data anchor for goos %q", goos)
+// commands returns the full subcommand list attached to the root command.
+// Each entry is defined in its own <name>.go file.
+func commands(di do.Injector) []*cli.Command {
+	return []*cli.Command{
+		do.MustInvoke[*BuildCommand](di).Command,
+		do.MustInvoke[*RunCommand](di).Command,
+		do.MustInvoke[*TestCommand](di).Command,
+		do.MustInvoke[*ExportCommand](di).Command,
+		do.MustInvoke[*DocCommand](di).Command,
+		do.MustInvoke[*FixCommand](di).Command,
+		do.MustInvoke[*VersionCommand](di).Command,
+		do.MustInvoke[*ProjectCommand](di).Command,
+		do.MustInvoke[*ToolchainCommand](di).Command,
+		do.MustInvoke[*PlatformCommand](di).Command,
+		do.MustInvoke[*AndroidCommand](di).Command,
+		do.MustInvoke[*IosCommand](di).Command,
+		do.MustInvoke[*MacosCommand](di).Command,
+		do.MustInvoke[*WebCommand](di).Command,
+		do.MustInvoke[*MuslCommand](di).Command,
+		do.MustInvoke[*ci.CICommand](di).Command,
 	}
 }
 

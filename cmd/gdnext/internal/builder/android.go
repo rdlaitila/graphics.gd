@@ -31,6 +31,7 @@ import (
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"runtime.link/api/xray"
 )
 
@@ -39,11 +40,21 @@ var (
 	android_sdk embed.FS
 )
 
+// Android drives apk/aab builds for the android target.
 type Android struct {
-	Graphics string
+	BuildEnv    product.BuildEnv `do:""`
+	ToolCatalog tooling.Catalog  `do:""`
+	Graphics    string
 }
 
-func (Android) Build(env product.BuildEnv, args ...string) error {
+// NewAndroid constructs the Android builder via DI.
+func NewAndroid(di do.Injector) (*Android, error) {
+	return do.InvokeStruct[*Android](di)
+}
+
+func (t *Android) Build(args ...string) error {
+	env := t.BuildEnv
+	tools := t.ToolCatalog
 	var godot string
 	switch env.Host.GOOS {
 	case "linux":
@@ -135,10 +146,10 @@ func (Android) Build(env product.BuildEnv, args ...string) error {
 		default_sdk_path = filepath.Join(env.Host.UserHomeRoot, "Android", "Sdk")
 	case "windows":
 		default_sdk_path = filepath.Join(os.Getenv("LOCALAPPDATA"), "Android", "Sdk")
-		if _, err := tooling.AndroidDebugBridge.Lookup(); err != nil {
+		if _, err := tools.AndroidDebugBridge.Lookup(); err != nil {
 			return xray.New(err)
 		}
-		if _, err := tooling.AndroidPackageSigner.Lookup(); err != nil {
+		if _, err := tools.AndroidPackageSigner.Lookup(); err != nil {
 			return xray.New(err)
 		}
 	case "darwin":
@@ -183,7 +194,7 @@ func (Android) Build(env product.BuildEnv, args ...string) error {
 	}
 	GOARCH := env.Target.GOARCH
 	if env.Host.GOOS != "android" || env.Host.GOARCH != GOARCH {
-		zig, err := tooling.Zig.Lookup()
+		zig, err := tools.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
 		}
@@ -226,10 +237,12 @@ func (Android) Build(env product.BuildEnv, args ...string) error {
 			return fmt.Errorf("gd build: cannot cross-compile android/%v on %s", GOARCH, env.Host.Tuple())
 		}
 	}
-	return tooling.Go.Action("build", args, "-ldflags=-checklinkname=0", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("libandroid_%v.so", GOARCH)))
+	return tools.Go.Action("build", args, "-ldflags=-checklinkname=0", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("libandroid_%v.so", GOARCH)))
 }
 
-func (android Android) Run(env product.BuildEnv, args ...string) error {
+func (t *Android) Run(args ...string) error {
+	env := t.BuildEnv
+	tools := t.ToolCatalog
 	var godot string
 	switch env.Host.GOOS {
 	case "linux":
@@ -240,15 +253,15 @@ func (android Android) Run(env product.BuildEnv, args ...string) error {
 		return nil
 	}
 	debug_keystore := filepath.Join(env.Host.UserAppdataRoot, godot, "keystores", "debug.keystore")
-	if err := android.Build(env, args...); err != nil {
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
 	GOARCH := env.Target.GOARCH
-	adb, err := tooling.AndroidDebugBridge.Lookup()
+	adb, err := tools.AndroidDebugBridge.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
-	if _, err := tooling.AndroidPackageSigner.Lookup(); err != nil {
+	if _, err := tools.AndroidPackageSigner.Lookup(); err != nil {
 		return xray.New(err)
 	}
 	presetName, exportPath, err := pickAndroidPreset(GOARCH)
@@ -262,10 +275,10 @@ func (android Android) Run(env product.BuildEnv, args ...string) error {
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.Godot.Exec("--headless", "--export-debug", presetName); err != nil {
+	if err := tools.Godot.Exec("--headless", "--export-debug", presetName); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.AndroidPackageSigner.Exec(
+	if err := tools.AndroidPackageSigner.Exec(
 		"sign", "--ks", debug_keystore,
 		"--ks-key-alias", "androiddebugkey", "--ks-pass", "pass:android",
 		apkPath,
@@ -286,7 +299,7 @@ func (android Android) Run(env product.BuildEnv, args ...string) error {
 	// reconstructing "com.example.<dir>" — the user may have set a
 	// custom package/unique_name in the export preset and the
 	// hardcoded form would only match by accident.
-	pkgOut, err := tooling.AndroidAssetPackagingTool.Output("dump", "packagename", apkPath)
+	pkgOut, err := tools.AndroidAssetPackagingTool.Output("dump", "packagename", apkPath)
 	if err != nil {
 		return xray.New(err)
 	}
@@ -328,20 +341,22 @@ func (android Android) Run(env product.BuildEnv, args ...string) error {
 	return nil
 }
 
-func (Android) Test(env product.BuildEnv, args ...string) error {
+func (t *Android) Test(args ...string) error {
 	return fmt.Errorf("gd test: android not supported")
 }
 
-func (android Android) BuildMain(env product.BuildEnv, _ ...string) error {
-	if err := android.Build(env); err != nil {
+func (t *Android) BuildMain(_ ...string) error {
+	env := t.BuildEnv
+	tools := t.ToolCatalog
+	if err := t.Build(); err != nil {
 		return xray.New(err)
 	}
 	GOARCH := env.Target.GOARCH
-	_, err := tooling.AndroidDebugBridge.Lookup()
+	_, err := tools.AndroidDebugBridge.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
-	if _, err := tooling.AndroidPackageSigner.Lookup(); err != nil {
+	if _, err := tools.AndroidPackageSigner.Lookup(); err != nil {
 		return xray.New(err)
 	}
 	var exe string
@@ -362,7 +377,7 @@ func (android Android) BuildMain(env product.BuildEnv, _ ...string) error {
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.Godot.Exec("--headless", "--export-release", presetName); err != nil {
+	if err := tools.Godot.Exec("--headless", "--export-release", presetName); err != nil {
 		return xray.New(err)
 	}
 	// Now that we have the .apk, we also want an .aab that can be uploaded to the Play Store.
@@ -376,7 +391,7 @@ func (android Android) BuildMain(env product.BuildEnv, _ ...string) error {
 	); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.AndroidPackageKitTool.Exec("d",
+	if err := tools.AndroidPackageKitTool.Exec("d",
 		apkPath,
 		"-s", "-o",
 		filepath.Join(project.ReleasesDirectory, "android", "decompiled"),
@@ -403,7 +418,7 @@ func (android Android) BuildMain(env product.BuildEnv, _ ...string) error {
 	); err != nil {
 		return xray.New(err)
 	}
-	originalPackageName, err := tooling.AndroidAssetPackagingTool.Output("dump", "packagename",
+	originalPackageName, err := tools.AndroidAssetPackagingTool.Output("dump", "packagename",
 		apkPath,
 	)
 	if err != nil {
@@ -438,13 +453,13 @@ func (android Android) BuildMain(env product.BuildEnv, _ ...string) error {
 	); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.AndroidAssetPackagingTool.Exec("compile", "--dir",
+	if err := tools.AndroidAssetPackagingTool.Exec("compile", "--dir",
 		filepath.Join(project.ReleasesDirectory, "android", "decompiled", "res"),
 		"-o", filepath.Join(project.ReleasesDirectory, "android", "res.zip"),
 	); err != nil {
 		return xray.New(err)
 	}
-	android_jar, err := tooling.Android.Lookup()
+	android_jar, err := tools.Android.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
@@ -470,7 +485,7 @@ func (android Android) BuildMain(env product.BuildEnv, _ ...string) error {
 	if err := os.WriteFile(filepath.Join(project.GraphicsDirectory, "export_presets.cfg"), export_presets, 0644); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.AndroidAssetPackagingTool.Exec("link", "--proto-format", "-o",
+	if err := tools.AndroidAssetPackagingTool.Exec("link", "--proto-format", "-o",
 		filepath.Join(project.ReleasesDirectory, "android", "base.zip"),
 		"-I", android_jar, "--manifest",
 		filepath.Join(project.ReleasesDirectory, "android", "decompiled", "AndroidManifest.xml"),
@@ -519,7 +534,7 @@ func (android Android) BuildMain(env product.BuildEnv, _ ...string) error {
 	if err := tooling.CreateZip(filepath.Join(project.ReleasesDirectory, "android", "recompiled"), filepath.Join(project.ReleasesDirectory, "android", "modules.zip")); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.BundleTool.Exec("build-bundle", "--modules="+filepath.Join(project.ReleasesDirectory, "android", "modules.zip"),
+	if err := tools.BundleTool.Exec("build-bundle", "--modules="+filepath.Join(project.ReleasesDirectory, "android", "modules.zip"),
 		"--output="+filepath.Join(project.ReleasesDirectory, "android", project.Name+".aab"),
 	); err != nil {
 		return xray.New(err)

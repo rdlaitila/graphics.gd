@@ -9,21 +9,31 @@ import (
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"runtime.link/api/xray"
 )
 
-type Windows struct{}
+// Windows drives gdextension builds (and runs/tests) for windows.
+type Windows struct {
+	BuildEnv    product.BuildEnv `do:""`
+	ToolCatalog tooling.Catalog  `do:""`
+}
 
-func (Windows) Build(env product.BuildEnv, args ...string) error {
+// NewWindows constructs the Windows builder via DI.
+func NewWindows(di do.Injector) (*Windows, error) {
+	return do.InvokeStruct[*Windows](di)
+}
+
+func (t *Windows) Build(args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	if env.Host.GOOS != "windows" || env.Host.GOARCH != env.Target.GOARCH {
-		zig, err := tooling.Zig.Lookup()
+	if t.BuildEnv.Host.GOOS != "windows" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+		zig, err := t.ToolCatalog.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
 		}
-		switch env.Target.GOARCH {
+		switch t.BuildEnv.Target.GOARCH {
 		case "amd64":
 			if err := os.Setenv("CC", zig+" cc -target x86_64-windows-gnu"); err != nil {
 				return xray.New(err)
@@ -33,57 +43,57 @@ func (Windows) Build(env product.BuildEnv, args ...string) error {
 				return xray.New(err)
 			}
 		default:
-			return fmt.Errorf("gd build: cannot cross-compile windows %v on %v", env.Target.GOARCH, env.Host.GOOS)
+			return fmt.Errorf("gd build: cannot cross-compile windows %v on %v", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.GOOS)
 		}
 	}
-	return tooling.Go.Action("build", args, "-ldflags=-w -s", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("windows_%v.dll", env.Target.GOARCH)))
+	return t.ToolCatalog.Go.Action("build", args, "-ldflags=-w -s", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("windows_%v.dll", t.BuildEnv.Target.GOARCH)))
 }
 
-func (windows Windows) BuildMain(env product.BuildEnv, args ...string) error {
-	if err := windows.Build(env, args...); err != nil {
+func (t *Windows) BuildMain(args ...string) error {
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
 	var export []string
-	switch env.Target.GOARCH {
+	switch t.BuildEnv.Target.GOARCH {
 	case "amd64":
 		export = []string{"--headless", "--export-release", "Windows x86_64"}
 	case "arm64":
 		export = []string{"--headless", "--export-release", "Windows arm64"}
 	default:
-		return fmt.Errorf("gd export: cannot export windows %v", env.Target.GOARCH)
+		return fmt.Errorf("gd export: cannot export windows %v", t.BuildEnv.Target.GOARCH)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.Godot.Exec(export...); err != nil {
+	if err := t.ToolCatalog.Godot.Exec(export...); err != nil {
 		return xray.New(err)
 	}
 	return nil
 }
 
-func (windows Windows) Run(env product.BuildEnv, args ...string) error {
-	if env.Host.GOOS != "windows" || env.Host.GOARCH != env.Target.GOARCH {
-		return fmt.Errorf("gd run: cannot run windows/%v executable on %s", env.Target.GOARCH, env.Host.Tuple())
+func (t *Windows) Run(args ...string) error {
+	if t.BuildEnv.Host.GOOS != "windows" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+		return fmt.Errorf("gd run: cannot run windows/%v executable on %s", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.Tuple())
 	}
-	if err := windows.Build(env, args...); err != nil {
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
-	return tooling.Godot.Exec(args...)
+	return t.ToolCatalog.Godot.Exec(args...)
 }
 
-func (Windows) Test(env product.BuildEnv, args ...string) error {
-	if env.Host.GOOS != "windows" || env.Host.GOARCH != env.Target.GOARCH {
-		return fmt.Errorf("gd test: cannot run windows/%v tests on %s", env.Target.GOARCH, env.Host.Tuple())
+func (t *Windows) Test(args ...string) error {
+	if t.BuildEnv.Host.GOOS != "windows" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+		return fmt.Errorf("gd test: cannot run windows/%v tests on %s", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.Tuple())
 	}
-	if err := tooling.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("windows_%v.dll", env.Target.GOARCH))); err != nil {
+	if err := t.ToolCatalog.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("windows_%v.dll", t.BuildEnv.Target.GOARCH))); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
 	args = append(args, "--headless")
-	return tooling.Godot.Exec(args...)
+	return t.ToolCatalog.Godot.Exec(args...)
 }

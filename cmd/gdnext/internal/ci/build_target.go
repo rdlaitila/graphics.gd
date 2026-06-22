@@ -1,4 +1,4 @@
-package internal
+package ci
 
 import (
 	"context"
@@ -8,15 +8,23 @@ import (
 
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// BuildTargetCmd is the heaviest of the verbs. Runs `gdnext build`
-// for one (GOOS, GOARCH) pair against the staged example, asserts
-// the produced shared library + the distributable bundle landed on
-// disk, and on android additionally exercises apksigner.
-func BuildTargetCmd() *cli.Command {
-	return &cli.Command{
+// BuildTargetCommand exposes `gdnext ci build-target`: the heaviest
+// of the verbs. Runs `gdnext build` for one (GOOS, GOARCH) pair
+// against the staged example, asserts the produced shared library +
+// the distributable bundle landed on disk, and on android additionally
+// exercises apksigner.
+type BuildTargetCommand struct {
+	*cli.Command
+}
+
+// NewBuildTargetCommand constructs the build-target subcommand.
+func NewBuildTargetCommand(di do.Injector) (*BuildTargetCommand, error) {
+	t := do.MustInvokeStruct[*BuildTargetCommand](di)
+	t.Command = &cli.Command{
 		Name:  "build-target",
 		Usage: "run `gdnext build` for one (GOOS, GOARCH) and assert artefacts",
 		Flags: []cli.Flag{
@@ -25,11 +33,12 @@ func BuildTargetCmd() *cli.Command {
 			&cli.StringFlag{Name: "link", Usage: "link mode (gdextension|libgodot); blank = platform default"},
 			&cli.StringFlag{Name: "scratch", Usage: "staged example directory to build in", Required: true},
 		},
-		Action: buildAction,
+		Action: t.action,
 	}
+	return t, nil
 }
 
-func buildAction(ctx context.Context, cmd *cli.Command) error {
+func (t *BuildTargetCommand) action(ctx context.Context, cmd *cli.Command) error {
 	goos := cmd.String("goos")
 	goarch := cmd.String("goarch")
 	link := cmd.String("link")

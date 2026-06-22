@@ -12,12 +12,21 @@ import (
 
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )
 
-func platformCmd() *cli.Command {
-	return &cli.Command{
+// PlatformCommand exposes `gdnext platform`: show the graphics.gd
+// platform / host / target matrix.
+type PlatformCommand struct {
+	*cli.Command
+}
+
+// NewPlatformCommand constructs the `gdnext platform` subcommand
+func NewPlatformCommand(di do.Injector) (*PlatformCommand, error) {
+	t := do.MustInvokeStruct[*PlatformCommand](di)
+	t.Command = &cli.Command{
 		Name:      "platform",
 		Usage:     "show the graphics.gd platform / host / target matrix",
 		ArgsUsage: "[<name>]",
@@ -42,11 +51,12 @@ func platformCmd() *cli.Command {
 				Usage:   "render one field per line per row (useful when the table is too wide)",
 			},
 		},
-		Action: platformAction,
+		Action: t.platform,
 	}
+	return t, nil
 }
 
-func platformAction(_ context.Context, cmd *cli.Command) error {
+func (t *PlatformCommand) platform(_ context.Context, cmd *cli.Command) error {
 	format := strings.ToLower(cmd.String("format"))
 	vertical := cmd.Bool("vertical")
 	hostsOnly := cmd.Bool("hosts")

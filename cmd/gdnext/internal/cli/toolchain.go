@@ -12,25 +12,36 @@ import (
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )
 
-func toolchainCmd() *cli.Command {
-	return &cli.Command{
+// ToolchainCommand exposes `gdnext toolchain`: manage the external
+// programs gdnext drives.
+type ToolchainCommand struct {
+	*cli.Command
+	BuildEnv    product.BuildEnv `do:""`
+	ToolCatalog tooling.Catalog  `do:""`
+}
+
+// NewToolchainCommand constructs the `gdnext toolchain` subcommand
+func NewToolchainCommand(di do.Injector) (*ToolchainCommand, error) {
+	t := do.MustInvokeStruct[*ToolchainCommand](di)
+	t.Command = &cli.Command{
 		Name:  "toolchain",
 		Usage: "manage the external programs gdnext drives",
 		Commands: []*cli.Command{
 			{
 				Name:   "list",
 				Usage:  "list every toolchain gdnext can manage",
-				Action: toolchainList,
+				Action: t.list,
 			},
 			{
 				Name:      "path",
 				Usage:     "print the absolute install path of a toolchain (lookup only, no download)",
 				ArgsUsage: "<name>",
-				Action:    toolchainPath,
+				Action:    t.path,
 			},
 			{
 				Name:      "install",
@@ -42,7 +53,7 @@ func toolchainCmd() *cli.Command {
 						Usage: "skip product.Toolchain.KnownChecksums verification after download (sets GDNEXT_SKIP_CHECKSUM=1)",
 					},
 				},
-				Action: toolchainInstall,
+				Action: t.install,
 			},
 			{
 				Name:  "doctor",
@@ -63,35 +74,36 @@ func toolchainCmd() *cli.Command {
 						Usage:   "output format: table | json | yaml | xml",
 					},
 				},
-				Action: toolchainDoctor,
+				Action: t.doctor,
 			},
 		},
 	}
+	return t, nil
 }
 
-func toolchainList(_ context.Context, _ *cli.Command) error {
+func (t *ToolchainCommand) list(_ context.Context, _ *cli.Command) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	defer tw.Flush()
 	fmt.Fprintln(tw, "NAME\tVERSION\tPURPOSE\tINSTALLABLE HOSTS")
-	for _, t := range tooling.Catalog {
-		v := t.Version
+	for _, tool := range t.ToolCatalog.Tools() {
+		v := tool.Version
 		if v == "" {
 			v = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", t.Slug, v, t.RequiredFor, hostsString(t.AvailableHosts))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", tool.Slug, v, tool.RequiredFor, hostsString(tool.AvailableHosts))
 	}
 	return nil
 }
 
-func toolchainPath(_ context.Context, cmd *cli.Command) error {
+func (t *ToolchainCommand) path(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() != 1 {
 		return fmt.Errorf("usage: gdnext toolchain path <name>")
 	}
-	t := tooling.BySlug(cmd.Args().First())
-	if t == nil {
+	tool := t.ToolCatalog.BySlug(cmd.Args().First())
+	if tool == nil {
 		return fmt.Errorf("unknown toolchain %q (try: gdnext toolchain list)", cmd.Args().First())
 	}
-	path, err := t.Lookup(tooling.ModeFind)
+	path, err := tool.Lookup(tooling.ModeFind)
 	if err != nil {
 		return err
 	}
@@ -99,22 +111,22 @@ func toolchainPath(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// toolchainInstall installs one named toolchain, or every tool needed
-// by any target the current host can build.
-func toolchainInstall(_ context.Context, cmd *cli.Command) error {
+// install installs one named toolchain, or every tool needed by any
+// target the current host can build.
+func (t *ToolchainCommand) install(_ context.Context, cmd *cli.Command) error {
 	if cmd.Bool("skip-checksum") {
 		os.Setenv("GDNEXT_SKIP_CHECKSUM", "1")
 	}
 	if cmd.NArg() == 1 {
-		t := tooling.BySlug(cmd.Args().First())
-		if t == nil {
+		tool := t.ToolCatalog.BySlug(cmd.Args().First())
+		if tool == nil {
 			return fmt.Errorf("unknown toolchain %q", cmd.Args().First())
 		}
-		if !t.CanInstallOn(buildEnv.Host) {
+		if !tool.CanInstallOn(t.BuildEnv.Host) {
 			return fmt.Errorf("toolchain %q cannot be installed on host %s (AvailableHosts=%s)",
-				t.Slug, buildEnv.Host.Tuple(), hostsString(t.AvailableHosts))
+				tool.Slug, t.BuildEnv.Host.Tuple(), hostsString(tool.AvailableHosts))
 		}
-		path, err := t.Lookup(tooling.ModeInstall)
+		path, err := tool.Lookup(tooling.ModeInstall)
 		if err != nil {
 			return err
 		}
@@ -124,48 +136,48 @@ func toolchainInstall(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() > 1 {
 		return fmt.Errorf("usage: gdnext toolchain install [name]")
 	}
-	jobs := jobsForHost(buildEnv.Host)
-	if err := validateJobs(buildEnv.Host, jobs); err != nil {
+	jobs := jobsForHost(t.ToolCatalog, t.BuildEnv.Host)
+	if err := validateJobs(t.BuildEnv.Host, jobs); err != nil {
 		return err
 	}
-	failed := installJobs(buildEnv.Host, jobs)
+	failed := installJobs(t.BuildEnv.Host, jobs)
 	if failed > 0 {
 		return fmt.Errorf("%d toolchain(s) failed to install", failed)
 	}
 	return nil
 }
 
-// toolchainDoctor renders the per-target install status for every tool
-// host can build a target with. With --fix runs install and re-renders.
-func toolchainDoctor(_ context.Context, cmd *cli.Command) error {
+// doctor renders the per-target install status for every tool host can
+// build a target with. With --fix runs install and re-renders.
+func (t *ToolchainCommand) doctor(_ context.Context, cmd *cli.Command) error {
 	if cmd.Bool("skip-checksum") {
 		os.Setenv("GDNEXT_SKIP_CHECKSUM", "1")
 	}
 	format := strings.ToLower(cmd.String("format"))
-	jobs := jobsForHost(buildEnv.Host)
-	if err := validateJobs(buildEnv.Host, jobs); err != nil {
+	jobs := jobsForHost(t.ToolCatalog, t.BuildEnv.Host)
+	if err := validateJobs(t.BuildEnv.Host, jobs); err != nil {
 		return err
 	}
 	if format != "" && format != "table" {
-		return printDoctorAudit(buildEnv.Host, jobs, format)
+		return printDoctorAudit(t.BuildEnv.Host, jobs, format)
 	}
-	fail := reportJobStatus(buildEnv.Host, jobs)
+	fail := reportJobStatus(t.BuildEnv.Host, jobs)
 	if cmd.Bool("fix") && fail > 0 {
 		fmt.Fprintln(os.Stdout, "\n→ installing missing toolchains...")
-		installJobs(buildEnv.Host, jobs)
+		installJobs(t.BuildEnv.Host, jobs)
 		after := countMissingJobs(jobs)
 		if after < fail {
 			fmt.Fprintln(os.Stdout)
-			fail = reportJobStatus(buildEnv.Host, jobs)
+			fail = reportJobStatus(t.BuildEnv.Host, jobs)
 		} else {
 			fail = after
 		}
 	}
 	if fail > 0 {
 		return fmt.Errorf("%d toolchain(s) missing on host %s (rerun with --fix to auto-download)",
-			fail, buildEnv.Host.Tuple())
+			fail, t.BuildEnv.Host.Tuple())
 	}
-	fmt.Fprintf(os.Stdout, "all toolchains present for every target buildable from %s\n", buildEnv.Host.Tuple())
+	fmt.Fprintf(os.Stdout, "all toolchains present for every target buildable from %s\n", t.BuildEnv.Host.Tuple())
 	return nil
 }
 
@@ -205,7 +217,7 @@ func (j toolJob) Lookup(mode ...tooling.Mode) (string, error) {
 // jobsForHost returns, in catalog order, the unique (tool, target-tuple)
 // jobs needed to prepare every target host can build. Non-library tools
 // dedupe by slug; library tools dedupe by (slug, goos, goarch).
-func jobsForHost(host product.BuildHost) []toolJob {
+func jobsForHost(catalog tooling.Catalog, host product.BuildHost) []toolJob {
 	type key struct{ slug, goos, goarch string }
 	idx := map[key]*toolJob{}
 	var order []key
@@ -223,7 +235,7 @@ func jobsForHost(host product.BuildHost) []toolJob {
 			existing.ContextTargets = append(existing.ContextTargets, ctx)
 			return
 		}
-		runtime := tooling.BySlug(t.Slug)
+		runtime := catalog.BySlug(t.Slug)
 		if runtime == nil {
 			return
 		}
@@ -265,7 +277,7 @@ func jobsForHost(host product.BuildHost) []toolJob {
 		}
 	}
 	catalogOrder := map[string]int{}
-	for i, t := range tooling.Catalog {
+	for i, t := range catalog.Tools() {
 		catalogOrder[t.Slug] = i
 	}
 	out := make([]toolJob, 0, len(order))

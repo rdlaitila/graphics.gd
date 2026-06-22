@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/samber/do/v2"
 	"graphics.gd/cmd/gdnext/internal/builder"
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
@@ -22,18 +23,24 @@ import (
 	"runtime.link/api/xray"
 )
 
+// Provides is the package-level provider set for the setup package
+var Provides = do.Package(
+	do.Lazy(NewBuildEnv),
+)
+
 // ForBuild runs the full setup pipeline and returns the platform-specific
-// Builder + the resolved (host, target) BuildEnv ready for
-// Build/Run/BuildMain/Test. testing should be true only for the "test"
-// subcommand (it switches musl auto-detect into Test mode). extraArgs are
-// the user-supplied positional args after "gdnext <verb>"; they're passed
-// into the musl test closure so it can honour -bench.
+// Builder ready for Build/Run/BuildMain/Test. testing should be true only
+// for the "test" subcommand (it switches musl auto-detect into Test mode).
+// extraArgs are the user-supplied positional args after "gdnext <verb>";
+// they're passed into the musl test closure so it can honour -bench.
 //
 // The flag→env bridge (--goos / --goarch / --cc / --cgo / --gdpath) is
 // handled by cli.PromoteFlagsToEnv on the root command's Before hook, so
 // by the time ForBuild runs every legacy os.Getenv read sees the right
 // values.
-func ForBuild(env product.BuildEnv, testing bool, extraArgs []string) (builder.Builder, error) {
+func ForBuild(di do.Injector, testing bool, extraArgs []string) (builder.Builder, error) {
+	env := do.MustInvoke[product.BuildEnv](di)
+	tools := do.MustInvoke[tooling.Catalog](di)
 	if env.Target.GOARCH != product.GOARCHAmd64 &&
 		env.Target.GOARCH != product.GOARCHArm64 &&
 		env.Target.GOARCH != product.GOARCHWasm {
@@ -41,15 +48,18 @@ func ForBuild(env product.BuildEnv, testing bool, extraArgs []string) (builder.B
 	}
 	build_godot := func() error { return nil }
 	if env.Host.GOOS == product.GOOSLinux {
-		version, err := tooling.ListDynamicDependencies.CombinedOutput("--version")
+		version, err := tools.ListDynamicDependencies.CombinedOutput("--version")
 		if strings.HasPrefix(version, product.GOOSMusl) {
 			if testing {
-				build_godot = muslTestClosure(env, extraArgs)
+				build_godot = muslTestClosure(di, env, extraArgs)
 			} else {
-				build_godot = muslBuildClosure(env)
+				build_godot = muslBuildClosure(di)
 			}
 			// Musl host always statically links libgodot; honour the
-			// user's --link only if they set it.
+			// user's --link only if they set it. The local env mutation
+			// only affects which builder builder.For picks below; the
+			// builder reads its own DI-injected env (which is unchanged)
+			// for everything else.
 			if os.Getenv("GOLINK") == "" {
 				env.Target.LinkMode |= product.LibGodot
 			}
@@ -57,7 +67,7 @@ func ForBuild(env product.BuildEnv, testing bool, extraArgs []string) (builder.B
 			return nil, xray.New(err)
 		}
 	}
-	build, err := builder.For(env)
+	build, err := builder.For(di, env)
 	if err != nil {
 		return nil, xray.New(err)
 	}
@@ -67,7 +77,7 @@ func ForBuild(env product.BuildEnv, testing bool, extraArgs []string) (builder.B
 		}
 	}
 	if env.Target.GOOS == product.GOOSWindows && os.Getenv("CC") == "" {
-		zig, err := tooling.Zig.Lookup()
+		zig, err := tools.Zig.Lookup()
 		if err != nil {
 			return nil, xray.New(err)
 		}
@@ -85,7 +95,7 @@ func ForBuild(env product.BuildEnv, testing bool, extraArgs []string) (builder.B
 			}
 		}
 	}
-	if err := project.Setup(build_godot); err != nil {
+	if err := project.Setup(tools, build_godot); err != nil {
 		return nil, xray.New(err)
 	}
 	if project.IncludesGo {
@@ -96,7 +106,7 @@ func ForBuild(env product.BuildEnv, testing bool, extraArgs []string) (builder.B
 	return build, nil
 }
 
-func muslBuildClosure(env product.BuildEnv) func() error {
+func muslBuildClosure(di do.Injector) func() error {
 	return func() error {
 		GOARCH := os.Getenv("GOARCH")
 		os.Setenv("GOARCH", runtime.GOARCH)
@@ -107,11 +117,15 @@ func muslBuildClosure(env product.BuildEnv) func() error {
 		}
 		os.Chdir(project.Directory)
 		defer os.Chdir(current)
-		return builder.Musl{}.Build(env, "-gcflags=graphics.gd/classdb/...=-N -l")
+		musl, err := do.Invoke[*builder.Musl](di)
+		if err != nil {
+			return xray.New(err)
+		}
+		return musl.Build("-gcflags=graphics.gd/classdb/...=-N -l")
 	}
 }
 
-func muslTestClosure(env product.BuildEnv, testArgsAll []string) func() error {
+func muslTestClosure(di do.Injector, env product.BuildEnv, testArgsAll []string) func() error {
 	return func() error {
 		current, err := os.Getwd()
 		if err != nil {
@@ -127,6 +141,10 @@ func muslTestClosure(env product.BuildEnv, testArgsAll []string) func() error {
 		if !env.Target.LinkMode.Has(product.LibGodot) {
 			args = []string{"-test.skip", "."}
 		}
-		return builder.Musl{}.Test(env, append(faster_compile, TestArgs(args)...)...)
+		musl, err := do.Invoke[*builder.Musl](di)
+		if err != nil {
+			return xray.New(err)
+		}
+		return musl.Test(append(faster_compile, TestArgs(args)...)...)
 	}
 }

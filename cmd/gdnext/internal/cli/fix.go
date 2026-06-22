@@ -24,23 +24,34 @@ import (
 	"graphics.gd/variant/String"
 	"runtime.link/api/xray"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
 //go:embed deprecated.txt
 var fixes string
 
-func fixCmd() *cli.Command {
-	return &cli.Command{
-		Name:   "fix",
-		Usage:  "rewrite code to migrate from deprecated graphics.gd APIs",
-		Action: fixAction,
-	}
+// FixCommand exposes `gdnext fix`: rewrite Go source code in the
+// current module to migrate uses of deprecated graphics.gd symbols
+// to their replacements via golang.org/x/tools/refactor/eg example-
+// based transforms.
+type FixCommand struct {
+	*cli.Command
 }
 
-// fixAction runs the eg transformer over every package in the current module.
-// Exposed so other tools (or a future "gdnext fix --check") can drive it.
-func fixAction(_ context.Context, _ *cli.Command) error {
+// NewFixCommand constructs the `gdnext fix` subcommand
+func NewFixCommand(di do.Injector) (*FixCommand, error) {
+	t := do.MustInvokeStruct[*FixCommand](di)
+	t.Command = &cli.Command{
+		Name:   "fix",
+		Usage:  "rewrite code to migrate from deprecated graphics.gd APIs",
+		Action: t.fix,
+	}
+	return t, nil
+}
+
+// fix runs the eg transformer over every package in the current module.
+func (t *FixCommand) fix(_ context.Context, _ *cli.Command) error {
 	cfg := &packages.Config{
 		Fset:  token.NewFileSet(),
 		Mode:  packages.NeedName | packages.NeedTypes | packages.NeedSyntax | packages.NeedImports | packages.NeedDeps | packages.NeedCompiledGoFiles,

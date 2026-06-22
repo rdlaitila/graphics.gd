@@ -16,21 +16,30 @@ import (
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"runtime.link/api/xray"
 )
 
+// Browser drives wasm/js builds + a local dev server.
 type Browser struct {
-	testing bool
-	handler http.Handler
+	BuildEnv    product.BuildEnv `do:""`
+	ToolCatalog tooling.Catalog  `do:""`
+	testing     bool
+	handler     http.Handler
 }
 
-func (browser Browser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// NewBrowser constructs the Browser builder via DI.
+func NewBrowser(di do.Injector) (*Browser, error) {
+	return do.InvokeStruct[*Browser](di)
+}
+
+func (t *Browser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
 	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
-	browser.handler.ServeHTTP(w, r)
+	t.handler.ServeHTTP(w, r)
 }
 
-func (browser Browser) Build(_ product.BuildEnv, args ...string) error {
+func (t *Browser) Build(args ...string) error {
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
 	if err := os.MkdirAll(filepath.Join(project.ReleasesDirectory, "js", "wasm"), 0755); err != nil {
 		return xray.New(err)
@@ -38,27 +47,27 @@ func (browser Browser) Build(_ product.BuildEnv, args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	if err := browser.AssertExportTemplate(); err != nil {
+	if err := t.AssertExportTemplate(); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Setenv("GOARCH", "wasm"); err != nil {
 		return xray.New(err)
 	}
-	if browser.testing {
-		return tooling.Go.Action("test", args, "-c", "-o", filepath.Join(project.ReleasesDirectory, "js", "wasm", "library.wasm"))
+	if t.testing {
+		return t.ToolCatalog.Go.Action("test", args, "-c", "-o", filepath.Join(project.ReleasesDirectory, "js", "wasm", "library.wasm"))
 	}
-	return tooling.Go.Action("build", args, "-o", filepath.Join(project.ReleasesDirectory, "js", "wasm", "library.wasm"))
+	return t.ToolCatalog.Go.Action("build", args, "-o", filepath.Join(project.ReleasesDirectory, "js", "wasm", "library.wasm"))
 }
 
-func (browser Browser) Run(env product.BuildEnv, args ...string) error {
+func (t *Browser) Run(args ...string) error {
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
-	if err := browser.Build(env, args...); err != nil {
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.Godot.Exec("--headless", "--export-release", "Web"); err != nil {
+	if err := t.ToolCatalog.Godot.Exec("--headless", "--export-release", "Web"); err != nil {
 		return xray.New(err)
 	}
 	PORT := os.Getenv("PORT")
@@ -84,24 +93,24 @@ func (browser Browser) Run(env product.BuildEnv, args ...string) error {
 		}
 	}
 	fmt.Println("gd: serving wasm/js on http://localhost:" + PORT)
-	browser.handler = http.FileServer(http.Dir(filepath.Join(project.ReleasesDirectory, "js", "wasm")))
-	http.Handle("/", browser)
+	t.handler = http.FileServer(http.Dir(filepath.Join(project.ReleasesDirectory, "js", "wasm")))
+	http.Handle("/", t)
 	return xray.New(http.ListenAndServe(":"+PORT, nil))
 }
 
-func (browser Browser) BuildMain(env product.BuildEnv, args ...string) error {
-	if err := browser.Build(env, args...); err != nil {
+func (t *Browser) BuildMain(args ...string) error {
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
-	return tooling.Godot.Exec("--headless", "--export-release", "Web")
+	return t.ToolCatalog.Godot.Exec("--headless", "--export-release", "Web")
 }
 
-func (browser Browser) Test(env product.BuildEnv, args ...string) error {
+func (t *Browser) Test(args ...string) error {
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
-	browser.testing = true
+	t.testing = true
 	converted := []string{}
 	for _, arg := range os.Args[2:] {
 		switch arg {
@@ -118,15 +127,15 @@ func (browser Browser) Test(env product.BuildEnv, args ...string) error {
 			converted = append(converted, arg)
 		}
 	}
-	return browser.Run(env, converted...)
+	return t.Run(converted...)
 }
 
-func (Browser) AssertExportTemplate() error {
+func (t *Browser) AssertExportTemplate() error {
 	if err := os.MkdirAll(filepath.Join(project.GraphicsDirectory, ".godot", "public"), 0o755); err != nil {
 		return xray.New(err)
 	}
 	path := filepath.Join(project.GraphicsDirectory, "..", "releases", "js", "wasm", "wasm_exec.js")
-	GOROOT, err := tooling.Go.Output("env", "GOROOT")
+	GOROOT, err := t.ToolCatalog.Go.Output("env", "GOROOT")
 	if err != nil {
 		return xray.New(err)
 	}

@@ -17,39 +17,44 @@ import (
 	"os"
 	"strings"
 
+	"graphics.gd/cmd/gdnext/internal/builder"
+	"graphics.gd/cmd/gdnext/internal/ci"
 	gdcli "graphics.gd/cmd/gdnext/internal/cli"
+	"graphics.gd/cmd/gdnext/internal/setup"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
 func main() {
-	cmd := &cli.Command{
-		Name:                  "gdnext",
-		Usage:                 "Drop-in replacement for the go command for Godot-based projects",
-		Version:               gdcli.Version(),
-		Suggest:               true,
-		EnableShellCompletion: true,
-		Flags:                 gdcli.Flags(),
-		Before:                gdcli.Before,
-		Action:                gdcli.LaunchEditor,
-		CommandNotFound:       passthroughToGo,
-		Commands:              gdcli.Commands(),
-	}
-	args := gdcli.RewriteShortFlags(os.Args, gdcli.CollectFlagNames(cmd))
-	if goArgs, ok := goPassthrough(args, cmd); ok {
+	di := do.New()
+	// Register the injector itself so commands can declare an
+	// `Injector do.Injector` DI field (needed by build / run / test
+	// to lazily resolve builders via setup.ForBuild).
+	do.ProvideValue(di, di)
+	gdcli.Provides(di)
+	setup.Provides(di)
+	tooling.Provides(di)
+	builder.Provides(di)
+	ci.Provides(di)
+	root := do.MustInvoke[*gdcli.RootCommand](di)
+	args := gdcli.RewriteShortFlags(os.Args, gdcli.CollectFlagNames(root.Command))
+	if goArgs, ok := goPassthrough(args, root.Command); ok {
 		// ---- BEGIN go-compat passthrough (delete to remove) -----------------
 		// Forward unknown subcommands like `gdnext get pkg` or `gdnext mod tidy`
 		// straight to the underlying `go` toolchain so gdnext stays a drop-in
-		// replacement for the `gd` command.
-		if err := tooling.Go.Exec(goArgs...); err != nil {
+		// replacement for the `gd` command. Force-populate the tool catalog
+		// before exec'ing; urfave's Before hook only fires inside cmd.Run.
+		tools := do.MustInvoke[tooling.Catalog](di)
+		if err := tools.Go.Exec(goArgs...); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 		return
 		// ---- END go-compat passthrough --------------------------------------
 	}
-	if err := cmd.Run(context.Background(), args); err != nil {
+	if err := root.Run(context.Background(), args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, "\nis this error unexpected? open an issue! https://github.com/quaadgras/graphics.gd/issues/new/choose")
 		os.Exit(1)
@@ -137,18 +142,4 @@ func isStringFlag(cmd *cli.Command, name string) bool {
 		return false
 	}
 	return false
-}
-
-// passthroughToGo remains the urfave CommandNotFound handler for the rare
-// case where execution reaches urfave with a verb we didn't catch in
-// goPassthrough — defensive backup, not the primary path.
-func passthroughToGo(_ context.Context, cmd *cli.Command, name string) {
-	if name == "" {
-		return
-	}
-	args := append([]string{name}, cmd.Args().Slice()...)
-	if err := tooling.Go.Exec(args...); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
 }

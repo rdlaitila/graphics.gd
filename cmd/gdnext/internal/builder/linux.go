@@ -9,21 +9,32 @@ import (
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"runtime.link/api/xray"
 )
 
-type Linux struct{}
+// Linux drives gdextension builds (and runs/tests) for the linux
+// target GOOSes. The musl-static linker mode is in [Musl] instead.
+type Linux struct {
+	BuildEnv    product.BuildEnv `do:""`
+	ToolCatalog tooling.Catalog  `do:""`
+}
 
-func (Linux) Build(env product.BuildEnv, args ...string) error {
+// NewLinux constructs the Linux builder via DI.
+func NewLinux(di do.Injector) (*Linux, error) {
+	return do.InvokeStruct[*Linux](di)
+}
+
+func (t *Linux) Build(args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	if env.Host.GOOS != "linux" || env.Host.GOARCH != env.Target.GOARCH {
-		zig, err := tooling.Zig.Lookup()
+	if t.BuildEnv.Host.GOOS != "linux" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+		zig, err := t.ToolCatalog.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
 		}
-		switch env.Target.GOARCH {
+		switch t.BuildEnv.Target.GOARCH {
 		case "amd64":
 			if err := os.Setenv("CC", zig+" cc -target x86_64-linux-gnu"); err != nil {
 				return xray.New(err)
@@ -33,57 +44,57 @@ func (Linux) Build(env product.BuildEnv, args ...string) error {
 				return xray.New(err)
 			}
 		default:
-			return fmt.Errorf("gd build: cannot cross-compile linux %v on %v", env.Target.GOARCH, env.Host.GOOS)
+			return fmt.Errorf("gd build: cannot cross-compile linux %v on %v", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.GOOS)
 		}
 	}
-	return tooling.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", env.Target.GOARCH)))
+	return t.ToolCatalog.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", t.BuildEnv.Target.GOARCH)))
 }
 
-func (linux Linux) BuildMain(env product.BuildEnv, args ...string) error {
-	if err := linux.Build(env, args...); err != nil {
+func (t *Linux) BuildMain(args ...string) error {
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
 	var export []string
-	switch env.Target.GOARCH {
+	switch t.BuildEnv.Target.GOARCH {
 	case "amd64":
 		export = []string{"--headless", "--export-release", "Linux x86_64"}
 	case "arm64":
 		export = []string{"--headless", "--export-release", "Linux arm64"}
 	default:
-		return fmt.Errorf("gd export: cannot export linux %v", env.Target.GOARCH)
+		return fmt.Errorf("gd export: cannot export linux %v", t.BuildEnv.Target.GOARCH)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.Godot.Exec(export...); err != nil {
+	if err := t.ToolCatalog.Godot.Exec(export...); err != nil {
 		return xray.New(err)
 	}
 	return nil
 }
 
-func (linux Linux) Run(env product.BuildEnv, args ...string) error {
-	if env.Host.GOOS != "linux" || env.Host.GOARCH != env.Target.GOARCH {
-		return fmt.Errorf("gd run: cannot run linux/%v executable on %s", env.Target.GOARCH, env.Host.Tuple())
+func (t *Linux) Run(args ...string) error {
+	if t.BuildEnv.Host.GOOS != "linux" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+		return fmt.Errorf("gd run: cannot run linux/%v executable on %s", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.Tuple())
 	}
-	if err := linux.Build(env, args...); err != nil {
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
-	return tooling.Godot.Exec(args...)
+	return t.ToolCatalog.Godot.Exec(args...)
 }
 
-func (Linux) Test(env product.BuildEnv, args ...string) error {
-	if env.Host.GOOS != "linux" || env.Host.GOARCH != env.Target.GOARCH {
-		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", env.Target.GOARCH, env.Host.Tuple())
+func (t *Linux) Test(args ...string) error {
+	if t.BuildEnv.Host.GOOS != "linux" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.Tuple())
 	}
-	if err := tooling.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", env.Target.GOARCH))); err != nil {
+	if err := t.ToolCatalog.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", t.BuildEnv.Target.GOARCH))); err != nil {
 		return xray.New(err)
 	}
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
 	args = append(args, "--headless")
-	return tooling.Godot.Exec(args...)
+	return t.ToolCatalog.Godot.Exec(args...)
 }

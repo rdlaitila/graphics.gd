@@ -1,4 +1,4 @@
-package internal
+package ci
 
 import (
 	"context"
@@ -13,13 +13,21 @@ import (
 
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-// PlayCellCmd launches the produced binary headlessly with the
-// canarybird play-bot enabled and asserts the resulting report.
-func PlayCellCmd() *cli.Command {
-	return &cli.Command{
+// PlayCellCommand exposes `gdnext ci play-cell`: launch the produced
+// binary headlessly with the canarybird play-bot enabled and assert
+// the resulting report.
+type PlayCellCommand struct {
+	*cli.Command
+}
+
+// NewPlayCellCommand constructs the play-cell subcommand.
+func NewPlayCellCommand(di do.Injector) (*PlayCellCommand, error) {
+	t := do.MustInvokeStruct[*PlayCellCommand](di)
+	t.Command = &cli.Command{
 		Name:  "play-cell",
 		Usage: "drive one already-built example headlessly via the play-bot",
 		Flags: []cli.Flag{
@@ -30,8 +38,9 @@ func PlayCellCmd() *cli.Command {
 			&cli.DurationFlag{Name: "timeout", Value: 90 * time.Second, Usage: "hard kill after this much wall-clock time"},
 			&cli.IntFlag{Name: "min-score", Value: 1, Usage: "minimum score for a passing report"},
 		},
-		Action: playCellAction,
+		Action: t.action,
 	}
+	return t, nil
 }
 
 type playReport struct {
@@ -41,7 +50,7 @@ type playReport struct {
 	Crashed bool    `json:"crashed"`
 }
 
-func playCellAction(_ context.Context, cmd *cli.Command) error {
+func (t *PlayCellCommand) action(_ context.Context, cmd *cli.Command) error {
 	scratch, err := filepath.Abs(cmd.String("scratch"))
 	if err != nil {
 		return err

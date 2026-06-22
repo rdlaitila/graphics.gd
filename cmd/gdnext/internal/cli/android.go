@@ -10,11 +10,21 @@ import (
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
 )
 
-func androidCmd() *cli.Command {
-	return &cli.Command{
+// AndroidCommand wraps the urfave Command with any Android-specific helpers or context needed by gdnext.
+type AndroidCommand struct {
+	*cli.Command
+	ToolCatalog tooling.Catalog  `do:""`
+	BuildEnv    product.BuildEnv `do:""`
+}
+
+// NewAndroidCommand constructs the android subcommand for gdnext
+func NewAndroidCommand(di do.Injector) (*AndroidCommand, error) {
+	t := do.MustInvokeStruct[*AndroidCommand](di)
+	t.Command = &cli.Command{
 		Name:  "android",
 		Usage: "Android device and APK helpers",
 		Commands: []*cli.Command{
@@ -23,13 +33,13 @@ func androidCmd() *cli.Command {
 				Usage:           "raw passthrough to the bundled adb binary",
 				ArgsUsage:       "[adb-args...]",
 				SkipFlagParsing: true,
-				Action:          androidAdb,
+				Action:          t.androidAdb,
 			},
 			{
 				Name:      "install",
 				Usage:     "adb install the supplied APK",
 				ArgsUsage: "<path-to-apk>",
-				Action:    androidInstall,
+				Action:    t.androidInstall,
 			},
 			{
 				Name:  "logcat",
@@ -40,7 +50,7 @@ func androidCmd() *cli.Command {
 						Usage: "filter to the pid of the named package (uses adb shell pidof)",
 					},
 				},
-				Action: androidLogcat,
+				Action: t.androidLogcat,
 			},
 			{
 				Name:  "apk",
@@ -51,19 +61,19 @@ func androidCmd() *cli.Command {
 						Usage:           "apksigner v1 + v2 sign of the supplied apk",
 						ArgsUsage:       "<apk> [extra apksigner flags]",
 						SkipFlagParsing: true,
-						Action:          androidApkSign,
+						Action:          t.androidApkSign,
 					},
 					{
 						Name:      "verify",
 						Usage:     "apksigner verify",
 						ArgsUsage: "<apk>",
-						Action:    androidApkVerify,
+						Action:    t.androidApkVerify,
 					},
 					{
 						Name:      "packagename",
 						Usage:     "print the package name of an apk via aapt2 dump packagename",
 						ArgsUsage: "<apk>",
-						Action:    androidApkPackagename,
+						Action:    t.androidApkPackagename,
 					},
 				},
 			},
@@ -74,27 +84,31 @@ func androidCmd() *cli.Command {
 					{
 						Name:   "show",
 						Usage:  "print the debug.keystore path that gdnext build/run uses",
-						Action: androidKeystoreShow,
+						Action: t.androidKeystoreShow,
 					},
 				},
 			},
 		},
 	}
+	return t, nil
 }
 
-func androidAdb(_ context.Context, cmd *cli.Command) error {
-	return tooling.AndroidDebugBridge.Exec(cmd.Args().Slice()...)
+// androidAdb is the action handler for the `gdnext android adb` subcommand
+func (t *AndroidCommand) androidAdb(_ context.Context, cmd *cli.Command) error {
+	return t.ToolCatalog.AndroidDebugBridge.Exec(cmd.Args().Slice()...)
 }
 
-func androidInstall(_ context.Context, cmd *cli.Command) error {
+// androidInstall is the action handler for the `gdnext android install` subcommand
+func (t *AndroidCommand) androidInstall(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() != 1 {
 		return fmt.Errorf("usage: gdnext android install <apk>")
 	}
-	return tooling.AndroidDebugBridge.Exec("install", cmd.Args().First())
+	return t.ToolCatalog.AndroidDebugBridge.Exec("install", cmd.Args().First())
 }
 
-func androidLogcat(_ context.Context, cmd *cli.Command) error {
-	adb, err := tooling.AndroidDebugBridge.Lookup()
+// androidLogcat is the action handler for the `gdnext android logcat` subcommand
+func (t *AndroidCommand) androidLogcat(_ context.Context, cmd *cli.Command) error {
+	adb, err := t.ToolCatalog.AndroidDebugBridge.Lookup()
 	if err != nil {
 		return err
 	}
@@ -113,30 +127,34 @@ func androidLogcat(_ context.Context, cmd *cli.Command) error {
 	return c.Run()
 }
 
-func androidApkSign(_ context.Context, cmd *cli.Command) error {
+// androidApkSign is the action handler for the `gdnext android apk sign` subcommand
+func (t *AndroidCommand) androidApkSign(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() == 0 {
 		return fmt.Errorf("usage: gdnext android apk sign <apk> [flags]")
 	}
 	args := append([]string{"sign"}, cmd.Args().Slice()...)
-	return tooling.AndroidPackageSigner.Exec(args...)
+	return t.ToolCatalog.AndroidPackageSigner.Exec(args...)
 }
 
-func androidApkVerify(_ context.Context, cmd *cli.Command) error {
+// androidApkVerify is the action handler for the `gdnext android apk verify` subcommand
+func (t *AndroidCommand) androidApkVerify(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() != 1 {
 		return fmt.Errorf("usage: gdnext android apk verify <apk>")
 	}
-	return tooling.AndroidPackageSigner.Exec("verify", cmd.Args().First())
+	return t.ToolCatalog.AndroidPackageSigner.Exec("verify", cmd.Args().First())
 }
 
-func androidApkPackagename(_ context.Context, cmd *cli.Command) error {
+// androidApkPackagename is the action handler for the `gdnext android apk packagename` subcommand
+func (t *AndroidCommand) androidApkPackagename(_ context.Context, cmd *cli.Command) error {
 	if cmd.NArg() != 1 {
 		return fmt.Errorf("usage: gdnext android apk packagename <apk>")
 	}
-	return tooling.AndroidAssetPackagingTool.Exec("dump", "packagename", cmd.Args().First())
+	return t.ToolCatalog.AndroidAssetPackagingTool.Exec("dump", "packagename", cmd.Args().First())
 }
 
-func androidKeystoreShow(_ context.Context, _ *cli.Command) error {
-	p, err := androidKeystorePath(buildEnv.Host)
+// androidKeystoreShow is the action handler for the `gdnext android keystore show` subcommand
+func (t *AndroidCommand) androidKeystoreShow(_ context.Context, _ *cli.Command) error {
+	p, err := androidKeystorePath(t.BuildEnv.Host)
 	if err != nil {
 		return err
 	}
@@ -150,9 +168,9 @@ func androidKeystoreShow(_ context.Context, _ *cli.Command) error {
 func androidKeystorePath(host product.BuildHost) (string, error) {
 	var godot string
 	switch host.GOOS {
-	case "linux":
+	case product.GOOSLinux:
 		godot = "godot"
-	case "windows", "darwin":
+	case product.GOOSWindows, product.GOOSDarwin:
 		godot = "Godot"
 	default:
 		return "", fmt.Errorf("no known keystore path for %s", host.GOOS)

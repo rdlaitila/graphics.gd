@@ -38,32 +38,44 @@ import (
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
+	"github.com/samber/do/v2"
 	"runtime.link/api/xray"
 )
 
 // MetaQuest extends the Android builder with an injection step that
 // bakes the OpenXR loader + Meta vendor plugin into the produced APK.
 type MetaQuest struct {
-	Android
+	BuildEnv    product.BuildEnv `do:""`
+	ToolCatalog tooling.Catalog  `do:""`
+	Android     *Android         `do:""`
 }
 
-func (mq MetaQuest) Build(env product.BuildEnv, args ...string) error {
+// NewMetaQuest constructs the MetaQuest builder via DI.
+func NewMetaQuest(di do.Injector) (*MetaQuest, error) {
+	return do.InvokeStruct[*MetaQuest](di)
+}
+
+func (t *MetaQuest) Build(args ...string) error {
 	// Force android/arm64 — Quest has no other targets — and delegate
 	// to the regular Android compile path. Post-processing is only
 	// done in BuildMain / Run after Godot has produced the APK.
-	env.Target.GOOS = "android"
-	env.Target.GOARCH = "arm64"
+	t.BuildEnv.Target.GOOS = "android"
+	t.BuildEnv.Target.GOARCH = "arm64"
+	t.Android.BuildEnv.Target.GOOS = "android"
+	t.Android.BuildEnv.Target.GOARCH = "arm64"
 	os.Setenv("GOARCH", "arm64")
 	os.Setenv("GOOS", "android")
-	return mq.Android.Build(env, args...)
+	return t.Android.Build(args...)
 }
 
-func (mq MetaQuest) Test(env product.BuildEnv, args ...string) error {
+func (t *MetaQuest) Test(args ...string) error {
 	return fmt.Errorf("gd test: metaquest not supported")
 }
 
-func (mq MetaQuest) BuildMain(env product.BuildEnv, args ...string) error {
-	if err := mq.Build(env, args...); err != nil {
+func (t *MetaQuest) BuildMain(args ...string) error {
+	env := t.BuildEnv
+	tools := t.ToolCatalog
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
 	// MkdirAll the export destination before invoking godot — the
@@ -82,25 +94,27 @@ func (mq MetaQuest) BuildMain(env product.BuildEnv, args ...string) error {
 	if err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.Godot.Exec("--headless", "--export-release", "Meta Quest"); err != nil {
+	if err := tools.Godot.Exec("--headless", "--export-release", "Meta Quest"); err != nil {
 		return xray.New(err)
 	}
 	apk := filepath.Join(project.ReleasesDirectory, "metaquest", project.Name+".apk")
-	if err := injectMetaQuest(apk); err != nil {
+	if err := injectMetaQuest(apk, tools); err != nil {
 		return xray.New(err)
 	}
-	return signAPK(apk, releaseKeystore(env.Host))
+	return signAPK(apk, releaseKeystore(env.Host), tools)
 }
 
-func (mq MetaQuest) Run(env product.BuildEnv, args ...string) error {
-	if err := mq.Build(env, args...); err != nil {
+func (t *MetaQuest) Run(args ...string) error {
+	env := t.BuildEnv
+	tools := t.ToolCatalog
+	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
-	adb, err := tooling.AndroidDebugBridge.Lookup()
+	adb, err := tools.AndroidDebugBridge.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
-	if _, err := tooling.AndroidPackageSigner.Lookup(); err != nil {
+	if _, err := tools.AndroidPackageSigner.Lookup(); err != nil {
 		return xray.New(err)
 	}
 	if err := os.MkdirAll(filepath.Join(project.ReleasesDirectory, "metaquest"), 0755); err != nil {
@@ -114,14 +128,14 @@ func (mq MetaQuest) Run(env product.BuildEnv, args ...string) error {
 	if err != nil {
 		return xray.New(err)
 	}
-	if err := tooling.Godot.Exec("--headless", "--export-debug", "Meta Quest"); err != nil {
+	if err := tools.Godot.Exec("--headless", "--export-debug", "Meta Quest"); err != nil {
 		return xray.New(err)
 	}
 	apk := filepath.Join(project.ReleasesDirectory, "metaquest", project.Name+".apk")
-	if err := injectMetaQuest(apk); err != nil {
+	if err := injectMetaQuest(apk, tools); err != nil {
 		return xray.New(err)
 	}
-	if err := signAPK(apk, debugKeystore(env.Host)); err != nil {
+	if err := signAPK(apk, debugKeystore(env.Host), tools); err != nil {
 		return xray.New(err)
 	}
 
@@ -136,7 +150,7 @@ func (mq MetaQuest) Run(env product.BuildEnv, args ...string) error {
 	// may have set their own `package/unique_name` in the export
 	// preset, and "com.example.<dir>" would only be right by
 	// accident.
-	pkgOut, err := tooling.AndroidAssetPackagingTool.Output("dump", "packagename", apk)
+	pkgOut, err := tools.AndroidAssetPackagingTool.Output("dump", "packagename", apk)
 	if err != nil {
 		return xray.New(err)
 	}
@@ -271,7 +285,7 @@ version="4.2.2-stable"
 //
 // No external downloads, no Java invocation — every Quest-specific
 // asset is embedded directly in the gd binary.
-func injectMetaQuest(apkPath string) error {
+func injectMetaQuest(apkPath string, tools tooling.Catalog) error {
 	work, err := os.MkdirTemp("", "metaquest-")
 	if err != nil {
 		return xray.New(err)
@@ -282,7 +296,7 @@ func injectMetaQuest(apkPath string) error {
 	// through apktool's xml-tools, then repack. We don't touch the
 	// existing dex — apktool will re-bundle it as-is.
 	decompiled := filepath.Join(work, "decompiled")
-	if err := tooling.AndroidPackageKitTool.Exec("d", apkPath, "-s", "-o", decompiled, "-f"); err != nil {
+	if err := tools.AndroidPackageKitTool.Exec("d", apkPath, "-s", "-o", decompiled, "-f"); err != nil {
 		return xray.New(err)
 	}
 	// Godot's APK ships a themed_icon mipmap entry that aapt2 can't
@@ -307,7 +321,7 @@ func injectMetaQuest(apkPath string) error {
 	// instead of the project's real one. aapt2's link rejects both
 	// when re-packing. Resolve the original via `aapt2 dump
 	// packagename` (same fixups BuildMain does for the AAB path).
-	originalPackageName, err := tooling.AndroidAssetPackagingTool.Output("dump", "packagename", apkPath)
+	originalPackageName, err := tools.AndroidAssetPackagingTool.Output("dump", "packagename", apkPath)
 	if err != nil {
 		return xray.New(err)
 	}
@@ -368,12 +382,12 @@ func injectMetaQuest(apkPath string) error {
 	// exec fails and it falls back to $PATH, which doesn't have one
 	// either. Point it at the aapt2 graphics.gd already manages so
 	// the apktool roundtrip works on every platform we support.
-	aapt2, err := tooling.AndroidAssetPackagingTool.Lookup()
+	aapt2, err := tools.AndroidAssetPackagingTool.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
 	repacked := apkPath + ".meta-unsigned.apk"
-	if err := tooling.AndroidPackageKitTool.Exec("b", decompiled, "--aapt", aapt2, "-o", repacked); err != nil {
+	if err := tools.AndroidPackageKitTool.Exec("b", decompiled, "--aapt", aapt2, "-o", repacked); err != nil {
 		return xray.New(err)
 	}
 	// Android R+ (API 30+) refuses to install APKs whose
@@ -664,8 +678,8 @@ func findTagEnd(src []byte, start int) int {
 
 // signAPK runs apksigner with the given keystore. apksigner is one of
 // the tools graphics.gd already manages (see tools.go:AndroidPackageSigner).
-func signAPK(apkPath, keystore string) error {
-	return tooling.AndroidPackageSigner.Exec(
+func signAPK(apkPath, keystore string, tools tooling.Catalog) error {
+	return tools.AndroidPackageSigner.Exec(
 		"sign", "--ks", keystore,
 		"--ks-key-alias", "androiddebugkey", "--ks-pass", "pass:android",
 		apkPath,
@@ -692,10 +706,5 @@ func debugKeystore(host product.BuildHost) string {
 func releaseKeystore(host product.BuildHost) string { return debugKeystore(host) }
 
 // Compile-time guard: ensure MetaQuest satisfies the Builder interface
-// declared in platform/platform.go.
-var _ interface {
-	Run(product.BuildEnv, ...string) error
-	Build(product.BuildEnv, ...string) error
-	BuildMain(product.BuildEnv, ...string) error
-	Test(product.BuildEnv, ...string) error
-} = MetaQuest{}
+// declared in builder.go.
+var _ Builder = (*MetaQuest)(nil)
