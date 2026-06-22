@@ -29,9 +29,7 @@ locally-optimal variant.
 Concretely:
 
 - Match the names, field order, constructor signatures, and method
-  groupings of sibling files. If every `*XxxCommand` in a package has
-  an `Injector do.Injector \`do:""\`` field, the new one gets the same
-  field even if it doesn't strictly need it yet.
+  groupings of sibling files. 
 - Match the file layout of the rest of the directory (see
   [the Go ordering rule](#order-declarations-top-down)
   for the in-file shape).

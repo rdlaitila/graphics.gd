@@ -384,11 +384,11 @@ func (t history) passPercent() (pct int, ok bool) {
 	return int(float64(p) / float64(p+f) * 100), true
 }
 
-// passPercentChange compares the older half of the row's appearances
-// to the newer half and returns the signed delta in percentage
-// points. Missing slots are filtered first so young rows still get
-// a trend. ok=false when fewer than two appearances exist or either
-// half is non-decisive.
+// passPercentChange compares the row's cumulative pass% across all
+// decisive appearances against the cumulative pass% as of one run
+// ago, returning the signed delta in percentage points. ok=false
+// when fewer than three decisive appearances exist — with two, the
+// prior point is a single run and any change is noise.
 func (t history) passPercentChange() (delta int, ok bool) {
 	seen := make(history, 0, len(t))
 	for _, e := range t {
@@ -396,16 +396,15 @@ func (t history) passPercentChange() (delta int, ok bool) {
 			seen = append(seen, e)
 		}
 	}
-	if len(seen) < 2 {
+	if len(seen) < 3 {
 		return 0, false
 	}
-	mid := len(seen) / 2
-	older, oldOk := seen[:mid].passPercent()
-	newer, newOk := seen[mid:].passPercent()
-	if !oldOk || !newOk {
+	prior, priorOk := seen[:len(seen)-1].passPercent()
+	current, currentOk := seen.passPercent()
+	if !priorOk || !currentOk {
 		return 0, false
 	}
-	return newer - older, true
+	return current - prior, true
 }
 
 // durations returns the row's nonzero durations sorted ascending,

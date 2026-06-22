@@ -19,9 +19,7 @@ import (
 // RootCommand wires the urfave Command tree at startup. It holds only
 // build-time state (the Injector). All runtime / per-invocation state
 // lives on the per-verb *XxxActions structs that bindAction lazily
-// resolves when an Action fires — i.e. AFTER the Before hook has
-// promoted --goos/--goarch/etc into env and refreshed the injector's
-// BuildEnv + ToolCatalog bindings.
+// resolves when an Action fires
 type RootCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
