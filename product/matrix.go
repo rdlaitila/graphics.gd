@@ -360,11 +360,11 @@ var (
 			"-x":       "",
 			"-gcflags": "",
 		},
-		// KnownChecksums TBD: each entry is "sha256:hex" of the
-		// downloaded archive (pre-extract). Harvest from the next
-		// post-merge CI toolchain audit (toolchain-audit-*.json,
-		// `sha256` field, populated from <install>.sha256 sidecars
-		// written by `gdnext toolchain install`).
+		KnownChecksums: []string{
+			"sha256:666b2a64e4b5c59db0e4974605b888eb72eb7d4e60e870d2be6cc19727b50807", // darwin/arm64
+			"sha256:30e6b6d141f0cd5bebd629ad1d0ef1324e60091bb20662d026b402ba58c59937", // linux/amd64
+			"sha256:14293422efb54b24a51f79d4cb55ab4001ef3d936e064a6c8af32e1f984024be", // windows/amd64
+		},
 	}
 	ToolchainGo = Toolchain{
 		Slug:           "go",
@@ -391,6 +391,11 @@ var (
 		DownloadOS:     map[string]string{"windows": "windows", "darwin": "macos", "linux": "linux"},
 		DownloadARCH:   map[string]string{"amd64": "x86_64", "arm64": "aarch64"},
 		DownloadEXT:    map[string]string{"windows": ".zip", "darwin": ".tar.xz", "linux": ".tar.xz"},
+		KnownChecksums: []string{
+			"sha256:3cc2bab367e185cdfb27501c4b30b1b0653c28d9f73df8dc91488e66ece5fa6b", // darwin/arm64
+			"sha256:02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239", // linux/amd64
+			"sha256:3a0ed1e8799a2f8ce2a6e6290a9ff22e6906f8227865911fb7ddedc3cc14cb0c", // windows/amd64
+		},
 	}
 	ToolchainLLVM = Toolchain{
 		Slug:           "llvm",
@@ -402,6 +407,11 @@ var (
 		AvailableHosts: HostMatrix,
 		DownloadURL:    "https://release.graphics.gd/llvm.$(GOOS).$(GOARCH)$(EXT)",
 		DownloadEXT:    map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
+		KnownChecksums: []string{
+			"sha256:af69bb5c9cc71f8563bd452bf79755ae854819c501b6f3b89a5c873d45bd1dc4", // darwin/arm64
+			"sha256:928da8c2a12f1085052cd04f2877c2ed25a1f9b2492b0e654a65c39cffdd3167", // linux/amd64
+			"sha256:af59510bd670c4b2d190e5e6318b9ff4fc05736a1aa60874cfb05eaed8fd5d8d", // windows/amd64
+		},
 	}
 	ToolchainADB = Toolchain{
 		Slug:            "adb",
@@ -414,6 +424,10 @@ var (
 		DownloadURL:     "https://release.graphics.gd/adb.$(GOOS).$(GOARCH)$(EXT)",
 		DownloadEXT:     map[string]string{"linux": "", "windows": ".zip", "darwin": ""},
 		DarwinUniversal: true,
+		KnownChecksums: []string{
+			"sha256:3e8fb3a897103e32588f863e56fc7eaffdf16a542c4e690cc4326e4b766827a6", // linux/amd64
+			"sha256:fbd3fcf03b91e7dafa3a8cfa54823ea91a3d9e7045e7bf8a07b8822167400e5c", // windows/amd64
+		},
 	}
 	ToolchainApkSigner = Toolchain{
 		Slug:           "apksigner",
@@ -424,6 +438,11 @@ var (
 		AvailableHosts: HostMatrix,
 		DownloadURL:    "https://release.graphics.gd/apksigner.$(GOOS).$(GOARCH)$(EXT)",
 		DownloadEXT:    map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
+		KnownChecksums: []string{
+			"sha256:3b81d734787ac083dc7aa7951bfe2aca6823590a8064dae59fe898f2b25c866a", // darwin/arm64
+			"sha256:8441bed7018d08af0d18653e9875290550ccc27f9f0f7768f12a59e28d60fbe0", // linux/amd64
+			"sha256:68bbc75644892dced984c90582b55a11052d48cb235f92bbbe8127afdfdca81d", // windows/amd64
+		},
 	}
 	ToolchainAAPT2 = Toolchain{
 		Slug:            "aapt2",
@@ -436,6 +455,11 @@ var (
 		DownloadURL:     "https://release.graphics.gd/aapt2.$(GOOS).$(GOARCH)$(EXT)",
 		DownloadEXT:     map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
 		DarwinUniversal: true,
+		KnownChecksums: []string{
+			"sha256:5da28e9fb72bfd3452c56f21ddd084787e1833cdf27e99b7588bbd4aba6585ca", // darwin/arm64
+			"sha256:9dd86ae76ae12d263672c4c454f17b30e42bb9792b3e2c0ce9d68b33fd5a7d37", // linux/amd64
+			"sha256:b39c3ec3f8cba2ce36749546802a60141f879c950b308a92c759daf5cab2c843", // windows/amd64
+		},
 	}
 	ToolchainApkTool = Toolchain{
 		Slug:           "apktool",
@@ -447,6 +471,11 @@ var (
 		AvailableHosts: HostMatrix,
 		DownloadURL:    "https://release.graphics.gd/apktool.$(GOOS).$(GOARCH)$(EXT)",
 		DownloadEXT:    map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
+		KnownChecksums: []string{
+			"sha256:121531c7ee189a3d4e8ebd54c0872c2a2e6a9709a286249449441e0004b92798", // darwin/arm64
+			"sha256:cf6c59294179c86d0778a15b0027197b5cbddfce2c95b7c8f5cb31b6d9705ebd", // linux/amd64
+			"sha256:05dcb215d6710f67386182d966da28834a6a50eecdfe3cf4ae36c4ebad88520a", // windows/amd64
+		},
 	}
 	ToolchainBundleTool = Toolchain{
 		Slug:           "bundletool",
@@ -457,6 +486,11 @@ var (
 		AvailableHosts: HostMatrix,
 		DownloadURL:    "https://release.graphics.gd/bundletool.$(GOOS).$(GOARCH)$(EXT)",
 		DownloadEXT:    map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
+		KnownChecksums: []string{
+			"sha256:06d101f1a5bfb7820633abc1a23ea87c35612347783ef57ec0e692a36adcc9f7", // darwin/arm64
+			"sha256:649c11f74c05f76241362a496005ab81f887c48c4b9e6226260e7f0c68183ced", // linux/amd64
+			"sha256:b02a5748270d7dd66f82982c407c11f0f264a4364fed40945c391141708e804d", // windows/amd64
+		},
 	}
 	ToolchainAndroidJar = Toolchain{
 		Slug:        "android.jar",
@@ -469,6 +503,9 @@ var (
 		},
 		DownloadURL: "https://release.graphics.gd/android.jar",
 		IsLibrary:   true,
+		KnownChecksums: []string{
+			"sha256:1ef3b7ae9e0dd44d01958e798a75593e8ed1a948e309932b30a691312867249f", // android/* (single artefact, fanned out)
+		},
 	}
 	ToolchainUPX = Toolchain{
 		Slug:          "upx",
@@ -512,6 +549,9 @@ var (
 		DownloadOS:  map[string]string{"linux": "musl", "musl": "musl", "windows": "windows", "darwin": "darwin"},
 		DownloadEXT: map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
 		IsLibrary:   true,
+		KnownChecksums: []string{
+			"sha256:3c85abc4b2711dd08a97cb1d58ea3d9833ea98709e62c9ab3264b6c535efbe4c", // linux/amd64
+		},
 	}
 	ToolchainLibGodotEditor = Toolchain{
 		Slug:           "libgodot-editor",
@@ -522,6 +562,9 @@ var (
 		DownloadOS:     map[string]string{"linux": "musl", "musl": "musl", "windows": "windows", "darwin": "darwin"},
 		DownloadEXT:    map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
 		IsLibrary:      true,
+		KnownChecksums: []string{
+			"sha256:042c22cf9cb1952be0ba83bdcc45154d9dadd44d0d7bee269da67cb06a66dcef", // linux/amd64
+		},
 	}
 	ToolchainLDD = Toolchain{
 		Slug:           "ldd",

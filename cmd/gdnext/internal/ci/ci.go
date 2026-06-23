@@ -52,6 +52,8 @@ var Provides = do.Package(
 	do.Lazy(NewTestHeadlessActions),
 	do.Lazy(NewToolchainInstallCommand),
 	do.Lazy(NewToolchainInstallActions),
+	do.Lazy(NewToolchainChecksumsCommand),
+	do.Lazy(NewToolchainChecksumsActions),
 	do.Lazy(NewWorkflowSummaryCommand),
 	do.Lazy(NewWorkflowSummaryActions),
 )
@@ -69,6 +71,7 @@ func NewCICommand(di do.Injector) (*CICommand, error) {
 			do.MustInvoke[*GoPassthroughCommand](di).Command,
 			do.MustInvoke[*ShortFlagRewriteCommand](di).Command,
 			do.MustInvoke[*ToolchainInstallCommand](di).Command,
+			do.MustInvoke[*ToolchainChecksumsCommand](di).Command,
 			do.MustInvoke[*StageExampleCommand](di).Command,
 			do.MustInvoke[*BuildTargetCommand](di).Command,
 			do.MustInvoke[*TestHeadlessCommand](di).Command,
