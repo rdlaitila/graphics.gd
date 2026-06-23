@@ -38,16 +38,6 @@ type Toolchain struct {
 	KnownChecksums   []string                     `json:"known_checksums,omitempty"   xml:"known_checksums>checksum,omitempty" yaml:"known_checksums,omitempty"`
 }
 
-// FindToolchainBySlug returns the matrix entry whose Slug matches slug.
-func FindToolchainBySlug(slug string) (Toolchain, bool) {
-	for _, t := range ToolchainMatrix {
-		if t.Slug == slug {
-			return t, true
-		}
-	}
-	return Toolchain{}, false
-}
-
 // CanInstallOn reports whether this toolchain has a download / install
 // path for the given host. An empty AvailableHosts list means the tool
 // has no installer for any host (caller should treat as "not installable").
@@ -58,4 +48,14 @@ func (t Toolchain) CanInstallOn(host BuildHost) bool {
 		}
 	}
 	return false
+}
+
+// FindToolchainBySlug returns the matrix entry whose Slug matches slug.
+func FindToolchainBySlug(slug string) (Toolchain, bool) {
+	for _, t := range ToolchainMatrix {
+		if t.Slug == slug {
+			return t, true
+		}
+	}
+	return Toolchain{}, false
 }

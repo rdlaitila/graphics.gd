@@ -49,9 +49,6 @@ const (
 	Broken
 )
 
-// Has reports whether s contains every bit in want.
-func (s Status) Has(want Status) bool { return s&want == want }
-
 // statusOrder is the rendering order of bits for String() and
 // MarshalText(): headline first, then modifiers. Determines the
 // shape of `"supported+stable"`, `"supported+quirky"`, etc.
@@ -66,6 +63,9 @@ var statusOrder = []struct {
 	{Deprecated, "deprecated"},
 	{Broken, "broken"},
 }
+
+// Has reports whether s contains every bit in want.
+func (s Status) Has(want Status) bool { return s&want == want }
 
 // String renders the bitmask as a `+`-joined lowercase list used in the
 // `gdnext platforms` / `gdnext toolchain` tables and as the encoding/

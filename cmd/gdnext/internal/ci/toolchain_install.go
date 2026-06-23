@@ -12,6 +12,16 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// ToolchainInstallCommand wires `gdnext ci toolchain-install`.
+// Runtime state lives on *ToolchainInstallActions.
+type ToolchainInstallCommand struct {
+	*cli.Command
+	Injector do.Injector `do:""`
+}
+
+// ToolchainInstallActions carries the runtime state.
+type ToolchainInstallActions struct{}
+
 // installSkip is the small set of slugs the install round-trip can't
 // or shouldn't exercise:
 //   - "go"   gdnext is already running on it
@@ -33,16 +43,6 @@ var optionalInstall = map[string]bool{
 	"upx": true,
 	"vpk": true,
 }
-
-// ToolchainInstallCommand wires `gdnext ci toolchain-install`.
-// Runtime state lives on *ToolchainInstallActions.
-type ToolchainInstallCommand struct {
-	*cli.Command
-	Injector do.Injector `do:""`
-}
-
-// ToolchainInstallActions carries the runtime state.
-type ToolchainInstallActions struct{}
 
 // NewToolchainInstallCommand constructs the toolchain-install subcommand.
 func NewToolchainInstallCommand(di do.Injector) (*ToolchainInstallCommand, error) {

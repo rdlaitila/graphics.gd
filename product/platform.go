@@ -29,6 +29,57 @@ type Platform struct {
 	Notes      string      `json:"notes,omitempty"       xml:"notes,omitempty"              yaml:"notes,omitempty"`
 }
 
+// BuildHost is the machine gdnext is running on: OS, arch, and the
+// resolved gdnext/godot directory paths.
+type BuildHost struct {
+	GOOS   string
+	GOARCH string
+	// GD* paths come from the CLI's prepareBuildEnv ($GDPATH, default ~/gd).
+	GDRootPath string
+	GDLibPath  string
+	GDBinPath  string
+	// UserHomeRoot is os.UserHomeDir; UserAppdataRoot is $APPDATA on
+	// Windows and equal to UserHomeRoot elsewhere.
+	UserHomeRoot    string
+	UserAppdataRoot string
+}
+
+// ManageType labels who owns a toolchain on disk: GDManaged (gdnext
+// downloaded it under GDRootPath and can be trusted to keep it up to
+// date), or UserManaged (the user supplied it via $PATH or an
+// existing install). Resolved at Lookup time by inspecting Tool.Path.
+type ManageType uint8
+
+// TargetHost is the (GOOS, GOARCH, LinkMode) a build is producing for.
+type TargetHost struct {
+	GOOS     string
+	GOARCH   string
+	LinkMode LinkMode
+}
+
+// BuildEnv pairs the host gdnext is running on with the target a build
+// is producing for.
+type BuildEnv struct {
+	Host   BuildHost
+	Target TargetHost
+}
+
+// Kind is a bitmask of platform roles. Use Has to test for membership.
+type Kind uint8
+
+const (
+	UserManaged ManageType = iota
+	GDManaged
+)
+
+const (
+	// Target means graphics.gd can build for this platform.
+	Target Kind = 1 << iota
+	// Host means gdnext itself can run on this platform (the build
+	// driver, not the produced artefact).
+	Host
+)
+
 // DisplayTitle returns the human-friendly label suitable for user-facing
 // messaging ("Android Arm64", "Windows x86_64"). Falls back to a
 // "<GOOS> <GOARCH>" construction when Title is unset — callers can
@@ -47,29 +98,42 @@ func (p Platform) Tuple() string {
 	return Tuple(p.GOOS, p.GOARCH)
 }
 
-// Tuple is the package-level form for callers that have a (goos, goarch)
-// pair without a Platform value handy — typically when reporting the
-// host (runtime.GOOS / runtime.GOARCH).
-func Tuple(goos, goarch string) string {
-	if goarch == "" {
-		return goos
-	}
-	return goos + "/" + goarch
+// Names returns every name (canonical + aliases) that should resolve to
+// this row. Convenience for completion + lookup callers.
+func (p Platform) Names() []string {
+	out := make([]string, 0, 1+len(p.Aliases))
+	out = append(out, p.GOOS)
+	out = append(out, p.Aliases...)
+	return out
 }
 
-// BuildHost is the machine gdnext is running on: OS, arch, and the
-// resolved gdnext/godot directory paths.
-type BuildHost struct {
-	GOOS   string
-	GOARCH string
-	// GD* paths come from the CLI's prepareBuildEnv ($GDPATH, default ~/gd).
-	GDRootPath string
-	GDLibPath  string
-	GDBinPath  string
-	// UserHomeRoot is os.UserHomeDir; UserAppdataRoot is $APPDATA on
-	// Windows and equal to UserHomeRoot elsewhere.
-	UserHomeRoot    string
-	UserAppdataRoot string
+// CanPlayOn reports whether this target can be launched + ticked
+// headlessly on the given host. An empty PlayHosts is treated as
+// "no host can play this yet" — the play matrix skips the row.
+func (p Platform) CanPlayOn(hostGOOS, hostGOARCH string) bool {
+	for _, host := range p.PlayHosts {
+		if host.GOOS == hostGOOS && host.GOARCH == hostGOARCH {
+			return true
+		}
+	}
+	return false
+}
+
+// CanBuildOn reports whether this target can be built from the host
+// (hostGOOS, hostGOARCH). An empty BuildHosts is treated as "any host",
+// which is the right default for zig-cross-compilable targets. Set
+// BuildHosts when a target genuinely needs a specific host — darwin
+// (no zig cross path), musl (linux-only build chain), etc.
+func (p Platform) CanBuildOn(hostGOOS, hostGOARCH string) bool {
+	if len(p.BuildHosts) == 0 {
+		return false
+	}
+	for _, host := range p.BuildHosts {
+		if host.GOOS == hostGOOS && host.GOARCH == hostGOARCH {
+			return true
+		}
+	}
+	return false
 }
 
 // Tuple returns the host as "goos/goarch".
@@ -85,17 +149,6 @@ func (h BuildHost) GDChecksumsPath() string {
 	return filepath.Join(h.GDRootPath, "checksums")
 }
 
-// ManageType labels who owns a toolchain on disk: GDManaged (gdnext
-// downloaded it under GDRootPath and can be trusted to keep it up to
-// date), or UserManaged (the user supplied it via $PATH or an
-// existing install). Resolved at Lookup time by inspecting Tool.Path.
-type ManageType uint8
-
-const (
-	UserManaged ManageType = iota
-	GDManaged
-)
-
 // String returns the short token used in audit output: "user" or "gd".
 func (t ManageType) String() string {
 	switch t {
@@ -110,21 +163,78 @@ func (t ManageType) String() string {
 // MarshalText so JSON / YAML / XML render the short token.
 func (t ManageType) MarshalText() ([]byte, error) { return []byte(t.String()), nil }
 
-// TargetHost is the (GOOS, GOARCH, LinkMode) a build is producing for.
-type TargetHost struct {
-	GOOS     string
-	GOARCH   string
-	LinkMode LinkMode
-}
-
 // Tuple returns the target as "goos/goarch".
 func (t TargetHost) Tuple() string { return Tuple(t.GOOS, t.GOARCH) }
 
-// BuildEnv pairs the host gdnext is running on with the target a build
-// is producing for.
-type BuildEnv struct {
-	Host   BuildHost
-	Target TargetHost
+// Validate checks every field downstream code (builders, tooling,
+// setup) reads without defensive fallbacks. A non-nil return is always
+// a bug in the CLI assembly path, not user input.
+func (e BuildEnv) Validate() error {
+	if e.Host.GOOS == "" || e.Host.GOARCH == "" {
+		return fmt.Errorf("product.BuildEnv: Host (GOOS, GOARCH) is not populated")
+	}
+	if e.Target.GOOS == "" || e.Target.GOARCH == "" {
+		return fmt.Errorf("product.BuildEnv: Target (GOOS, GOARCH) is not populated")
+	}
+	if e.Target.LinkMode == 0 {
+		return fmt.Errorf("product.BuildEnv: Target.LinkMode is not populated")
+	}
+	if e.Host.GDRootPath == "" || e.Host.GDBinPath == "" || e.Host.GDLibPath == "" {
+		return fmt.Errorf("product.BuildEnv: Host GD*Path values are not populated")
+	}
+	if e.Host.UserHomeRoot == "" || e.Host.UserAppdataRoot == "" {
+		return fmt.Errorf("product.BuildEnv: Host User*Root values are not populated")
+	}
+	return nil
+}
+
+// Has reports whether k contains every bit in want.
+func (k Kind) Has(want Kind) bool { return k&want == want }
+
+// String renders the bitmask as a human-readable label used in the
+// `gdnext platforms` table and as the encoding/json + encoding/xml
+// text form (see MarshalText).
+func (k Kind) String() string {
+	switch k {
+	case Host | Target:
+		return "host+target"
+	case Host:
+		return "host"
+	case Target:
+		return "target"
+	default:
+		return "?"
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler so Kind serialises to
+// JSON / XML as its String() form rather than as a uint8.
+func (k Kind) MarshalText() ([]byte, error) { return []byte(k.String()), nil }
+
+// UnmarshalText is the symmetric reader; tolerant of the few spellings
+// the matrix actually produces.
+func (k *Kind) UnmarshalText(b []byte) error {
+	switch string(b) {
+	case "host+target", "target+host":
+		*k = Host | Target
+	case "host":
+		*k = Host
+	case "target":
+		*k = Target
+	default:
+		return fmt.Errorf("product: unknown Kind %q", b)
+	}
+	return nil
+}
+
+// Tuple is the package-level form for callers that have a (goos, goarch)
+// pair without a Platform value handy — typically when reporting the
+// host (runtime.GOOS / runtime.GOARCH).
+func Tuple(goos, goarch string) string {
+	if goarch == "" {
+		return goos
+	}
+	return goos + "/" + goarch
 }
 
 // FindBuildEnv resolves the BuildEnv for the current runtime host and
@@ -208,121 +318,22 @@ func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, er
 	return env, nil
 }
 
-// Validate checks every field downstream code (builders, tooling,
-// setup) reads without defensive fallbacks. A non-nil return is always
-// a bug in the CLI assembly path, not user input.
-func (e BuildEnv) Validate() error {
-	if e.Host.GOOS == "" || e.Host.GOARCH == "" {
-		return fmt.Errorf("product.BuildEnv: Host (GOOS, GOARCH) is not populated")
-	}
-	if e.Target.GOOS == "" || e.Target.GOARCH == "" {
-		return fmt.Errorf("product.BuildEnv: Target (GOOS, GOARCH) is not populated")
-	}
-	if e.Target.LinkMode == 0 {
-		return fmt.Errorf("product.BuildEnv: Target.LinkMode is not populated")
-	}
-	if e.Host.GDRootPath == "" || e.Host.GDBinPath == "" || e.Host.GDLibPath == "" {
-		return fmt.Errorf("product.BuildEnv: Host GD*Path values are not populated")
-	}
-	if e.Host.UserHomeRoot == "" || e.Host.UserAppdataRoot == "" {
-		return fmt.Errorf("product.BuildEnv: Host User*Root values are not populated")
-	}
-	return nil
-}
-
-// Kind is a bitmask of platform roles. Use Has to test for membership.
-type Kind uint8
-
-const (
-	// Target means graphics.gd can build for this platform.
-	Target Kind = 1 << iota
-	// Host means gdnext itself can run on this platform (the build
-	// driver, not the produced artefact).
-	Host
-)
-
-// Has reports whether k contains every bit in want.
-func (k Kind) Has(want Kind) bool { return k&want == want }
-
-// String renders the bitmask as a human-readable label used in the
-// `gdnext platforms` table and as the encoding/json + encoding/xml
-// text form (see MarshalText).
-func (k Kind) String() string {
-	switch k {
-	case Host | Target:
-		return "host+target"
-	case Host:
-		return "host"
-	case Target:
-		return "target"
-	default:
-		return "?"
-	}
-}
-
-// MarshalText implements encoding.TextMarshaler so Kind serialises to
-// JSON / XML as its String() form rather than as a uint8.
-func (k Kind) MarshalText() ([]byte, error) { return []byte(k.String()), nil }
-
-// UnmarshalText is the symmetric reader; tolerant of the few spellings
-// the matrix actually produces.
-func (k *Kind) UnmarshalText(b []byte) error {
-	switch string(b) {
-	case "host+target", "target+host":
-		*k = Host | Target
-	case "host":
-		*k = Host
-	case "target":
-		*k = Target
-	default:
-		return fmt.Errorf("product: unknown Kind %q", b)
-	}
-	return nil
-}
-
-// Names returns every name (canonical + aliases) that should resolve to
-// this row. Convenience for completion + lookup callers.
-func (p Platform) Names() []string {
-	out := make([]string, 0, 1+len(p.Aliases))
-	out = append(out, p.GOOS)
-	out = append(out, p.Aliases...)
-	return out
-}
-
-// CanPlayOn reports whether this target can be launched + ticked
-// headlessly on the given host. An empty PlayHosts is treated as
-// "no host can play this yet" — the play matrix skips the row.
-func (p Platform) CanPlayOn(hostGOOS, hostGOARCH string) bool {
-	for _, host := range p.PlayHosts {
-		if host.GOOS == hostGOOS && host.GOARCH == hostGOARCH {
-			return true
-		}
-	}
-	return false
-}
-
-// CanBuildOn reports whether this target can be built from the host
-// (hostGOOS, hostGOARCH). An empty BuildHosts is treated as "any host",
-// which is the right default for zig-cross-compilable targets. Set
-// BuildHosts when a target genuinely needs a specific host — darwin
-// (no zig cross path), musl (linux-only build chain), etc.
-func (p Platform) CanBuildOn(hostGOOS, hostGOARCH string) bool {
-	if len(p.BuildHosts) == 0 {
-		return false
-	}
-	for _, host := range p.BuildHosts {
-		if host.GOOS == hostGOOS && host.GOARCH == hostGOARCH {
-			return true
-		}
-	}
-	return false
-}
-
 // Targets returns the subset of Matrix that can be built for.
 func Targets() []Platform {
 	out := make([]Platform, 0, len(PlatformMatrix))
 	for _, platform := range PlatformMatrix {
 		if platform.Kind.Has(Target) {
+			out = append(out, platform)
+		}
+	}
+	return out
+}
+
+// Hosts returns the subset of Matrix where gdnext can run.
+func Hosts() []Platform {
+	out := make([]Platform, 0, len(PlatformMatrix))
+	for _, platform := range PlatformMatrix {
+		if platform.Kind.Has(Host) {
 			out = append(out, platform)
 		}
 	}
@@ -357,17 +368,6 @@ func PlatformGOARCHes() []string {
 		}
 		seen[p.GOARCH] = true
 		out = append(out, p.GOARCH)
-	}
-	return out
-}
-
-// Hosts returns the subset of Matrix where gdnext can run.
-func Hosts() []Platform {
-	out := make([]Platform, 0, len(PlatformMatrix))
-	for _, platform := range PlatformMatrix {
-		if platform.Kind.Has(Host) {
-			out = append(out, platform)
-		}
 	}
 	return out
 }

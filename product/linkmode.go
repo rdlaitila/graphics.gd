@@ -19,8 +19,24 @@ const (
 	LibGodot
 )
 
-// Has reports whether m contains every bit in want.
-func (m LinkMode) Has(want LinkMode) bool { return m&want == want }
+// LinkModeMatrix is the canonical list of LinkMode tokens recognised
+// on the CLI (--link flag).
+var LinkModeMatrix = []string{
+	"gdextension",
+	"libgodot",
+}
+
+// GOOSLinkModeDefaults picks the default LinkMode for a target GOOS
+// when --link is unset.
+var GOOSLinkModeDefaults = map[string]LinkMode{
+	GOOSLinux:     GDExtension,
+	GOOSWindows:   GDExtension,
+	GOOSDarwin:    GDExtension,
+	GOOSIOS:       GDExtension,
+	GOOSAndroid:   GDExtension,
+	GOOSMetaQuest: GDExtension,
+	GOOSJS:        GDExtension,
+}
 
 var linkModeOrder = []struct {
 	bit  LinkMode
@@ -29,6 +45,9 @@ var linkModeOrder = []struct {
 	{GDExtension, "gdextension"},
 	{LibGodot, "libgodot"},
 }
+
+// Has reports whether m contains every bit in want.
+func (m LinkMode) Has(want LinkMode) bool { return m&want == want }
 
 // String renders the bitmask as a `+`-joined list; zero renders as "?".
 func (m LinkMode) String() string {
@@ -63,25 +82,6 @@ func (m *LinkMode) UnmarshalText(b []byte) error {
 		}
 	}
 	return nil
-}
-
-// LinkModeMatrix is the canonical list of LinkMode tokens recognised
-// on the CLI (--link flag).
-var LinkModeMatrix = []string{
-	"gdextension",
-	"libgodot",
-}
-
-// GOOSLinkModeDefaults picks the default LinkMode for a target GOOS
-// when --link is unset.
-var GOOSLinkModeDefaults = map[string]LinkMode{
-	GOOSLinux:     GDExtension,
-	GOOSWindows:   GDExtension,
-	GOOSDarwin:    GDExtension,
-	GOOSIOS:       GDExtension,
-	GOOSAndroid:   GDExtension,
-	GOOSMetaQuest: GDExtension,
-	GOOSJS:        GDExtension,
 }
 
 // ParseLinkMode decodes a CLI token into a single bit. Empty returns
