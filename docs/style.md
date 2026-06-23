@@ -82,11 +82,7 @@ behaviour. Order declarations the way they're discovered:
    methods above. Last, so the load-bearing API stays at the top of
    the file.
 
-Deviate when it actively helps the reader: a tiny helper used by
-exactly one function can sit immediately below that function; a
-cohesive trio (type + constructor + its two methods) can stay
-clustered even if it breaks the global ordering. The rule is a
-default, not a straitjacket.
+Deviate when it actively helps the reader.
 
 **Rationale:** the layout mirrors the dependency direction —
 constructors reference types, methods reference constructors and
