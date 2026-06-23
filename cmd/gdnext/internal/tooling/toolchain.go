@@ -36,6 +36,13 @@ const (
 	// `gdnext toolchain doctor` so a diagnostic run never silently pulls
 	// hundreds of MB.
 	ModeFind
+	// ModeForceInstall always downloads + extracts into $GDPATH/bin,
+	// even when a matching $GDPATH copy already exists or a satisfying
+	// version is on $PATH. Used by `gdnext toolchain install --force`
+	// to take ownership of a tool the user supplied via their system
+	// package manager (gdnext will prefer the GDPATH copy on the next
+	// lookup since it's checked first).
+	ModeForceInstall
 )
 
 // GDTOOLCHAIN=local will disable automatic toolchain downloads.
@@ -63,6 +70,30 @@ type Tool struct {
 	product.Toolchain
 	Host product.BuildHost
 	Path string // cached by [toolchain.Lookup]
+}
+
+// ManagedBy classifies who owns the resolved binary on disk.
+// GDManaged when Path is under Host.GDRootPath (gdnext installed it,
+// gdnext is responsible for upgrades + the checksum sidecar);
+// UserManaged otherwise (came from $PATH or a pre-existing local
+// install). Returns UserManaged for an unresolved tool to keep the
+// "user owns it until proven otherwise" default.
+func (exe Tool) ManagedBy() product.ManageType {
+	if exe.Path == "" || exe.Host.GDRootPath == "" {
+		return product.UserManaged
+	}
+	abs, err := filepath.Abs(exe.Path)
+	if err != nil {
+		abs = exe.Path
+	}
+	root, err := filepath.Abs(exe.Host.GDRootPath)
+	if err != nil {
+		root = exe.Host.GDRootPath
+	}
+	if rel, err := filepath.Rel(root, abs); err == nil && !strings.HasPrefix(rel, "..") {
+		return product.GDManaged
+	}
+	return product.UserManaged
 }
 
 func (exe Tool) PathToCommand() string {
@@ -228,7 +259,9 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 		install_path += ".app"
 	}
 	// always prefer the GDPATH-installed version if it matches the expected version.
-	if _, err := os.Stat(install_path); err == nil {
+	// ModeForceInstall skips this branch entirely so --force always
+	// re-downloads.
+	if _, err := os.Stat(install_path); err == nil && m != ModeForceInstall {
 		if exe.IsLibrary {
 			exe.Path = install_path
 			return install_path, nil
@@ -271,9 +304,11 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 		exe.Path = path
 		return exe.PathToCommand(), nil
 	}
-	if !exe.IsLibrary {
+	if !exe.IsLibrary && m != ModeForceInstall {
 		// if the expected version of the tool is already installed in $PATH, then we can
-		// just use it.
+		// just use it. ModeForceInstall skips this branch so --force
+		// always downloads into GDPATH rather than adopting the user's
+		// system copy.
 		if path, err := exec.LookPath(name); err == nil {
 			version, _ := exec.Command(path, exe.VersionFlags...).CombinedOutput()
 			if (exe.Version != "" && string(version) == exe.Version) || (exe.VersionPrefix != "" && strings.HasPrefix(string(version), exe.VersionPrefix)) || (exe.Version == "" && exe.VersionPrefix == "") {
@@ -301,6 +336,14 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	}
 	var dest = install_path
 	dest += "." + exe.Version + ".download"
+	// A leftover .download from a previous run is only useful as a
+	// resume cursor for an interrupted in-flight download. When the
+	// caller asked for --force or --skip-checksum they're explicitly
+	// asking for a fresh fetch — a stale .download here would trigger
+	// HTTP 416 on the next Range: request. Drop it so we start clean.
+	if m == ModeForceInstall || os.Getenv("GDNEXT_SKIP_CHECKSUM") != "" {
+		_ = os.Remove(dest)
+	}
 	if err := func() error {
 		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY, 0755)
 		if err != nil {
@@ -358,22 +401,24 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	// supply-chain check. We can't tee during io.Copy because the
 	// 416-resume branch writes nothing, and partial writes from a
 	// resumed 206 would only hash the new bytes. Re-reading dest is
-	// trivial vs the download cost. The sha + size are written to
-	// <install_path>.sha256 so the audit can surface them without
-	// re-downloading.
+	// trivial vs the download cost. The sha + size land at
+	// <GDChecksumsPath>/<slug>-<goos>-<goarch>.sha256 so the audit
+	// can surface them without re-downloading, and so the verifier
+	// can union the on-disk sidecar with the catalog's KnownChecksums
+	// on the next install.
 	dlSize, dlHash, err := sha256File(dest)
 	if err != nil {
 		return "", xray.New(err)
 	}
 	downloadHash := "sha256:" + dlHash
-	if err := verifyChecksum(downloadHash, exe.KnownChecksums); err != nil {
+	sidecarPath := sidecarPathFor(exe.Host, exe.Slug, GOOS, GOARCH)
+	if err := verifyChecksum(downloadHash, exe.KnownChecksums, sidecarPath); err != nil {
 		// Leave dest in place so the user can inspect what was
 		// served before deciding whether to retry, allow-list, or
 		// rotate the catalog entry.
 		return "", xray.New(fmt.Errorf("checksum verification failed for %s (downloaded from %s, kept at %s): %w", name, url, dest, err))
 	}
-	sidecar := fmt.Sprintf("%s\nsize:%d\n", downloadHash, dlSize)
-	if err := os.WriteFile(install_path+".sha256", []byte(sidecar), 0644); err != nil {
+	if err := writeSidecar(sidecarPath, downloadHash, dlSize); err != nil {
 		return "", xray.New(err)
 	}
 	var unzip = variables.Replace(exe.Unzip)
@@ -441,20 +486,98 @@ func sha256File(path string) (int64, string, error) {
 	return n, hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// verifyChecksum returns nil when known is empty (no policy declared),
-// when GDNEXT_SKIP_CHECKSUM is set, or when got matches any entry in
-// known. Returns an error otherwise.
-func verifyChecksum(got string, known []string) error {
-	if len(known) == 0 {
-		return nil
-	}
+// verifyChecksum accepts a download when one of the following holds:
+//
+//   - GDNEXT_SKIP_CHECKSUM=1 (or `--skip-checksum`) is set. The
+//     sidecar is still written on success, pinning the freshly-seen
+//     hash so future installs verify against it without the escape
+//     hatch. This is the bootstrap path for a brand-new tool whose
+//     hash hasn't been recorded yet.
+//   - got matches any entry in catalogKnown (the pinned set in
+//     product.Toolchain.KnownChecksums).
+//   - got matches the value in the existing sidecar at sidecarPath.
+//
+// Otherwise the install is refused, including the "no catalog entries
+// and no sidecar" case. Implicit trust on a fresh tool is a feature,
+// not a default — the user has to opt in once via --skip-checksum.
+func verifyChecksum(got string, catalogKnown []string, sidecarPath string) error {
 	if os.Getenv("GDNEXT_SKIP_CHECKSUM") != "" {
 		return nil
 	}
-	for _, want := range known {
+	for _, want := range catalogKnown {
 		if want == got {
 			return nil
 		}
 	}
-	return fmt.Errorf("got %s, none of the %d known checksums matched (override with GDNEXT_SKIP_CHECKSUM=1 or --skip-checksum)", got, len(known))
+	sidecarSum, _, sidecarErr := readSidecar(sidecarPath)
+	if sidecarErr == nil && sidecarSum == got {
+		return nil
+	}
+	if len(catalogKnown) == 0 && os.IsNotExist(sidecarErr) {
+		return fmt.Errorf("no catalog KnownChecksums entries and no sidecar at %s; got %s. Pass --skip-checksum (or set GDNEXT_SKIP_CHECKSUM=1) once to accept this download — the sidecar will be written and pin the hash for future installs", sidecarPath, got)
+	}
+	return fmt.Errorf("got %s, no match in %d catalog entry/entries or sidecar %s (override with GDNEXT_SKIP_CHECKSUM=1 or --skip-checksum)", got, len(catalogKnown), sidecarPath)
+}
+
+// sidecarPathFor returns <Host.GDChecksumsPath>/<slug>-<goos>-<goarch>.sha256.
+// goos/goarch are the (target) tokens LookupPlatform was called with,
+// so per-target IsLibrary downloads get one sidecar each and host-
+// scoped tools get one sidecar keyed on host.GOOS/host.GOARCH.
+func sidecarPathFor(host product.BuildHost, slug, goos, goarch string) string {
+	dir := host.GDChecksumsPath()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, fmt.Sprintf("%s-%s-%s.sha256", slug, goos, goarch))
+}
+
+// writeSidecar persists the (sha256, size) for a freshly downloaded
+// artefact under GDChecksumsPath. Same line format as the legacy
+// per-binary sidecar so the read path is shared.
+func writeSidecar(path, sum string, size int64) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("%s\nsize:%d\n", sum, size)
+	return os.WriteFile(path, []byte(body), 0644)
+}
+
+// readSidecar parses a sidecar file. Format: "sha256:<hex>\nsize:<bytes>\n".
+// Returns os.ErrNotExist when the file is absent so callers can
+// distinguish "no sidecar" from "sidecar present but unreadable".
+func readSidecar(path string) (sum string, size int64, err error) {
+	if path == "" {
+		return "", 0, os.ErrNotExist
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", 0, err
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		switch {
+		case strings.HasPrefix(line, "sha256:"):
+			sum = line
+		case strings.HasPrefix(line, "size:"):
+			fmt.Sscanf(strings.TrimPrefix(line, "size:"), "%d", &size)
+		}
+	}
+	if sum == "" {
+		return "", 0, fmt.Errorf("sidecar %s missing sha256 line", path)
+	}
+	return sum, size, nil
+}
+
+// SidecarPath is the package-public wrapper around sidecarPathFor for
+// callers (cli audit, ci summary) that need to read the sidecar back.
+func SidecarPath(host product.BuildHost, slug, goos, goarch string) string {
+	return sidecarPathFor(host, slug, goos, goarch)
+}
+
+// ReadSidecar is the package-public read helper for the audit /
+// summary code paths.
+func ReadSidecar(path string) (sum string, size int64, err error) {
+	return readSidecar(path)
 }

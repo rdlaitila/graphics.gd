@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"text/tabwriter"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
-	"graphics.gd/cmd/gdnext/internal/shared"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )
@@ -39,8 +40,16 @@ func NewToolchainCommand(di do.Injector) (*ToolchainCommand, error) {
 		Usage: "manage the external programs gdnext drives",
 		Commands: []*cli.Command{
 			{
-				Name:   "list",
-				Usage:  "list every toolchain gdnext can manage",
+				Name:  "list",
+				Usage: "list every toolchain gdnext can manage",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "format",
+						Aliases: []string{"f"},
+						Value:   "table",
+						Usage:   "output format: table | json | yaml | xml",
+					},
+				},
 				Action: shared.BindAction(t.Injector, (*ToolchainActions).list),
 			},
 			{
@@ -51,15 +60,35 @@ func NewToolchainCommand(di do.Injector) (*ToolchainCommand, error) {
 			},
 			{
 				Name:      "install",
-				Usage:     "install one named toolchain, or every tool needed by any target buildable from this host",
+				Usage:     "install every gdnext-managed toolchain needed by any target buildable from this host (or just one when named); user-managed tools on PATH are reported and skipped",
 				ArgsUsage: "[name]",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:  "skip-checksum",
 						Usage: "skip product.Toolchain.KnownChecksums verification after download (sets GDNEXT_SKIP_CHECKSUM=1)",
 					},
+					&cli.BoolFlag{
+						Name:  "force",
+						Usage: "reinstall already-present gd-managed tools; for a named user-managed tool, install gdnext's pinned copy into GDPath alongside the system one (gdnext will prefer its own)",
+					},
 				},
 				Action: shared.BindAction(t.Injector, (*ToolchainActions).install),
+			},
+			{
+				Name:      "uninstall",
+				Usage:     "remove a gd-managed toolchain from GDPath; user-managed tools on PATH are refused",
+				ArgsUsage: "<name>",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "all",
+						Usage: "uninstall every gd-managed toolchain on this host (cannot be combined with a positional name)",
+					},
+					&cli.BoolFlag{
+						Name:  "keep-checksum",
+						Usage: "keep the <GDPath>/checksums/<slug>-<goos>-<goarch>.sha256 file so the next install pins the same hash via the checksum union",
+					},
+				},
+				Action: shared.BindAction(t.Injector, (*ToolchainActions).uninstall),
 			},
 			{
 				Name:  "doctor",
@@ -92,18 +121,23 @@ func NewToolchainActions(di do.Injector) (*ToolchainActions, error) {
 	return do.InvokeStruct[*ToolchainActions](di)
 }
 
-func (t *ToolchainActions) list(_ context.Context, _ *cli.Command) error {
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	defer tw.Flush()
-	fmt.Fprintln(tw, "NAME\tVERSION\tPURPOSE\tINSTALLABLE HOSTS")
-	for _, tool := range t.ToolCatalog.Tools() {
-		v := tool.Version
-		if v == "" {
-			v = "-"
+func (t *ToolchainActions) list(_ context.Context, cmd *cli.Command) error {
+	format := strings.ToLower(cmd.String("format"))
+	rows := collectCatalogRows(t.ToolCatalog)
+	if format == "" || format == "table" {
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		defer tw.Flush()
+		fmt.Fprintln(tw, "NAME\tVERSION\tPURPOSE\tINSTALLABLE HOSTS")
+		for _, r := range rows {
+			v := r.Version
+			if v == "" {
+				v = "-"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Slug, v, r.Required, strings.Join(r.Hosts, ","))
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", tool.Slug, v, tool.RequiredFor, hostsString(tool.AvailableHosts))
+		return nil
 	}
-	return nil
+	return encodeStructured(format, "toolchain-catalog", "entry", rows)
 }
 
 func (t *ToolchainActions) path(_ context.Context, cmd *cli.Command) error {
@@ -123,11 +157,17 @@ func (t *ToolchainActions) path(_ context.Context, cmd *cli.Command) error {
 }
 
 // install installs one named toolchain, or every tool needed by any
-// target the current host can build.
+// target the current host can build. UserManaged tools (resolvable
+// on $PATH outside GDPath) are skipped with a reported line: gdnext
+// owns its tools, not yours, and replacing a system-installed tool
+// silently is the wrong default. --force overrides the skip:
+// already-present gd-managed tools are re-downloaded, and a named
+// user-managed tool gets a pinned copy installed into GDPath.
 func (t *ToolchainActions) install(_ context.Context, cmd *cli.Command) error {
 	if cmd.Bool("skip-checksum") {
 		os.Setenv("GDNEXT_SKIP_CHECKSUM", "1")
 	}
+	force := cmd.Bool("force")
 	if cmd.NArg() == 1 {
 		tool := t.ToolCatalog.BySlug(cmd.Args().First())
 		if tool == nil {
@@ -137,11 +177,32 @@ func (t *ToolchainActions) install(_ context.Context, cmd *cli.Command) error {
 			return fmt.Errorf("toolchain %q cannot be installed on host %s (AvailableHosts=%s)",
 				tool.Slug, t.BuildEnv.Host.Tuple(), hostsString(tool.AvailableHosts))
 		}
-		path, err := tool.Lookup(tooling.ModeInstall)
+		if existing, err := tool.Lookup(tooling.ModeFind); err == nil && !force {
+			switch tool.ManagedBy() {
+			case product.UserManaged:
+				fmt.Fprintf(os.Stdout, "skip: %s is already installed (user-managed at %s; pass --force to install gdnext's pinned copy into %s)\n",
+					tool.Slug, existing, t.BuildEnv.Host.GDRootPath)
+			default:
+				fmt.Fprintf(os.Stdout, "skip: %s is already installed (gd-managed at %s; pass --force to re-download)\n", tool.Slug, existing)
+			}
+			return nil
+		}
+		mode := tooling.ModeInstall
+		if force {
+			mode = tooling.ModeForceInstall
+			tool.Path = "" // drop the cached Path so Lookup re-runs the resolver
+		}
+		if src := doctorAuditSource(tool.Toolchain, t.BuildEnv.Host.GOOS, t.BuildEnv.Host.GOARCH); src != "" {
+			fmt.Printf("source: %s\n", src)
+		}
+		path, err := tool.Lookup(mode)
 		if err != nil {
 			return err
 		}
-		fmt.Println(path)
+		fmt.Printf("installed: %s -> %s\n", tool.Slug, path)
+		if sum, _, err := tooling.ReadSidecar(tooling.SidecarPath(t.BuildEnv.Host, tool.Slug, t.BuildEnv.Host.GOOS, t.BuildEnv.Host.GOARCH)); err == nil {
+			fmt.Printf("    %s\n", sum)
+		}
 		return nil
 	}
 	if cmd.NArg() > 1 {
@@ -151,9 +212,121 @@ func (t *ToolchainActions) install(_ context.Context, cmd *cli.Command) error {
 	if err := validateJobs(t.BuildEnv.Host, jobs); err != nil {
 		return err
 	}
-	failed := installJobs(t.BuildEnv.Host, jobs)
+	failed := installJobs(t.BuildEnv.Host, jobs, force)
 	if failed > 0 {
 		return fmt.Errorf("%d toolchain(s) failed to install", failed)
+	}
+	return nil
+}
+
+// uninstall removes the on-disk binary (and by default the matching
+// sidecar) of a gd-managed toolchain. UserManaged tools are refused —
+// gdnext didn't install them and won't remove them. --all walks every
+// gd-managed tool relevant to this host and uninstalls each, with
+// per-tool report lines matching the install verb's shape.
+func (t *ToolchainActions) uninstall(_ context.Context, cmd *cli.Command) error {
+	all := cmd.Bool("all")
+	keepSidecar := cmd.Bool("keep-checksum")
+	if all && cmd.NArg() > 0 {
+		return fmt.Errorf("--all is exclusive with a positional <name>")
+	}
+	if !all && cmd.NArg() != 1 {
+		return fmt.Errorf("usage: gdnext toolchain uninstall <name>   (or --all)")
+	}
+	if cmd.NArg() == 1 {
+		tool := t.ToolCatalog.BySlug(cmd.Args().First())
+		if tool == nil {
+			return fmt.Errorf("unknown toolchain %q", cmd.Args().First())
+		}
+		switch err := uninstallTool(t.BuildEnv.Host, tool, keepSidecar); {
+		case err == nil:
+			return nil
+		case errors.Is(err, errUninstallUserManaged):
+			fmt.Fprintf(os.Stderr, "skip: %s is user-managed (gdnext didn't install it; remove via your package manager)\n", tool.Slug)
+			return nil
+		case errors.Is(err, errUninstallMissing):
+			fmt.Printf("skip: %s is not installed\n", tool.Slug)
+			return nil
+		default:
+			return err
+		}
+	}
+	// --all
+	fmt.Printf("toolchain uninstall for %s\n", t.BuildEnv.Host.Tuple())
+	var removed, skipped, missing, errored int
+	for _, tool := range t.ToolCatalog.Tools() {
+		header := tool.Slug
+		if v := tool.Version; v != "" {
+			header += " v" + v
+		}
+		fmt.Printf("\n==> %s\n", header)
+		switch err := uninstallTool(t.BuildEnv.Host, tool, keepSidecar); {
+		case err == nil:
+			removed++
+		case errors.Is(err, errUninstallUserManaged):
+			fmt.Println("    skip: user-managed (gdnext didn't install this; leaving it alone)")
+			skipped++
+		case errors.Is(err, errUninstallMissing):
+			fmt.Println("    skip: not installed")
+			missing++
+		default:
+			fmt.Printf("    FAIL: %s\n", err)
+			errored++
+		}
+	}
+	fmt.Println()
+	fmt.Printf("Summary: %d removed, %d user-managed (skipped), %d not installed, %d failed.\n",
+		removed, skipped, missing, errored)
+	if errored > 0 {
+		return fmt.Errorf("%d toolchain(s) failed to uninstall", errored)
+	}
+	return nil
+}
+
+// errUninstallUserManaged signals that uninstallTool refused to touch
+// a tool because the resolved binary is outside GDPath (user-managed).
+// Sentinel error so the --all bulk path can render a "skip" line
+// instead of bailing.
+var errUninstallUserManaged = errors.New("toolchain is user-managed")
+
+// errUninstallMissing signals that the tool isn't installed anywhere
+// gdnext can see (no GDPath copy, no PATH copy). The --all path
+// reports it as "not installed" instead of failing.
+var errUninstallMissing = errors.New("toolchain is not installed")
+
+// uninstallTool removes tool.Path (when GDManaged) and, unless
+// keepSidecar is set, the matching central sidecar.
+func uninstallTool(host product.BuildHost, tool *tooling.Tool, keepSidecar bool) error {
+	path, err := tool.Lookup(tooling.ModeFind)
+	if err != nil {
+		return errUninstallMissing
+	}
+	if tool.ManagedBy() == product.UserManaged {
+		fmt.Printf("    found at %s\n", path)
+		return errUninstallUserManaged
+	}
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("remove %s: %w", path, err)
+	}
+	fmt.Printf("    removed binary: %s\n", path)
+	tool.Path = "" // drop cache so subsequent Lookup calls re-resolve
+	if !keepSidecar {
+		sidecar := tooling.SidecarPath(host, tool.Slug, host.GOOS, host.GOARCH)
+		if tool.IsLibrary {
+			// IsLibrary tools may have multiple per-target sidecars;
+			// walk PlatformMatrix to clear them all.
+			for _, p := range product.PlatformMatrix {
+				if !p.Kind.Has(product.Target) {
+					continue
+				}
+				s := tooling.SidecarPath(host, tool.Slug, p.GOOS, p.GOARCH)
+				if err := os.Remove(s); err == nil {
+					fmt.Printf("    removed checksum: %s\n", s)
+				}
+			}
+		} else if err := os.Remove(sidecar); err == nil {
+			fmt.Printf("    removed checksum: %s\n", sidecar)
+		}
 	}
 	return nil
 }
@@ -175,7 +348,7 @@ func (t *ToolchainActions) doctor(_ context.Context, cmd *cli.Command) error {
 	fail := reportJobStatus(t.BuildEnv.Host, jobs)
 	if cmd.Bool("fix") && fail > 0 {
 		fmt.Fprintln(os.Stdout, "\n→ installing missing toolchains...")
-		installJobs(t.BuildEnv.Host, jobs)
+		installJobs(t.BuildEnv.Host, jobs, false)
 		after := countMissingJobs(jobs)
 		if after < fail {
 			fmt.Fprintln(os.Stdout)
@@ -349,70 +522,89 @@ func validateJobs(host product.BuildHost, jobs []toolJob) error {
 
 // installJobs runs ModeInstall on every missing job. One failure does
 // not abort the rest. Returns the count of non-experimental failures.
-func installJobs(host product.BuildHost, jobs []toolJob) (failed int) {
+func installJobs(host product.BuildHost, jobs []toolJob, force bool) (failed int) {
+	fmt.Printf("toolchain install for %s", host.Tuple())
+	if force {
+		fmt.Print(" (--force)")
+	}
+	fmt.Println()
 	var (
-		todo     []toolJob
-		alreadyN int
+		installedN  int
+		userOwnedN  int
+		gdAlreadyN  int
+		expSkippedN int
 	)
-	for _, j := range jobs {
-		if _, err := j.Lookup(tooling.ModeFind); err == nil {
-			alreadyN++
-			continue
-		}
-		todo = append(todo, j)
-	}
-	if len(todo) == 0 {
-		fmt.Printf("All %d toolchain(s) already installed.\n", alreadyN)
-		return 0
-	}
-	fmt.Printf("Installing %d toolchain(s) for %s (%d already present)\n\n", len(todo), host.Tuple(), alreadyN)
-	var width int
-	for _, j := range todo {
-		if n := len(jobLabel(j)); n > width {
-			width = n
-		}
-	}
 	type miss struct {
 		label        string
 		err          error
 		experimental bool
 	}
 	var misses []miss
-	var installedN, skippedN int
-	for _, j := range todo {
-		fmt.Printf("  %-*s  ", width, jobLabel(j))
-		path, err := j.Lookup(tooling.ModeInstall)
+	// IsLibrary tools fan out to one job per target tuple, but several
+	// of them (notably android.jar) resolve to the same on-disk file
+	// regardless of target. Dedupe by resolved path so we only print
+	// + download each unique artefact once.
+	seenPath := map[string]bool{}
+	for _, j := range jobs {
+		header := jobLabel(j)
+		if v := j.Tool.Version; v != "" {
+			header += " v" + v
+		}
+		fmt.Printf("\n==> %s\n", header)
+		if src := doctorAuditSource(j.Tool.Toolchain, j.GOOS, j.GOARCH); src != "" {
+			fmt.Printf("    source: %s\n", src)
+		}
+		mode := tooling.ModeInstall
+		if path, err := j.Lookup(tooling.ModeFind); err == nil {
+			if seenPath[path] {
+				fmt.Printf("    skip: shares artefact with a previous job (%s)\n", path)
+				continue
+			}
+			seenPath[path] = true
+			if j.Tool.ManagedBy() == product.UserManaged {
+				// --force never touches user-managed tools in bulk
+				// mode; that'd surprise users who installed go/adb
+				// via their package manager. Use the named-install
+				// path to opt in per-slug.
+				fmt.Printf("    skip: already installed (user-managed at %s)\n", path)
+				userOwnedN++
+				continue
+			}
+			if !force {
+				fmt.Printf("    skip: already installed (gd-managed at %s)\n%s", path, sidecarSHALine(host, j))
+				gdAlreadyN++
+				continue
+			}
+			fmt.Println("    --force: re-downloading")
+			mode = tooling.ModeForceInstall
+			j.Tool.Path = "" // drop the cached Path so Lookup re-runs
+		}
+		path, err := j.Lookup(mode)
 		if err != nil {
 			if j.Experimental {
-				fmt.Println("SKIP  (experimental)")
-				skippedN++
+				fmt.Printf("    skip: install failed (experimental, ignored): %s\n", err)
+				expSkippedN++
 			} else {
-				fmt.Println("FAIL")
+				fmt.Printf("    FAIL: %s\n", err)
 				failed++
 			}
 			misses = append(misses, miss{label: jobLabel(j), err: err, experimental: j.Experimental})
 			continue
 		}
-		fmt.Println("OK   ", path)
+		seenPath[path] = true
+		fmt.Printf("    installed: %s\n%s", path, sidecarSHALine(host, j))
 		installedN++
 	}
 	fmt.Println()
-	switch {
-	case failed > 0:
-		fmt.Printf("Summary: %d installed, %d skipped, %d failed.\n", installedN, skippedN, failed)
-	case skippedN > 0:
-		fmt.Printf("Summary: %d installed, %d skipped (experimental).\n", installedN, skippedN)
-	default:
-		fmt.Printf("Summary: %d installed.\n", installedN)
-	}
-	if len(misses) > 0 {
+	fmt.Printf("Summary: %d installed, %d already gd-managed, %d already user-managed, %d skipped (experimental), %d failed.\n",
+		installedN, gdAlreadyN, userOwnedN, expSkippedN, failed)
+	if failed > 0 {
 		fmt.Println("\nErrors:")
 		for _, m := range misses {
-			tag := ""
 			if m.experimental {
-				tag = " (experimental, ignored)"
+				continue
 			}
-			fmt.Printf("  %s%s: %s\n", m.label, tag, m.err)
+			fmt.Printf("  %s: %s\n", m.label, m.err)
 		}
 	}
 	return failed
@@ -429,21 +621,39 @@ func jobLabel(j toolJob) string {
 
 // reportJobStatus prints the per-job status table (ModeFind, no
 // downloads) and returns the count of non-experimental missing jobs.
+// IsLibrary jobs that resolve to the same on-disk file are collapsed
+// into one row (e.g. android.jar fans out three times in the job
+// stream but lands at a single path on linux/amd64).
 func reportJobStatus(host product.BuildHost, jobs []toolJob) (missing int) {
 	fmt.Fprintf(os.Stdout, "host:    %s\ntargets: %s\n\n", host.Tuple(), targetsString(targetsForHost(host)))
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tPURPOSE\tLINK\tSTATUS\tDETAIL")
+	fmt.Fprintln(tw, "NAME\tVERSION\tMANAGED\tSTATUS\tSHA256\tDETAIL")
 	type miss struct {
 		label        string
 		err          error
 		experimental bool
 	}
 	var misses []miss
+	seenOK := map[string]struct{}{}
 	for _, j := range jobs {
 		path, err := j.Lookup(tooling.ModeFind)
-		link := jobLinkSummary(j)
+		ver := j.Tool.Version
+		if ver == "" {
+			ver = "-"
+		}
 		if err == nil {
-			fmt.Fprintf(tw, "%s\t%s\t%s\tOK\t%s\n", jobLabel(j), j.Tool.RequiredFor, link, path)
+			if _, dup := seenOK[path]; dup {
+				continue
+			}
+			seenOK[path] = struct{}{}
+			sha := "-"
+			if j.Tool.ManagedBy() == product.GDManaged {
+				sidecar := tooling.SidecarPath(host, j.Tool.Slug, j.GOOS, j.GOARCH)
+				if sum, _, err := tooling.ReadSidecar(sidecar); err == nil {
+					sha = shortSHA(sum)
+				}
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\tOK\t%s\t%s\n", jobLabel(j), ver, j.Tool.ManagedBy(), sha, path)
 			continue
 		}
 		status := "MISSING"
@@ -452,7 +662,7 @@ func reportJobStatus(host product.BuildHost, jobs []toolJob) (missing int) {
 		} else {
 			missing++
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t-\n", jobLabel(j), j.Tool.RequiredFor, link, status)
+		fmt.Fprintf(tw, "%s\t%s\t-\t%s\t-\t-\n", jobLabel(j), ver, status)
 		misses = append(misses, miss{label: jobLabel(j), err: err, experimental: j.Experimental})
 	}
 	tw.Flush()
@@ -467,6 +677,28 @@ func reportJobStatus(host product.BuildHost, jobs []toolJob) (missing int) {
 		}
 	}
 	return missing
+}
+
+// shortSHA truncates a "sha256:<hex>" string to its first 12 hex
+// chars for table display, matching the workflow summary's truncation.
+func shortSHA(sum string) string {
+	hex := strings.TrimPrefix(sum, "sha256:")
+	if len(hex) > 12 {
+		return hex[:12]
+	}
+	return hex
+}
+
+// sidecarSHALine returns "    sha256: <full hex>\n" when the
+// install-time sidecar for this job exists, else "". Printed after
+// the install / already-installed line so the hash is grep-able on
+// its own row without bloating the primary line.
+func sidecarSHALine(host product.BuildHost, j toolJob) string {
+	sum, _, err := tooling.ReadSidecar(tooling.SidecarPath(host, j.Tool.Slug, j.GOOS, j.GOARCH))
+	if err != nil {
+		return ""
+	}
+	return "    " + sum + "\n"
 }
 
 func jobLinkSummary(j toolJob) string {
@@ -516,35 +748,80 @@ func hostsString(hosts []product.BuildHost) string {
 	return strings.Join(parts, ",")
 }
 
+// CatalogRow is the per-tool catalog shape emitted by `gdnext
+// toolchain list --format=json|yaml|xml`. Pure catalog metadata —
+// no on-host state. Use DoctorAuditRow for "what's actually
+// installed on this host" snapshots.
+type CatalogRow struct {
+	XMLName  xml.Name `json:"-"                      xml:"entry"                  yaml:"-"`
+	Slug     string   `json:"slug"                   xml:"slug"                   yaml:"slug"`
+	Name     string   `json:"name"                   xml:"name"                   yaml:"name"`
+	Version  string   `json:"version,omitempty"      xml:"version,omitempty"      yaml:"version,omitempty"`
+	Required string   `json:"required_for,omitempty" xml:"required_for,omitempty" yaml:"required_for,omitempty"`
+	Library  bool     `json:"library,omitempty"      xml:"library,attr,omitempty" yaml:"library,omitempty"`
+	Hosts    []string `json:"installable_hosts"      xml:"installable_hosts>host" yaml:"installable_hosts"`
+	Source   string   `json:"source,omitempty"       xml:"source,omitempty"       yaml:"source,omitempty"`
+}
+
+func collectCatalogRows(cat tooling.Catalog) []CatalogRow {
+	tools := cat.Tools()
+	out := make([]CatalogRow, 0, len(tools))
+	for _, tool := range tools {
+		hosts := make([]string, 0, len(tool.AvailableHosts))
+		for _, h := range tool.AvailableHosts {
+			hosts = append(hosts, h.Tuple())
+		}
+		out = append(out, CatalogRow{
+			Slug:     tool.Slug,
+			Name:     tool.Name,
+			Version:  tool.Version,
+			Required: tool.RequiredFor,
+			Library:  tool.IsLibrary,
+			Hosts:    hosts,
+			Source:   tool.DownloadURL,
+		})
+	}
+	return out
+}
+
 // DoctorAuditRow is the per-job audit shape emitted by `gdnext
 // toolchain doctor --format=json|yaml|xml`. Each row is one
 // (tool, target) entry the host needs, with the resolved install
-// path, the downloaded archive's byte size and SHA256 (for
-// supply-chain audit), plus the catalog Source URL the artefact
-// was fetched from. Source is informational provenance —
-// KnownChecksums identifies artefacts by hash, so a mirror change
-// does not invalidate the supply-chain check.
+// path, the management type (gdnext-owned vs user-owned), the
+// downloaded archive's byte size and SHA256 (for supply-chain
+// audit), plus the catalog Source URL the artefact was fetched
+// from. Source is informational provenance — KnownChecksums
+// identifies artefacts by hash, so a mirror change does not
+// invalidate the supply-chain check.
 type DoctorAuditRow struct {
-	XMLName  xml.Name `json:"-"                  xml:"entry"               yaml:"-"`
-	Slug     string   `json:"slug"               xml:"slug"                yaml:"slug"`
-	Name     string   `json:"name"               xml:"name"                yaml:"name"`
-	Version  string   `json:"version,omitempty"  xml:"version,omitempty"   yaml:"version,omitempty"`
-	GOOS     string   `json:"goos"               xml:"goos"                yaml:"goos"`
-	GOARCH   string   `json:"goarch"             xml:"goarch"              yaml:"goarch"`
-	Host     string   `json:"host"               xml:"host"                yaml:"host"`
-	Library  bool     `json:"library,omitempty"  xml:"library,attr,omitempty" yaml:"library,omitempty"`
-	Required string   `json:"required_for,omitempty" xml:"required_for,omitempty" yaml:"required_for,omitempty"`
-	Status   string   `json:"status"             xml:"status,attr"         yaml:"status"`
-	Path     string   `json:"path,omitempty"     xml:"path,omitempty"      yaml:"path,omitempty"`
-	Size     int64    `json:"size,omitempty"     xml:"size,omitempty"      yaml:"size,omitempty"`
-	SHA256   string   `json:"sha256,omitempty"   xml:"sha256,omitempty"    yaml:"sha256,omitempty"`
-	Source   string   `json:"source,omitempty"   xml:"source,omitempty"    yaml:"source,omitempty"`
-	Error    string   `json:"error,omitempty"    xml:"error,omitempty"     yaml:"error,omitempty"`
+	XMLName    xml.Name           `json:"-"                      xml:"entry"                  yaml:"-"`
+	Slug       string             `json:"slug"                   xml:"slug"                   yaml:"slug"`
+	Name       string             `json:"name"                   xml:"name"                   yaml:"name"`
+	Version    string             `json:"version,omitempty"      xml:"version,omitempty"      yaml:"version,omitempty"`
+	GOOS       string             `json:"goos"                   xml:"goos"                   yaml:"goos"`
+	GOARCH     string             `json:"goarch"                 xml:"goarch"                 yaml:"goarch"`
+	Host       string             `json:"host"                   xml:"host"                   yaml:"host"`
+	Library    bool               `json:"library,omitempty"      xml:"library,attr,omitempty" yaml:"library,omitempty"`
+	ManageType product.ManageType `json:"manage_type"            xml:"manage_type,attr"       yaml:"manage_type"`
+	Required   string             `json:"required_for,omitempty" xml:"required_for,omitempty" yaml:"required_for,omitempty"`
+	Status     string             `json:"status"                 xml:"status,attr"            yaml:"status"`
+	Path       string             `json:"path,omitempty"         xml:"path,omitempty"         yaml:"path,omitempty"`
+	Size       int64              `json:"size,omitempty"         xml:"size,omitempty"         yaml:"size,omitempty"`
+	SHA256     string             `json:"sha256,omitempty"       xml:"sha256,omitempty"       yaml:"sha256,omitempty"`
+	Source     string             `json:"source,omitempty"       xml:"source,omitempty"       yaml:"source,omitempty"`
+	Error      string             `json:"error,omitempty"        xml:"error,omitempty"        yaml:"error,omitempty"`
 }
 
 func printDoctorAudit(host product.BuildHost, jobs []toolJob, format string) error {
-	rows := collectDoctorAudit(host, jobs)
-	switch format {
+	return encodeStructured(format, "toolchain-audit", "entry", collectDoctorAudit(host, jobs))
+}
+
+// encodeStructured renders rows as json / yaml / xml. xmlRoot is the
+// outer element name; xmlChild is the per-row element name. Both verbs
+// (`toolchain list` and `toolchain doctor --format=...`) share this
+// helper so the format flag behaves identically.
+func encodeStructured[T any](format, xmlRoot, xmlChild string, rows []T) error {
+	switch strings.ToLower(format) {
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -552,14 +829,21 @@ func printDoctorAudit(host product.BuildHost, jobs []toolJob, format string) err
 	case "yaml", "yml":
 		return yaml.NewEncoder(os.Stdout).Encode(rows)
 	case "xml":
-		out, err := xml.MarshalIndent(struct {
-			XMLName xml.Name         `xml:"toolchain-audit"`
-			Entries []DoctorAuditRow `xml:"entry"`
-		}{Entries: rows}, "", "  ")
-		if err != nil {
-			return err
+		// Wrap rows in a labelled root via reflect-free composition:
+		// xml.Marshaler on an inline struct keyed by xmlRoot.
+		var buf strings.Builder
+		buf.WriteString("<" + xmlRoot + ">\n")
+		for _, r := range rows {
+			inner, err := xml.MarshalIndent(r, "  ", "  ")
+			if err != nil {
+				return err
+			}
+			buf.Write(inner)
+			buf.WriteByte('\n')
 		}
-		fmt.Println(string(out))
+		buf.WriteString("</" + xmlRoot + ">")
+		fmt.Println(buf.String())
+		_ = xmlChild // xmlChild participates via the row type's XMLName tag
 		return nil
 	default:
 		return fmt.Errorf("unknown --format %q (want table | json | yaml | xml)", format)
@@ -589,15 +873,19 @@ func collectDoctorAudit(host product.BuildHost, jobs []toolJob) []DoctorAuditRow
 		}
 		row.Status = "ok"
 		row.Path = path
-		// SHA256 + Size come from the install-time sidecar (download
-		// archive, not installed file). Tools satisfied from $PATH or
-		// a pre-existing local install have no sidecar, so they audit
-		// without a hash or size.
-		if sum, size, err := readDownloadSidecar(j.Tool.Path); err == nil {
-			row.SHA256 = sum
-			row.Size = size
-		} else if !os.IsNotExist(err) {
-			row.Error = err.Error()
+		row.ManageType = j.Tool.ManagedBy()
+		// SHA256 + Size come from the install-time sidecar under
+		// <GDChecksumsPath>. UserManaged tools (system PATH or
+		// pre-existing local installs) have no sidecar; that's not an
+		// error, just no provenance to surface.
+		if row.ManageType == product.GDManaged {
+			sidecar := tooling.SidecarPath(host, j.Tool.Slug, j.GOOS, j.GOARCH)
+			if sum, size, err := tooling.ReadSidecar(sidecar); err == nil {
+				row.SHA256 = sum
+				row.Size = size
+			} else if !os.IsNotExist(err) {
+				row.Error = err.Error()
+			}
 		}
 		out = append(out, row)
 	}
@@ -626,32 +914,4 @@ func doctorAuditSource(t product.Toolchain, goos, goarch string) string {
 		"$(EXT)", ext,
 	)
 	return r.Replace(t.DownloadURL)
-}
-
-// readDownloadSidecar parses the <install_path>.sha256 file written
-// by the installer. Format: two newline-terminated lines,
-// "sha256:hex" then "size:bytes". Returns os.ErrNotExist when the
-// sidecar is absent (system-PATH tools, pre-existing local installs).
-func readDownloadSidecar(installPath string) (string, int64, error) {
-	if installPath == "" {
-		return "", 0, os.ErrNotExist
-	}
-	raw, err := os.ReadFile(installPath + ".sha256")
-	if err != nil {
-		return "", 0, err
-	}
-	var sum string
-	var size int64
-	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-		switch {
-		case strings.HasPrefix(line, "sha256:"):
-			sum = line
-		case strings.HasPrefix(line, "size:"):
-			fmt.Sscanf(strings.TrimPrefix(line, "size:"), "%d", &size)
-		}
-	}
-	if sum == "" {
-		return "", 0, fmt.Errorf("sidecar %s.sha256 has no sha256 line", installPath)
-	}
-	return sum, size, nil
 }

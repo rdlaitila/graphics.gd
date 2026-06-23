@@ -3,6 +3,7 @@ package product
 import (
 	"encoding/xml"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -73,6 +74,41 @@ type BuildHost struct {
 
 // Tuple returns the host as "goos/goarch".
 func (t BuildHost) Tuple() string { return Tuple(t.GOOS, t.GOARCH) }
+
+// GDChecksumsPath returns <GDRootPath>/checksums, the directory holding
+// per-artefact sha256 sidecar files written by `gdnext toolchain install`
+// and consulted by the verifier alongside catalog KnownChecksums.
+func (h BuildHost) GDChecksumsPath() string {
+	if h.GDRootPath == "" {
+		return ""
+	}
+	return filepath.Join(h.GDRootPath, "checksums")
+}
+
+// ManageType labels who owns a toolchain on disk: GDManaged (gdnext
+// downloaded it under GDRootPath and can be trusted to keep it up to
+// date), or UserManaged (the user supplied it via $PATH or an
+// existing install). Resolved at Lookup time by inspecting Tool.Path.
+type ManageType uint8
+
+const (
+	UserManaged ManageType = iota
+	GDManaged
+)
+
+// String returns the short token used in audit output: "user" or "gd".
+func (t ManageType) String() string {
+	switch t {
+	case GDManaged:
+		return "gd"
+	case UserManaged:
+		return "user"
+	}
+	return ""
+}
+
+// MarshalText so JSON / YAML / XML render the short token.
+func (t ManageType) MarshalText() ([]byte, error) { return []byte(t.String()), nil }
 
 // TargetHost is the (GOOS, GOARCH, LinkMode) a build is producing for.
 type TargetHost struct {

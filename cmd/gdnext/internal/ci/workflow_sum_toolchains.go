@@ -15,35 +15,38 @@ import (
 // summary can decode artefacts without importing the cli package
 // (which would pull in gdnext's full dep graph).
 type doctorAuditRow struct {
-	Slug    string `json:"slug"`
-	Name    string `json:"name"`
-	Version string `json:"version,omitempty"`
-	GOOS    string `json:"goos"`
-	GOARCH  string `json:"goarch"`
-	Host    string `json:"host"`
-	Library bool   `json:"library,omitempty"`
-	Status  string `json:"status"`
-	Path    string `json:"path,omitempty"`
-	Size    int64  `json:"size,omitempty"`
-	SHA256  string `json:"sha256,omitempty"`
-	Source  string `json:"source,omitempty"`
+	Slug       string `json:"slug"`
+	Name       string `json:"name"`
+	Version    string `json:"version,omitempty"`
+	GOOS       string `json:"goos"`
+	GOARCH     string `json:"goarch"`
+	Host       string `json:"host"`
+	Library    bool   `json:"library,omitempty"`
+	ManageType string `json:"manage_type"`
+	Status     string `json:"status"`
+	Path       string `json:"path,omitempty"`
+	Size       int64  `json:"size,omitempty"`
+	SHA256     string `json:"sha256,omitempty"`
+	Source     string `json:"source,omitempty"`
 }
 
 // toolchainRow is one rendered row of the supply-chain audit table:
 // a single (slug, host, goos/goarch) cell with the downloaded
-// archive's byte size + sha256 + source URL + on-disk path, plus a
-// Changed flag set when the SHA differs from the prior run.
+// archive's byte size + sha256 + source URL + on-disk path + who
+// owns it (gd or user), plus a Changed flag set when the SHA differs
+// from the prior run.
 type toolchainRow struct {
-	Slug    string
-	Version string
-	Host    string
-	GOOS    string
-	GOARCH  string
-	Path    string
-	Size    int64
-	SHA256  string
-	Source  string
-	Changed bool
+	Slug       string
+	Version    string
+	Host       string
+	GOOS       string
+	GOARCH     string
+	ManageType string
+	Path       string
+	Size       int64
+	SHA256     string
+	Source     string
+	Changed    bool
 }
 
 // collectToolchains downloads every `toolchain-audit-*` artefact of
@@ -55,16 +58,17 @@ func collectToolchains(repo string, runID int64, prior map[string]string) []tool
 	for _, r := range rows {
 		key := toolchainKey(r)
 		out = append(out, toolchainRow{
-			Slug:    r.Slug,
-			Version: r.Version,
-			Host:    r.Host,
-			GOOS:    r.GOOS,
-			GOARCH:  r.GOARCH,
-			Path:    r.Path,
-			Size:    r.Size,
-			SHA256:  r.SHA256,
-			Source:  r.Source,
-			Changed: prior != nil && r.SHA256 != "" && prior[key] != "" && prior[key] != r.SHA256,
+			Slug:       r.Slug,
+			Version:    r.Version,
+			Host:       r.Host,
+			GOOS:       r.GOOS,
+			GOARCH:     r.GOARCH,
+			ManageType: r.ManageType,
+			Path:       r.Path,
+			Size:       r.Size,
+			SHA256:     r.SHA256,
+			Source:     r.Source,
+			Changed:    prior != nil && r.SHA256 != "" && prior[key] != "" && prior[key] != r.SHA256,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -176,12 +180,16 @@ func renderToolchainsMarkdown(w io.Writer, rows []toolchainRow) {
 		fmt.Fprintln(w)
 		return
 	}
-	fmt.Fprintln(w, "| Toolchain | Version | Build Host | Path | Size | Changed | Source | SHA256 |")
-	fmt.Fprintln(w, "| --- | --- | --- | --- | ---: | :-: | --- | --- |")
+	fmt.Fprintln(w, "| Toolchain | Version | Build Host | Managed | Path | Size | Changed | Source | SHA256 |")
+	fmt.Fprintln(w, "| --- | --- | --- | :-: | --- | ---: | :-: | --- | --- |")
 	for _, r := range rows {
 		ver := r.Version
 		if ver == "" {
 			ver = "—"
+		}
+		managed := r.ManageType
+		if managed == "" {
+			managed = "—"
 		}
 		path := r.Path
 		if path == "" {
@@ -208,8 +216,8 @@ func renderToolchainsMarkdown(w io.Writer, rows []toolchainRow) {
 		} else {
 			sha = "`" + sha + "`"
 		}
-		fmt.Fprintf(w, "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
-			r.Slug, ver, r.Host, path, size, changed, source, sha)
+		fmt.Fprintf(w, "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+			r.Slug, ver, r.Host, managed, path, size, changed, source, sha)
 	}
 	fmt.Fprintln(w)
 }

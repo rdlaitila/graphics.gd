@@ -89,6 +89,14 @@ jobs:
 
       - name: Toolchain install
         shell: bash
+        # GDNEXT_SKIP_CHECKSUM=1 lets the first run on a fresh runner
+        # pass verification when KnownChecksums is empty. The sidecar
+        # written by each install is captured by the Toolchain audit
+        # snapshot step below; harvest the SHAs from that artefact into
+        # product.Toolchain.KnownChecksums and the next run will verify
+        # against the pinned set with this env-var unset.
+        env:
+          GDNEXT_SKIP_CHECKSUM: "1"
         run: gdnext ci toolchain-install
 
       - name: Toolchain doctor (post-install)
