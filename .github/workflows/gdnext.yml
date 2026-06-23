@@ -166,7 +166,11 @@ jobs:
           # Use RUNNER_TEMP so the path is visible to Node-based
           # actions (upload-artifact). $(mktemp -d) on Git-Bash
           # returns a mingw /tmp/... path that the Node host can't see.
-          tmp="${RUNNER_TEMP//\\//}/staged"
+          # Stage into a subdir named after the example so the staged
+          # working directory's basename matches the example name —
+          # several builders derive project.Name from filepath.Base(wd)
+          # and Godot's export presets are keyed on the example name.
+          tmp="${RUNNER_TEMP//\\//}/${{ matrix.example }}"
           rm -rf "$tmp"
           mkdir -p "$tmp"
           echo "tmp=$tmp" >> $GITHUB_OUTPUT

@@ -164,11 +164,11 @@ var (
 		GOARCH:     GOARCHArm64,
 		Kind:       Target,
 		Status:     Supported,
-		LinkModes:  GDExtension | LibGodot,
+		LinkModes:  GDExtension,
 		BuildHosts: HostMatrix,
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
-		Notes:      "cross-compiled from any host via zig",
+		Notes:      "cross-compiled from any host via zig; libgodot mode pending an arm64 artefact",
 	}
 	// --- Windows --------------------------------------------------------
 	PlatformWindowsAmd64 = Platform{
