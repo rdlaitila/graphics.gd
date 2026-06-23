@@ -8,6 +8,10 @@ symlinks to this [file](../../docs/agents/instructions.md) — edit here, not th
 
 * [docs/style.md](../style.md)
 * [docs/structure.md](../structure.md)
+* [docs/toolchains.md](../toolchains.md)
+* [docs/catalog.md](../catalog.md)
+* [docs/cli.md](../cli.md)
+* [docs/workflow.md](../workflow.md)
 
 ## Communication Style
 
