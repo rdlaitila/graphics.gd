@@ -3,6 +3,7 @@ package builder
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -108,13 +109,8 @@ func (t *Musl) Build(args ...string) (err error) {
 	if err != nil {
 		return xray.New(err)
 	}
-	overlay := filepath.Join(env.Host.GDLibPath, "musl.json")
-	if err := os.WriteFile(overlay, []byte(`{
-		"Replace": {
-			"`+filepath.Join(GOROOT, "src", "runtime", "runtime1.go")+`": "`+filepath.Join(env.Host.GDLibPath, "musl", "runtime1.go.overlay")+`",
-			"`+filepath.Join(GOROOT, "src", "runtime", "os_linux.go")+`": "`+filepath.Join(env.Host.GDLibPath, "musl", "os_linux.go.overlay")+`"
-		}
-	}`), 0755); err != nil {
+	overlay, err := writeMuslOverlay(env, GOROOT)
+	if err != nil {
 		return xray.New(err)
 	}
 	var target string
@@ -243,13 +239,8 @@ func (t *Musl) Test(args ...string) error {
 	if err != nil {
 		return xray.New(err)
 	}
-	overlay := filepath.Join(env.Host.GDLibPath, "musl.json")
-	if err := os.WriteFile(overlay, []byte(`{
-		"Replace": {
-			"`+filepath.Join(GOROOT, "src", "runtime", "runtime1.go")+`": "`+filepath.Join(env.Host.GDLibPath, "musl", "runtime1.go.overlay")+`",
-			"`+filepath.Join(GOROOT, "src", "runtime", "os_linux.go")+`": "`+filepath.Join(env.Host.GDLibPath, "musl", "os_linux.go.overlay")+`"
-		}
-	}`), 0755); err != nil {
+	overlay, err := writeMuslOverlay(env, GOROOT)
+	if err != nil {
 		return xray.New(err)
 	}
 	var target string
@@ -285,4 +276,30 @@ func (t *Musl) Test(args ...string) error {
 	}
 	args = append(args, "--headless")
 	return t.godotTool().Exec(args...)
+}
+
+// writeMuslOverlay materialises the go-toolchain overlay JSON that
+// remaps a couple of runtime source files to the musl-aware overlays
+// shipped under GDLibPath/musl/. json.Marshal handles backslash-quoted
+// paths on Windows; building the document by string concatenation
+// would emit raw \h, \t, etc. inside Windows runtime paths and the go
+// toolchain would reject the file with
+//
+//	parsing overlay JSON: invalid character ... in string escape code
+func writeMuslOverlay(env product.BuildEnv, GOROOT string) (string, error) {
+	overlay := filepath.Join(env.Host.GDLibPath, "musl.json")
+	doc := struct {
+		Replace map[string]string
+	}{Replace: map[string]string{
+		filepath.Join(GOROOT, "src", "runtime", "runtime1.go"): filepath.Join(env.Host.GDLibPath, "musl", "runtime1.go.overlay"),
+		filepath.Join(GOROOT, "src", "runtime", "os_linux.go"): filepath.Join(env.Host.GDLibPath, "musl", "os_linux.go.overlay"),
+	}}
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(overlay, body, 0755); err != nil {
+		return "", err
+	}
+	return overlay, nil
 }
