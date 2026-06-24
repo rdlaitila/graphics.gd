@@ -106,6 +106,7 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		"GDNEXT_PLAY=1",
 		"GDNEXT_PLAY_REPORT="+reportPath,
 		"GDNEXT_PLAY_SCREENSHOT="+screenshotPath,
+		"GDNEXT_PLAY_LABEL="+buildPlayLabel(target, mode),
 	)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -221,4 +222,34 @@ func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 		return context.WithCancel(context.Background())
 	}
 	return context.WithTimeout(context.Background(), d)
+}
+
+// buildPlayLabel composes the multi-line HUD label the example
+// stamps top-right when GDNEXT_PLAY is set. Every field is best-
+// effort: missing env vars just don't appear on the overlay.
+func buildPlayLabel(target string, mode product.LinkMode) string {
+	lines := []string{
+		"target " + target,
+		"link   " + mode.String(),
+		"host   " + runtime.GOOS + "/" + runtime.GOARCH,
+	}
+	if v := os.Getenv("RUNNER_OS"); v != "" {
+		lines = append(lines, "runner "+strings.ToLower(v))
+	}
+	if v := os.Getenv("GITHUB_REF_NAME"); v != "" {
+		lines = append(lines, "ref    "+v)
+	}
+	if v := os.Getenv("GITHUB_SHA"); v != "" {
+		if len(v) > 7 {
+			v = v[:7]
+		}
+		lines = append(lines, "sha    "+v)
+	}
+	if v := os.Getenv("GITHUB_RUN_ID"); v != "" {
+		lines = append(lines, "run    "+v)
+	}
+	if v := os.Getenv("GITHUB_RUN_ATTEMPT"); v != "" {
+		lines = append(lines, "try    "+v)
+	}
+	return strings.Join(lines, "\n")
 }

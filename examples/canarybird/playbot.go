@@ -4,11 +4,16 @@ import (
 	"encoding/json"
 	"os"
 
+	"graphics.gd/classdb/CanvasLayer"
+	"graphics.gd/classdb/Control"
 	"graphics.gd/classdb/Engine"
+	"graphics.gd/classdb/GUI"
 	"graphics.gd/classdb/Input"
+	"graphics.gd/classdb/Label"
 	"graphics.gd/classdb/SceneTree"
 	"graphics.gd/variant/Float"
 	"graphics.gd/variant/Object"
+	"graphics.gd/variant/Vector2"
 )
 
 // playBot scripts canarybird from a fixed flap schedule when
@@ -33,6 +38,7 @@ var playSchedule = []Float.X{
 
 func newPlayBot(game *CanaryBird) *playBot {
 	Engine.SetMaxFps(60)
+	mountDebugOverlay(game)
 	return &playBot{game: game, schedule: playSchedule}
 }
 
@@ -103,4 +109,26 @@ func (t *playBot) snapshot() {
 	}
 	img := tree.Root().AsViewport().GetTexture().AsTexture2D().GetImage()
 	_ = os.WriteFile(path, img.SavePngToBuffer(), 0644)
+}
+
+// mountDebugOverlay stamps build metadata (target tuple, link mode,
+// host, sha, run-id, ...) into the top-right corner. The text comes
+// from $GDNEXT_PLAY_LABEL, which `gdnext ci play-cell` populates from
+// its --target/--link flags and the workflow's GITHUB_* env. Skipped
+// when the env is empty so the overlay doesn't leak into local runs.
+func mountDebugOverlay(game *CanaryBird) {
+	text := os.Getenv("GDNEXT_PLAY_LABEL")
+	if text == "" {
+		return
+	}
+	layer := CanvasLayer.New()
+	game.AsNode().AddChild(layer.AsNode())
+	label := Label.New()
+	label.SetText(text)
+	label.SetHorizontalAlignment(GUI.HorizontalAlignmentRight)
+	ctl := label.AsControl()
+	ctl.SetAnchorsPreset(Control.PresetTopRight)
+	ctl.SetPosition(Vector2.New[Float.X](-260, 16))
+	ctl.SetSize(Vector2.New[Float.X](244, 160))
+	layer.AsNode().AddChild(label.AsNode())
 }
