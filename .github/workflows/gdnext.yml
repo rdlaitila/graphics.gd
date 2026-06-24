@@ -267,6 +267,31 @@ jobs:
         shell: bash
         run: gdnext toolchain doctor --fix
 
+      # Snapshot every loaded file-system minifilter driver and any
+      # running AV/scan/index services right before the build. The
+      # `darwin_*.dylib~` -> `darwin_*.dylib` rename keeps failing
+      # with "Access is denied" on windows-latest even after Defender
+      # realtime + WSearch are off; only a kernel-mode minifilter can
+      # hold a handle in that window. fltmc names every loaded one;
+      # the service grep catches the userland piece (sense, mssec,
+      # third-party EDR, etc.) that drives them.
+      - name: Snapshot filter drivers + services (pre-build)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Write-Host "--- fltmc filters ---"
+          fltmc filters
+          Write-Host "--- fltmc instances (D: volume) ---"
+          fltmc instances -v D:
+          Write-Host "--- running AV / scan / search / sense services ---"
+          Get-Service | Where-Object {
+            $_.Status -eq 'Running' -and (
+              $_.Name -match 'defend|sense|search|av|scan|mssec|wdnis|nisdrv' -or
+              $_.DisplayName -match 'defender|antivirus|security|search|sentinel|crowdstrike|carbon|trend|kaspersky'
+            )
+          } | Format-Table -AutoSize Name,DisplayName,Status
+
       # Build the matrix's target. (goos, goarch) is validated against
       # product.PlatformMatrix inside `gdnext ci build-target`, so a
       # typo'd target fails with a clear "unknown platform" message
