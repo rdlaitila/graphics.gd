@@ -15,8 +15,14 @@ import (
 // loaded eagerly so the renderer can inline them as `data:` URIs in
 // the markdown step summary — GitHub doesn't host arbitrary artefact
 // images for inline display.
+//
+// Label is the head of the caption (`<target>+<link>`); Tail is the
+// context line (`b: <build-host> p: <play-host>`). Splitting them lets
+// the markdown renderer break between the two with `<br>` so a narrow
+// grid column doesn't overflow.
 type shotRow struct {
 	Label string
+	Tail  string
 	PNG   []byte
 }
 
@@ -107,28 +113,48 @@ func collectShots(dir string) []shotRow {
 		if err != nil || len(body) == 0 {
 			continue
 		}
-		label := shotLabel(name)
-		out = append(out, shotRow{Label: label, PNG: body})
+		label, tail := shotLabel(name)
+		out = append(out, shotRow{Label: label, Tail: tail, PNG: body})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Label != out[j].Label {
+			return out[i].Label < out[j].Label
+		}
+		return out[i].Tail < out[j].Tail
+	})
 	return out
 }
 
-// shotLabel renders a `<target>+<link> (b: <build-host> p: <play-host>)`
-// caption from an artefact directory name. Falls back to the raw
+// shotLabel renders the caption for one screenshot cell. The first
+// return value is the headline (`<target>+<link>`); the second is
+// the build/play context line (`b: <build-host> p: <play-host>`).
+// Splitting them lets the markdown renderer put a `<br>` between
+// the two so the caption wraps cleanly inside a narrow grid column
+// without overflowing the title, while the alt text + slug paths
+// can still concatenate them into one line. Falls back to the raw
 // trimmed name when parsing fails so unknown shapes still show up
-// rather than disappearing silently. The link suffix is omitted when
-// the artefact didn't carry one.
-func shotLabel(name string) string {
+// rather than disappearing silently.
+func shotLabel(name string) (head, tail string) {
 	target, link, buildRunner, playRunner, ok := parseScreenshotArtifactName(name)
 	if !ok {
-		return strings.TrimPrefix(name, "shot-")
+		return strings.TrimPrefix(name, "shot-"), ""
 	}
-	head := target
+	head = target
 	if link != "" {
 		head += "+" + link
 	}
-	return fmt.Sprintf("%s (b: %s p: %s)", head, buildRunner, playRunner)
+	tail = fmt.Sprintf("b: %s p: %s", buildRunner, playRunner)
+	return head, tail
+}
+
+// shotAltText joins the head + tail with " " so the alt attribute
+// keeps the full context on one line; missing-image tooltips and
+// screen readers don't render `<br>` usefully.
+func shotAltText(head, tail string) string {
+	if tail == "" {
+		return head
+	}
+	return head + " " + tail
 }
 
 // renderShotsMarkdown appends a screenshot grid directly under the
@@ -145,10 +171,16 @@ func renderShotsMarkdown(w io.Writer, rows []pushedShot) {
 	fmt.Fprintln(w, strings.Repeat("| ", cols)+"|")
 	fmt.Fprintln(w, strings.Repeat("| --- ", cols)+"|")
 	for i := 0; i < len(rows); i += cols {
-		// caption row
+		// caption row — head on its own line, tail on the next via
+		// inline <br> so the column stays narrow.
 		for c := 0; c < cols; c++ {
 			if i+c < len(rows) {
-				fmt.Fprintf(w, "| **%s** ", strings.ReplaceAll(rows[i+c].Label, "|", "\\|"))
+				row := rows[i+c]
+				caption := escapeMDCell(row.Label)
+				if row.Tail != "" {
+					caption += "<br>" + escapeMDCell(row.Tail)
+				}
+				fmt.Fprintf(w, "| **%s** ", caption)
 			} else {
 				fmt.Fprint(w, "|  ")
 			}
@@ -163,17 +195,27 @@ func renderShotsMarkdown(w io.Writer, rows []pushedShot) {
 			row := rows[i+c]
 			switch {
 			case row.Error != "":
-				fmt.Fprintf(w, "| ⚠️ %s ", strings.ReplaceAll(row.Error, "|", "\\|"))
+				fmt.Fprintf(w, "| ⚠️ %s ", escapeMDCell(row.Error))
 			case row.URL == "":
 				fmt.Fprint(w, "| _no image_ ")
 			default:
 				fmt.Fprintf(w, "| <img alt=%q src=%q width=\"320\"> ",
-					row.Label, row.URL)
+					shotAltText(row.Label, row.Tail), row.URL)
 			}
 		}
 		fmt.Fprintln(w, "|")
 	}
 	fmt.Fprintln(w)
+}
+
+// escapeMDCell escapes characters that would break out of a GFM
+// table cell. Pipes are the only structural one; newlines are
+// stripped (a `<br>` placed by the caller is what wraps within a
+// cell).
+func escapeMDCell(s string) string {
+	s = strings.ReplaceAll(s, "|", "\\|")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return s
 }
 
 // errorShots stamps every row with the given message so a push
@@ -185,6 +227,7 @@ func errorShots(rows []shotRow, msg string) []pushedShot {
 	for _, r := range rows {
 		out = append(out, pushedShot{
 			Label: r.Label,
+			Tail:  r.Tail,
 			Error: msg,
 		})
 	}
@@ -201,6 +244,7 @@ func dataURIShots(rows []shotRow) []pushedShot {
 	for _, r := range rows {
 		out = append(out, pushedShot{
 			Label: r.Label,
+			Tail:  r.Tail,
 			URL:   "data:image/png;base64," + base64.StdEncoding.EncodeToString(r.PNG),
 		})
 	}

@@ -17,8 +17,12 @@ import (
 // whole batch) — URL is empty and the renderer prints the message
 // in the image cell instead of dropping the row, so the summary
 // stays honest about what was supposed to be there.
+//
+// Label / Tail mirror shotRow so the renderer can drop a `<br>`
+// between the two halves of the caption.
 type pushedShot struct {
 	Label string
+	Tail  string
 	Path  string
 	URL   string
 	Error string
@@ -96,6 +100,7 @@ func pushShotsToBranch(repo, branch string, runID int64, rows []shotRow) ([]push
 		entries = append(entries, entry{Path: p, Mode: "100644", Type: "blob", SHA: sha})
 		out = append(out, pushedShot{
 			Label: r.Label,
+			Tail:  r.Tail,
 			Path:  p,
 			URL:   rawURL(owner, name, branch, p),
 		})
