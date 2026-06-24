@@ -266,6 +266,18 @@ jobs:
         shell: bash
         run: gdnext toolchain doctor --fix
 
+      # gsudo elevates the build on Windows. The job process runs as
+      # 'runneradmin' but unelevated (UAC split token), and Defender's
+      # WdFilter intercepts link.exe's `<out>~` -> `<out>` rename in
+      # that token. Running the build elevated lets us probe whether
+      # the rename succeeds with admin privileges; if it still fails
+      # we can extend this step to fltmc-detach WdFilter from D:
+      # before invoking gdnext.
+      - name: Install gsudo
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install -y gsudo --no-progress
+
       # Build the matrix's target. (goos, goarch) is validated against
       # product.PlatformMatrix inside `gdnext ci build-target`, so a
       # typo'd target fails with a clear "unknown platform" message
@@ -277,7 +289,11 @@ jobs:
         shell: bash
         run: |
           IFS=/ read -r goos goarch <<< "${{ matrix.target }}"
-          gdnext ci build-target --goos "$goos" --goarch "$goarch" --link "${{ matrix.link }}" --scratch "${{ steps.stage.outputs.tmp }}"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            gsudo --loglevel none -- gdnext ci build-target --goos "$goos" --goarch "$goarch" --link "${{ matrix.link }}" --scratch "${{ steps.stage.outputs.tmp }}"
+          else
+            gdnext ci build-target --goos "$goos" --goarch "$goarch" --link "${{ matrix.link }}" --scratch "${{ steps.stage.outputs.tmp }}"
+          fi
 
       - name: Tree ${{ matrix.target }} [${{ matrix.link || 'default' }}]
         if: always()
