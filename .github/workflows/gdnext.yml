@@ -190,16 +190,14 @@ jobs:
           gdnext ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
 
       # `rename darwin_<arch>.dylib~ darwin_<arch>.dylib: Access is
-      # denied` keeps surfacing on windows-latest. fltmc confirms the
-      # only third-party-ish minifilter on D: at that point is
-      # WdFilter (Defender) — Add-MpPreference / Set-MpPreference
-      # don't unload it. So we layer the disables: exclusions first
-      # (cheapest), then disable realtime / behaviour / IOAV (engine
-      # off), then stop WSearch (handles on freshly written files),
-      # then stop the Defender services and detach WdFilter from D:
-      # directly. Tamper Protection is off on stock windows-latest so
-      # the service stops are allowed. Everything is best-effort and
-      # only runs on Windows.
+      # denied` keeps surfacing on windows-latest. Defender's
+      # WdFilter minifilter cannot be detached from CI (Tamper
+      # Protection blocks every disable lever short of the runner
+      # being a different image). So we layer the cheap mitigations
+      # here — path / process / extension exclusions, realtime off,
+      # WSearch stop — and rely on a single-shot retry inside the
+      # macOS builder for the residual rename race. Best-effort,
+      # Windows-only.
       - name: Disable Windows Defender on build dirs
         if: runner.os == 'Windows'
         shell: pwsh
@@ -252,28 +250,6 @@ jobs:
           } catch {
             Write-Host "WSearch stop failed: $_"
           }
-          # Set-MpPreference -DisableRealtimeMonitoring leaves the
-          # WdFilter.sys minifilter attached to every volume — fltmc
-          # confirms it is the only third-party-ish filter still on D:
-          # while the rename keeps failing. Stop the services that own
-          # the filter, then detach it from D: directly. Tamper
-          # Protection is off on stock windows-latest so this works.
-          foreach ($svc in @('WinDefend','MDCoreSvc','Sense','SecurityHealthService','wscsvc')) {
-            try {
-              Stop-Service -Name $svc -Force -ErrorAction Stop
-              Set-Service  -Name $svc -StartupType Disabled -ErrorAction Stop
-              Write-Host "stopped service $svc"
-            } catch {
-              Write-Host "skip service $svc : $_"
-            }
-          }
-          foreach ($flt in @('WdFilter','WdNisDrv','MsSecFlt')) {
-            try {
-              fltmc detach $flt D: 2>&1 | Out-Host
-            } catch {
-              Write-Host "skip detach $flt : $_"
-            }
-          }
           Write-Host "--- Get-MpPreference summary ---"
           Get-MpComputerStatus | Format-List RealTimeProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled,AntivirusEnabled
           Write-Host "--- exclusion paths ---"
@@ -289,31 +265,6 @@ jobs:
       - name: Toolchain doctor
         shell: bash
         run: gdnext toolchain doctor --fix
-
-      # Snapshot every loaded file-system minifilter driver and any
-      # running AV/scan/index services right before the build. The
-      # `darwin_*.dylib~` -> `darwin_*.dylib` rename keeps failing
-      # with "Access is denied" on windows-latest even after Defender
-      # realtime + WSearch are off; only a kernel-mode minifilter can
-      # hold a handle in that window. fltmc names every loaded one;
-      # the service grep catches the userland piece (sense, mssec,
-      # third-party EDR, etc.) that drives them.
-      - name: Snapshot filter drivers + services (pre-build)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          Write-Host "--- fltmc filters ---"
-          fltmc filters
-          Write-Host "--- fltmc instances (D: volume) ---"
-          fltmc instances -v D:
-          Write-Host "--- running AV / scan / search / sense services ---"
-          Get-Service | Where-Object {
-            $_.Status -eq 'Running' -and (
-              $_.Name -match 'defend|sense|search|av|scan|mssec|wdnis|nisdrv' -or
-              $_.DisplayName -match 'defender|antivirus|security|search|sentinel|crowdstrike|carbon|trend|kaspersky'
-            )
-          } | Format-Table -AutoSize Name,DisplayName,Status
 
       # Build the matrix's target. (goos, goarch) is validated against
       # product.PlatformMatrix inside `gdnext ci build-target`, so a
