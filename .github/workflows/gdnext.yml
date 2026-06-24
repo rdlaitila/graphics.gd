@@ -189,15 +189,16 @@ jobs:
           echo "tmp=$tmp" >> $GITHUB_OUTPUT
           gdnext ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
 
-      # Windows Defender opens link.exe's `<output>~` temp files for
-      # scanning as soon as they're written, which races with Go's
-      # atomic rename and surfaces as `rename darwin_arm64.dylib~
-      # darwin_arm64.dylib: Access is denied` on the windows-latest
-      # runner. Per-path Add-MpPreference alone has proven unreliable
-      # (the scanner still races the rename), so we also disable
-      # realtime monitoring outright and stop a couple of services
-      # known to hold file handles open (WSearch indexer, MsMpEng
-      # behaviour-monitoring hooks). Everything is best-effort and
+      # `rename darwin_<arch>.dylib~ darwin_<arch>.dylib: Access is
+      # denied` keeps surfacing on windows-latest. fltmc confirms the
+      # only third-party-ish minifilter on D: at that point is
+      # WdFilter (Defender) — Add-MpPreference / Set-MpPreference
+      # don't unload it. So we layer the disables: exclusions first
+      # (cheapest), then disable realtime / behaviour / IOAV (engine
+      # off), then stop WSearch (handles on freshly written files),
+      # then stop the Defender services and detach WdFilter from D:
+      # directly. Tamper Protection is off on stock windows-latest so
+      # the service stops are allowed. Everything is best-effort and
       # only runs on Windows.
       - name: Disable Windows Defender on build dirs
         if: runner.os == 'Windows'
@@ -250,6 +251,28 @@ jobs:
             Write-Host "WSearch indexer stopped"
           } catch {
             Write-Host "WSearch stop failed: $_"
+          }
+          # Set-MpPreference -DisableRealtimeMonitoring leaves the
+          # WdFilter.sys minifilter attached to every volume — fltmc
+          # confirms it is the only third-party-ish filter still on D:
+          # while the rename keeps failing. Stop the services that own
+          # the filter, then detach it from D: directly. Tamper
+          # Protection is off on stock windows-latest so this works.
+          foreach ($svc in @('WinDefend','MDCoreSvc','Sense','SecurityHealthService','wscsvc')) {
+            try {
+              Stop-Service -Name $svc -Force -ErrorAction Stop
+              Set-Service  -Name $svc -StartupType Disabled -ErrorAction Stop
+              Write-Host "stopped service $svc"
+            } catch {
+              Write-Host "skip service $svc : $_"
+            }
+          }
+          foreach ($flt in @('WdFilter','WdNisDrv','MsSecFlt')) {
+            try {
+              fltmc detach $flt D: 2>&1 | Out-Host
+            } catch {
+              Write-Host "skip detach $flt : $_"
+            }
           }
           Write-Host "--- Get-MpPreference summary ---"
           Get-MpComputerStatus | Format-List RealTimeProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled,AntivirusEnabled
