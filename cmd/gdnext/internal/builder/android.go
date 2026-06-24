@@ -57,9 +57,9 @@ func (t *Android) Build(args ...string) error {
 	tools := t.ToolCatalog
 	var godot string
 	switch env.Host.GOOS {
-	case "linux":
+	case product.GOOSLinux:
 		godot = "godot"
-	case "windows", "darwin":
+	case product.GOOSWindows, product.GOOSDarwin:
 		godot = "Godot"
 	default:
 		return nil
@@ -134,7 +134,7 @@ func (t *Android) Build(args ...string) error {
 		}
 	}
 	var exe string
-	if env.Host.GOOS == "windows" {
+	if env.Host.GOOS == product.GOOSWindows {
 		exe = ".exe"
 	}
 	if err := os.WriteFile(filepath.Join(env.Host.GDBinPath, "java"+exe), []byte("java stub"), 0755); err != nil {
@@ -142,9 +142,9 @@ func (t *Android) Build(args ...string) error {
 	}
 	var default_sdk_path string
 	switch env.Host.GOOS {
-	case "linux":
+	case product.GOOSLinux:
 		default_sdk_path = filepath.Join(env.Host.UserHomeRoot, "Android", "Sdk")
-	case "windows":
+	case product.GOOSWindows:
 		default_sdk_path = filepath.Join(os.Getenv("LOCALAPPDATA"), "Android", "Sdk")
 		if _, err := tools.AndroidDebugBridge.Lookup(); err != nil {
 			return xray.New(err)
@@ -152,7 +152,7 @@ func (t *Android) Build(args ...string) error {
 		if _, err := tools.AndroidPackageSigner.Lookup(); err != nil {
 			return xray.New(err)
 		}
-	case "darwin":
+	case product.GOOSDarwin:
 		default_sdk_path = filepath.Join(env.Host.UserHomeRoot, "Library", "Android", "Sdk")
 	}
 	if default_sdk_path != "" {
@@ -163,7 +163,7 @@ func (t *Android) Build(args ...string) error {
 			if err := os.MkdirAll(filepath.Join(default_sdk_path, "build-tools", "35"), 0755); err != nil {
 				return xray.New(err)
 			}
-			if env.Host.GOOS == "windows" {
+			if env.Host.GOOS == product.GOOSWindows {
 				if err := project.CopyFile(filepath.Join(env.Host.GDBinPath, "AdbWinApi.dll"), filepath.Join(default_sdk_path, "platform-tools", "AdbWinApi.dll")); err != nil {
 					return xray.New(err)
 				}
@@ -178,7 +178,7 @@ func (t *Android) Build(args ...string) error {
 					return xray.New(err)
 				}
 			}
-			if env.Host.GOOS == "windows" {
+			if env.Host.GOOS == product.GOOSWindows {
 				if err := project.CopyFile(filepath.Join(env.Host.GDBinPath, "apksigner.exe"), filepath.Join(default_sdk_path, "build-tools", "35", "apksigner.bat")); err != nil {
 					return xray.New(err)
 				}
@@ -193,7 +193,7 @@ func (t *Android) Build(args ...string) error {
 		return nil
 	}
 	GOARCH := env.Target.GOARCH
-	if env.Host.GOOS != "android" || env.Host.GOARCH != GOARCH {
+	if env.Host.GOOS != product.GOOSAndroid || env.Host.GOARCH != GOARCH {
 		zig, err := tools.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
@@ -206,14 +206,14 @@ func (t *Android) Build(args ...string) error {
 			return xray.New(err)
 		}
 		switch GOARCH {
-		case "arm64":
+		case product.GOARCHArm64:
 			if err := os.Setenv("CC", zig+" cc -target aarch64-linux-android -nostdlib -I"+ANDROID_SDK+"/usr/include -L"+ANDROID_SDK+"/usr/lib"); err != nil {
 				return xray.New(err)
 			}
-			if err := os.Setenv("GOARCH", "arm64"); err != nil {
+			if err := os.Setenv("GOARCH", product.GOARCHArm64); err != nil {
 				return xray.New(err)
 			}
-		case "amd64":
+		case product.GOARCHAmd64:
 			// The bundled liblog.so stub is aarch64; for x86_64 we
 			// compile the same set of no-op shims from liblog.c into
 			// a fresh stub the linker can resolve `-llog` against.
@@ -230,7 +230,7 @@ func (t *Android) Build(args ...string) error {
 			if err := os.Setenv("CC", zig+" cc -target x86_64-linux-android -nostdlib -I"+ANDROID_SDK+"/usr/include -L"+ANDROID_SDK+"/usr/lib"); err != nil {
 				return xray.New(err)
 			}
-			if err := os.Setenv("GOARCH", "amd64"); err != nil {
+			if err := os.Setenv("GOARCH", product.GOARCHAmd64); err != nil {
 				return xray.New(err)
 			}
 		default:
@@ -245,9 +245,9 @@ func (t *Android) Run(args ...string) error {
 	tools := t.ToolCatalog
 	var godot string
 	switch env.Host.GOOS {
-	case "linux":
+	case product.GOOSLinux:
 		godot = "godot"
-	case "windows", "darwin":
+	case product.GOOSWindows, product.GOOSDarwin:
 		godot = "Godot"
 	default:
 		return nil
@@ -360,7 +360,7 @@ func (t *Android) BuildMain(_ ...string) error {
 		return xray.New(err)
 	}
 	var exe string
-	if env.Host.GOOS == "windows" {
+	if env.Host.GOOS == product.GOOSWindows {
 		exe = ".exe"
 	}
 	if err := os.WriteFile(filepath.Join(env.Host.GDBinPath, "java"+exe), []byte("java stub"), 0755); err != nil {
@@ -621,7 +621,7 @@ func (t *Android) BuildMain(_ ...string) error {
 // project-relative export_path declared by that preset.
 func pickAndroidPreset(GOARCH string) (name, exportPath string, err error) {
 	abi := "arm64-v8a"
-	if GOARCH == "amd64" {
+	if GOARCH == product.GOARCHAmd64 {
 		abi = "x86_64"
 	}
 	presets, err := loadAndroidPresets()

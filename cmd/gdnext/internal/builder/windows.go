@@ -28,17 +28,17 @@ func (t *Windows) Build(args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	if t.BuildEnv.Host.GOOS != "windows" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+	if t.BuildEnv.Host.GOOS != product.GOOSWindows || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
 		zig, err := t.ToolCatalog.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
 		}
 		switch t.BuildEnv.Target.GOARCH {
-		case "amd64":
+		case product.GOARCHAmd64:
 			if err := os.Setenv("CC", zig+" cc -target x86_64-windows-gnu"); err != nil {
 				return xray.New(err)
 			}
-		case "arm64":
+		case product.GOARCHArm64:
 			if err := os.Setenv("CC", zig+" cc -target aarch64-windows-gnu"); err != nil {
 				return xray.New(err)
 			}
@@ -55,9 +55,9 @@ func (t *Windows) BuildMain(args ...string) error {
 	}
 	var export []string
 	switch t.BuildEnv.Target.GOARCH {
-	case "amd64":
+	case product.GOARCHAmd64:
 		export = []string{"--headless", "--export-release", "Windows x86_64"}
-	case "arm64":
+	case product.GOARCHArm64:
 		export = []string{"--headless", "--export-release", "Windows arm64"}
 	default:
 		return fmt.Errorf("gd export: cannot export windows %v", t.BuildEnv.Target.GOARCH)
@@ -72,7 +72,7 @@ func (t *Windows) BuildMain(args ...string) error {
 }
 
 func (t *Windows) Run(args ...string) error {
-	if t.BuildEnv.Host.GOOS != "windows" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+	if t.BuildEnv.Host.GOOS != product.GOOSWindows || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
 		return fmt.Errorf("gd run: cannot run windows/%v executable on %s", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.Tuple())
 	}
 	if err := t.Build(args...); err != nil {
@@ -85,7 +85,7 @@ func (t *Windows) Run(args ...string) error {
 }
 
 func (t *Windows) Test(args ...string) error {
-	if t.BuildEnv.Host.GOOS != "windows" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+	if t.BuildEnv.Host.GOOS != product.GOOSWindows || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
 		return fmt.Errorf("gd test: cannot run windows/%v tests on %s", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.Tuple())
 	}
 	if err := t.ToolCatalog.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("windows_%v.dll", t.BuildEnv.Target.GOARCH))); err != nil {

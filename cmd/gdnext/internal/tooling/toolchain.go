@@ -100,7 +100,7 @@ func (exe Tool) PathToCommand() string {
 	if exe.Path == "" {
 		panic("toolchain.PathToCommand: toolchain not yet looked up")
 	}
-	if exe.IsApp && runtime.GOOS == "darwin" {
+	if exe.IsApp && runtime.GOOS == product.GOOSDarwin {
 		return filepath.Join(exe.Path, "Contents", "MacOS", exe.Name)
 	}
 	return exe.Path
@@ -237,7 +237,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 		EXT = "$(MISSING)"
 	}
 	var MaybeUniversal = GOARCH
-	if GOOS == "darwin" && exe.DarwinUniversal {
+	if GOOS == product.GOOSDarwin && exe.DarwinUniversal {
 		MaybeUniversal = "universal"
 	}
 	var variables = strings.NewReplacer(
@@ -254,13 +254,11 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	var install_path = filepath.Join(install_dir, name)
 	// .exe is for executables we drop into GDBin on a Windows host;
 	// libraries carry their own extension via $(EXT) (e.g. .a, .lib)
-	// and must never get a host-driven suffix tacked on. Without this
-	// gate libgodot.musl.amd64.a was being looked up as
-	// libgodot.musl.amd64.a.exe on the Windows runner.
-	if runtime.GOOS == "windows" && !exe.IsLibrary {
+	// and must never get a host-driven suffix tacked on.W
+	if runtime.GOOS == product.GOOSWindows && !exe.IsLibrary {
 		install_path += ".exe"
 	}
-	if exe.IsApp && runtime.GOOS == "darwin" {
+	if exe.IsApp && runtime.GOOS == product.GOOSDarwin {
 		install_path += ".app"
 	}
 	// always prefer the GDPATH-installed version if it matches the expected version.
@@ -272,7 +270,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 			return install_path, nil
 		}
 		var exe_path = install_path
-		if exe.IsApp && runtime.GOOS == "darwin" {
+		if exe.IsApp && runtime.GOOS == product.GOOSDarwin {
 			exe_path = filepath.Join(install_path, "Contents", "MacOS", name)
 		}
 		if exe.Name == "godot" && os.Getenv("RUNNING_INSIDE_GODOT") != "" {
@@ -427,12 +425,12 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 		return "", xray.New(err)
 	}
 	var unzip = variables.Replace(exe.Unzip)
-	if exe.IsApp && runtime.GOOS == "darwin" {
+	if exe.IsApp && runtime.GOOS == product.GOOSDarwin {
 		unzip = ""
 	}
 	switch {
 	case strings.HasSuffix(url, ".zip"):
-		if err := ExtractArchive(dest, install_dir, "zip", unzip, runtime.GOOS != "darwin" || !exe.IsApp); err != nil {
+		if err := ExtractArchive(dest, install_dir, "zip", unzip, runtime.GOOS != product.GOOSDarwin || !exe.IsApp); err != nil {
 			return "", xray.New(err)
 		}
 		if err := os.Remove(dest); err != nil {

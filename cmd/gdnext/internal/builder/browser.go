@@ -50,7 +50,7 @@ func (t *Browser) Build(args ...string) error {
 	if err := t.AssertExportTemplate(); err != nil {
 		return xray.New(err)
 	}
-	if err := os.Setenv("GOARCH", "wasm"); err != nil {
+	if err := os.Setenv("GOARCH", product.GOARCHWasm); err != nil {
 		return xray.New(err)
 	}
 	if t.testing {

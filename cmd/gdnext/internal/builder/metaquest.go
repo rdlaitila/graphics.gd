@@ -59,12 +59,12 @@ func (t *MetaQuest) Build(args ...string) error {
 	// Force android/arm64 — Quest has no other targets — and delegate
 	// to the regular Android compile path. Post-processing is only
 	// done in BuildMain / Run after Godot has produced the APK.
-	t.BuildEnv.Target.GOOS = "android"
-	t.BuildEnv.Target.GOARCH = "arm64"
-	t.Android.BuildEnv.Target.GOOS = "android"
-	t.Android.BuildEnv.Target.GOARCH = "arm64"
-	os.Setenv("GOARCH", "arm64")
-	os.Setenv("GOOS", "android")
+	t.BuildEnv.Target.GOOS = product.GOOSAndroid
+	t.BuildEnv.Target.GOARCH = product.GOARCHArm64
+	t.Android.BuildEnv.Target.GOOS = product.GOOSAndroid
+	t.Android.BuildEnv.Target.GOARCH = product.GOARCHArm64
+	os.Setenv("GOARCH", product.GOARCHArm64)
+	os.Setenv("GOOS", product.GOOSAndroid)
 	return t.Android.Build(args...)
 }
 
@@ -689,9 +689,9 @@ func signAPK(apkPath, keystore string, tools tooling.Catalog) error {
 func debugKeystore(host product.BuildHost) string {
 	var godot string
 	switch host.GOOS {
-	case "linux":
+	case product.GOOSLinux:
 		godot = "godot"
-	case "windows", "darwin":
+	case product.GOOSWindows, product.GOOSDarwin:
 		godot = "Godot"
 	default:
 		return ""

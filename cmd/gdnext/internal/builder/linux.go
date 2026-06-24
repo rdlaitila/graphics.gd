@@ -29,17 +29,17 @@ func (t *Linux) Build(args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	if t.BuildEnv.Host.GOOS != "linux" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+	if t.BuildEnv.Host.GOOS != product.GOOSLinux || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
 		zig, err := t.ToolCatalog.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
 		}
 		switch t.BuildEnv.Target.GOARCH {
-		case "amd64":
+		case product.GOARCHAmd64:
 			if err := os.Setenv("CC", zig+" cc -target x86_64-linux-gnu"); err != nil {
 				return xray.New(err)
 			}
-		case "arm64":
+		case product.GOARCHArm64:
 			if err := os.Setenv("CC", zig+" cc -target aarch64-linux-gnu"); err != nil {
 				return xray.New(err)
 			}
@@ -56,9 +56,9 @@ func (t *Linux) BuildMain(args ...string) error {
 	}
 	var export []string
 	switch t.BuildEnv.Target.GOARCH {
-	case "amd64":
+	case product.GOARCHAmd64:
 		export = []string{"--headless", "--export-release", "Linux x86_64"}
-	case "arm64":
+	case product.GOARCHArm64:
 		export = []string{"--headless", "--export-release", "Linux arm64"}
 	default:
 		return fmt.Errorf("gd export: cannot export linux %v", t.BuildEnv.Target.GOARCH)
@@ -73,7 +73,7 @@ func (t *Linux) BuildMain(args ...string) error {
 }
 
 func (t *Linux) Run(args ...string) error {
-	if t.BuildEnv.Host.GOOS != "linux" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+	if t.BuildEnv.Host.GOOS != product.GOOSLinux || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
 		return fmt.Errorf("gd run: cannot run linux/%v executable on %s", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.Tuple())
 	}
 	if err := t.Build(args...); err != nil {
@@ -86,7 +86,7 @@ func (t *Linux) Run(args ...string) error {
 }
 
 func (t *Linux) Test(args ...string) error {
-	if t.BuildEnv.Host.GOOS != "linux" || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
+	if t.BuildEnv.Host.GOOS != product.GOOSLinux || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
 		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.Tuple())
 	}
 	if err := t.ToolCatalog.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", t.BuildEnv.Target.GOARCH))); err != nil {

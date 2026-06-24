@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"graphics.gd/cmd/gdnext/internal/tooling"
+	"graphics.gd/product"
 
 	"runtime.link/api/xray"
 )
@@ -135,7 +136,7 @@ func Setup(tools tooling.Catalog, build_godot func() error) error {
 	Directory = wd
 	GraphicsDirectory = filepath.Join(wd, "graphics")
 	ReleasesDirectory = filepath.Join(wd, "releases")
-	if runtime.GOOS == "android" {
+	if runtime.GOOS == product.GOOSAndroid {
 		GraphicsDirectory = "/sdcard/gd/" + filepath.Base(wd) // Godot project needs to be in an accessible location
 	}
 	if err := os.MkdirAll(GraphicsDirectory, 0755); err != nil {

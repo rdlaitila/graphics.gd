@@ -94,7 +94,7 @@ func (t *BuildTargetActions) action(ctx context.Context, cmd *cli.Command) error
 	if err := assertDistributable(scratch, platform, mode); err != nil {
 		return err
 	}
-	if platform.GOOS == "android" {
+	if platform.GOOS == product.GOOSAndroid {
 		if err := signAndVerifyApk(scratch, platform); err != nil {
 			return err
 		}
@@ -139,12 +139,12 @@ func assertDistributable(scratch string, plat product.Platform, mode product.Lin
 		return assertDirNonEmpty(filepath.Join(releases, "linux", plat.GOARCH))
 	}
 	switch plat.GOOS {
-	case "linux", "windows", "android":
+	case product.GOOSLinux, product.GOOSWindows, product.GOOSAndroid:
 		return assertDirNonEmpty(filepath.Join(releases, plat.GOOS, plat.GOARCH))
-	case "darwin":
+	case product.GOOSDarwin:
 		// macOS exports a universal .app regardless of -goarch.
 		return assertDirNonEmpty(filepath.Join(releases, "darwin", "universal"))
-	case "js":
+	case product.GOOSJS:
 		return nil // already covered by the wasm shared-library check
 	default:
 		return fmt.Errorf("no distributable assertion for %s", plat.Tuple())

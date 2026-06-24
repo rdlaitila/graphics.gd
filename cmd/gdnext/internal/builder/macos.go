@@ -47,7 +47,7 @@ func (t *MacOS) Build(args ...string) error {
 	if err := os.Setenv("CGO_ENABLED", "1"); err != nil {
 		return xray.New(err)
 	}
-	if t.BuildEnv.Host.GOOS != "darwin" {
+	if t.BuildEnv.Host.GOOS != product.GOOSDarwin {
 		zig, err := t.ToolCatalog.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
@@ -61,13 +61,13 @@ func (t *MacOS) Build(args ...string) error {
 			return xray.New(err)
 		}
 	}
-	if err := os.Setenv("GOARCH", "arm64"); err != nil {
+	if err := os.Setenv("GOARCH", product.GOARCHArm64); err != nil {
 		return xray.New(err)
 	}
 	if err := t.ToolCatalog.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, "darwin_arm64.dylib")); err != nil {
 		return xray.New(err)
 	}
-	if t.BuildEnv.Host.GOOS != "darwin" {
+	if t.BuildEnv.Host.GOOS != product.GOOSDarwin {
 		zig, err := t.ToolCatalog.Zig.Lookup()
 		if err != nil {
 			return xray.New(err)
@@ -80,7 +80,7 @@ func (t *MacOS) Build(args ...string) error {
 			return xray.New(err)
 		}
 	}
-	if err := os.Setenv("GOARCH", "amd64"); err != nil {
+	if err := os.Setenv("GOARCH", product.GOARCHAmd64); err != nil {
 		return xray.New(err)
 	}
 	if err := t.ToolCatalog.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, "darwin_amd64.dylib")); err != nil {
@@ -115,7 +115,7 @@ func (t *MacOS) BuildMain(_ ...string) error {
 }
 
 func (t *MacOS) Run(args ...string) error {
-	if t.BuildEnv.Host.GOOS != "darwin" {
+	if t.BuildEnv.Host.GOOS != product.GOOSDarwin {
 		return fmt.Errorf("gd run: cannot run darwin/universal executable on %s", t.BuildEnv.Host.Tuple())
 	}
 	if err := t.ToolCatalog.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("darwin_%v.dylib", t.BuildEnv.Host.GOARCH))); err != nil {
@@ -139,7 +139,7 @@ func (t *MacOS) Run(args ...string) error {
 }
 
 func (t *MacOS) Test(args ...string) error {
-	if t.BuildEnv.Host.GOOS != "darwin" {
+	if t.BuildEnv.Host.GOOS != product.GOOSDarwin {
 		return fmt.Errorf("gd test: cannot run darwin/universal tests on %s", t.BuildEnv.Host.Tuple())
 	}
 	if err := t.ToolCatalog.Go.Action("test", args, "-c", "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("darwin_%v.dylib", t.BuildEnv.Host.GOARCH))); err != nil {

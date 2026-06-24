@@ -62,7 +62,7 @@ func (t *Musl) Build(args ...string) (err error) {
 	tools := t.ToolCatalog
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
 	goos := os.Getenv("GOOS")
-	os.Setenv("GOOS", "linux")
+	os.Setenv("GOOS", product.GOOSLinux)
 	defer os.Setenv("GOOS", goos)
 	if built_musl {
 		return nil
@@ -79,7 +79,7 @@ func (t *Musl) Build(args ...string) (err error) {
 		return xray.New(err)
 	}
 	if t.lib == "" {
-		libgodot, err := tools.LibGodotEditor.LookupPlatform("musl", GOARCH)
+		libgodot, err := tools.LibGodotEditor.LookupPlatform(product.GOOSMusl, GOARCH)
 		if err != nil {
 			return xray.New(err)
 		}
@@ -87,7 +87,7 @@ func (t *Musl) Build(args ...string) (err error) {
 	}
 	if t.out == "" {
 		t.out = filepath.Join(project.GraphicsDirectory, "musl_"+GOARCH+".editor")
-		if env.Host.GOOS == "linux" {
+		if env.Host.GOOS == product.GOOSLinux {
 			version, _ := tools.ListDynamicDependencies.CombinedOutput("--version")
 			if strings.HasPrefix(version, "musl") {
 				defer func() {
@@ -115,12 +115,12 @@ func (t *Musl) Build(args ...string) (err error) {
 	}
 	var target string
 	switch GOARCH {
-	case "amd64":
+	case product.GOARCHAmd64:
 		target = "x86_64-linux-musl"
 		if err := os.Setenv("CC", zig+" cc -target x86_64-linux-musl -static"); err != nil {
 			return xray.New(err)
 		}
-	case "arm64":
+	case product.GOARCHArm64:
 		target = "aarch64-linux-musl"
 		if err := os.Setenv("CC", zig+" cc -target aarch64-linux-musl -static"); err != nil {
 			return xray.New(err)
@@ -160,7 +160,7 @@ func (t *Musl) BuildMain(args ...string) error {
 	GOARCH := env.Target.GOARCH
 	var err error
 	t.out = filepath.Join(project.GraphicsDirectory, ".godot", "godot.musl.template_release.x86_64")
-	t.lib, err = tools.LibGodot.LookupPlatform("musl", GOARCH)
+	t.lib, err = tools.LibGodot.LookupPlatform(product.GOOSMusl, GOARCH)
 	if err != nil {
 		return xray.New(err)
 	}
@@ -171,10 +171,10 @@ func (t *Musl) BuildMain(args ...string) error {
 	var export []string
 	var releaseDir string
 	switch GOARCH {
-	case "amd64":
+	case product.GOARCHAmd64:
 		export = []string{"--headless", "--export-release", "Linux x86_64 (libgodot)"}
 		releaseDir = filepath.Join(project.ReleasesDirectory, "linux", "amd64")
-	case "arm64":
+	case product.GOARCHArm64:
 		export = []string{"--headless", "--export-release", "Linux arm64 (libgodot)"}
 		releaseDir = filepath.Join(project.ReleasesDirectory, "linux", "arm64")
 	default:
@@ -195,7 +195,7 @@ func (t *Musl) BuildMain(args ...string) error {
 func (t *Musl) Run(args ...string) error {
 	env := t.BuildEnv
 	GOARCH := env.Target.GOARCH
-	if env.Host.GOOS != "linux" || env.Host.GOARCH != GOARCH {
+	if env.Host.GOOS != product.GOOSLinux || env.Host.GOARCH != GOARCH {
 		return fmt.Errorf("gd run: cannot run linux/%v executable on %s", GOARCH, env.Host.Tuple())
 	}
 	if err := t.Build(args...); err != nil {
@@ -218,10 +218,10 @@ func (t *Musl) Test(args ...string) error {
 	}()
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
 	goos := os.Getenv("GOOS")
-	os.Setenv("GOOS", "linux")
+	os.Setenv("GOOS", product.GOOSLinux)
 	defer os.Setenv("GOOS", goos)
 	GOARCH := env.Target.GOARCH
-	if env.Host.GOOS != "linux" || env.Host.GOARCH != GOARCH {
+	if env.Host.GOOS != product.GOOSLinux || env.Host.GOARCH != GOARCH {
 		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", GOARCH, env.Host.Tuple())
 	}
 	zig, err := tools.Zig.Lookup()
@@ -245,12 +245,12 @@ func (t *Musl) Test(args ...string) error {
 	}
 	var target string
 	switch GOARCH {
-	case "amd64":
+	case product.GOARCHAmd64:
 		target = "x86_64-linux-musl"
 		if err := os.Setenv("CC", zig+" cc -target x86_64-linux-musl"); err != nil {
 			return xray.New(err)
 		}
-	case "arm64":
+	case product.GOARCHArm64:
 		target = "aarch64-linux-musl"
 		if err := os.Setenv("CC", zig+" cc -target aarch64-linux-musl"); err != nil {
 			return xray.New(err)
@@ -262,7 +262,7 @@ func (t *Musl) Test(args ...string) error {
 	if err := tools.Go.Action("test", args, "-c", "-tags", "musl", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {
 		return xray.New(err)
 	}
-	libgodot, err := tools.LibGodotEditor.LookupPlatform("musl", GOARCH)
+	libgodot, err := tools.LibGodotEditor.LookupPlatform(product.GOOSMusl, GOARCH)
 	if err != nil {
 		return xray.New(err)
 	}
