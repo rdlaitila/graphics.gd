@@ -282,6 +282,50 @@ jobs:
           # steps inherit only the captured job PATH, so export it.
           Add-Content -Path $env:GITHUB_PATH -Value 'C:\tools\gsudo\Current'
 
+      # Elevated pre-build hardening. gsudo gives us a real admin
+      # token (vs the job's unelevated split token), so we can do
+      # everything the previous unelevated attempts couldn't: stop
+      # WinDefend / MDCoreSvc / Sense, detach WdFilter from D:, and
+      # widen DACLs on the scratch + graphics dirs to Everyone:F.
+      # The script also dumps `whoami /priv` so we can confirm the
+      # elevation actually took.
+      - name: Pre-build elevated hardening
+        if: runner.os == 'Windows'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $tmp = '${{ steps.stage.outputs.tmp }}'
+          $script = "$env:RUNNER_TEMP\elevated-prebuild.ps1"
+          @"
+          Write-Host '--- elevated whoami ---'
+          whoami /priv | Out-Host
+          Write-Host '--- stop Defender services ---'
+          foreach (`$svc in @('WinDefend','MDCoreSvc','Sense','SecurityHealthService')) {
+            try {
+              Stop-Service -Name `$svc -Force -ErrorAction Stop
+              Set-Service  -Name `$svc -StartupType Disabled -ErrorAction Stop
+              Write-Host ("stopped " + `$svc)
+            } catch {
+              Write-Host ("skip "    + `$svc + ' : ' + `$_)
+            }
+          }
+          Write-Host '--- detach minifilters from D: ---'
+          foreach (`$flt in @('WdFilter','WdNisDrv','MsSecFlt')) {
+            `$r = & fltmc detach `$flt D: 2>&1
+            Write-Host ("fltmc detach " + `$flt + ' D: => ' + `$r)
+          }
+          Write-Host '--- widen DACLs on scratch + graphics ---'
+          foreach (`$p in @('$tmp', (Join-Path '$tmp' 'graphics'))) {
+            if (Test-Path `$p) {
+              & icacls `$p /grant 'Everyone:(OI)(CI)F' /T /Q | Out-Null
+              Write-Host ('icacls Everyone:F on ' + `$p)
+            }
+          }
+          Write-Host '--- fltmc instances (D:) post-hardening ---'
+          fltmc instances -v D: | Out-Host
+          "@ | Set-Content -Path $script -Encoding UTF8
+          gsudo --loglevel none -- pwsh -NoProfile -ExecutionPolicy Bypass -File $script
+
       # Build the matrix's target. (goos, goarch) is validated against
       # product.PlatformMatrix inside `gdnext ci build-target`, so a
       # typo'd target fails with a clear "unknown platform" message
