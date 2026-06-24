@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	lipo "github.com/konoui/lipo/cmd"
 
@@ -64,7 +65,7 @@ func (t *MacOS) Build(args ...string) error {
 	if err := os.Setenv("GOARCH", product.GOARCHArm64); err != nil {
 		return xray.New(err)
 	}
-	if err := t.ToolCatalog.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, "darwin_arm64.dylib")); err != nil {
+	if err := t.buildDylib(args, "darwin_arm64.dylib"); err != nil {
 		return xray.New(err)
 	}
 	if t.BuildEnv.Host.GOOS != product.GOOSDarwin {
@@ -83,7 +84,7 @@ func (t *MacOS) Build(args ...string) error {
 	if err := os.Setenv("GOARCH", product.GOARCHAmd64); err != nil {
 		return xray.New(err)
 	}
-	if err := t.ToolCatalog.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, "darwin_amd64.dylib")); err != nil {
+	if err := t.buildDylib(args, "darwin_amd64.dylib"); err != nil {
 		return xray.New(err)
 	}
 	err := lipo.Execute(os.Stdout, os.Stderr,
@@ -161,4 +162,18 @@ func (t *MacOS) Test(args ...string) error {
 	}
 	args = append(args, "--headless")
 	return t.ToolCatalog.Godot.Exec(args...)
+}
+
+// buildDylib runs `go build -buildmode=c-shared -o graphics/<name>`.
+func (t *MacOS) buildDylib(args []string, name string) error {
+	out := filepath.Join(project.GraphicsDirectory, name)
+	err := t.ToolCatalog.Go.Action("build", args, "-buildmode=c-shared", "-o", out)
+	if err == nil || t.BuildEnv.Host.GOOS != product.GOOSWindows {
+		return err
+	}
+	// On a Windows host the link's `<name>~` -> `<name>` rename races
+	// against Defender's WdFilter (Tamper Protection blocks detaching it
+	// from CI), so retry once.
+	time.Sleep(2 * time.Second)
+	return t.ToolCatalog.Go.Action("build", args, "-buildmode=c-shared", "-o", out)
 }
