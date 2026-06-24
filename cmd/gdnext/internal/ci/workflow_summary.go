@@ -101,7 +101,7 @@ type summary struct {
 	Checks       []checkRow
 	Builds       []buildRow
 	Plays        []playRow
-	Shots        []shotRow
+	Shots        []pushedShot
 	Toolchains   []toolchainRow
 	LastFailures []failureRow
 }
@@ -172,6 +172,8 @@ func NewWorkflowSummaryCommand(di do.Injector) (*WorkflowSummaryCommand, error) 
 			&cli.IntFlag{Name: "log-tail", Value: 60, Usage: "lines of log to tail per failed job in the latest run"},
 			&cli.StringFlag{Name: "branch", Usage: "limit to a single branch (e.g. gdnext-cli)"},
 			&cli.StringFlag{Name: "shots", Usage: "directory containing screenshot-<cell>/play-screenshot.png artefacts to inline as a grid"},
+			&cli.StringFlag{Name: "shots-branch", Usage: "push collected screenshots to this orphan branch and embed raw.githubusercontent.com URLs (creates the branch if missing); falls back to inline data: URIs when unset"},
+			&cli.IntFlag{Name: "shots-run-id", Usage: "workflow run id used in the on-branch path (default: $GITHUB_RUN_ID)"},
 		},
 		Action: shared.BindAction(t.Injector, (*WorkflowSummaryActions).action),
 	}
@@ -190,6 +192,8 @@ func (t *WorkflowSummaryActions) action(_ context.Context, cmd *cli.Command) err
 	tail := int(cmd.Int("log-tail"))
 	branch := cmd.String("branch")
 	shotsDir := cmd.String("shots")
+	shotsBranch := cmd.String("shots-branch")
+	shotsRunID := int64(cmd.Int("shots-run-id"))
 	runs, err := fetchRuns(repo, workflow, n, branch)
 	if err != nil {
 		return fmt.Errorf("fetch runs: %w", err)
@@ -225,8 +229,43 @@ func (t *WorkflowSummaryActions) action(_ context.Context, cmd *cli.Command) err
 		}
 		s.Toolchains = collectToolchains(repo, latest.Run.ID, prior)
 	}
-	s.Shots = collectShots(shotsDir)
+	s.Shots = resolveShots(repo, shotsDir, shotsBranch, shotsRunID)
 	return renderMarkdown(os.Stdout, s)
+}
+
+// resolveShots picks the shot-rendering strategy based on the
+// summary flags. When --shots-branch is set, every PNG is pushed to
+// that orphan branch under <YYYY-MM-DD>/<run-id>/<label>.png and the
+// returned rows carry raw.githubusercontent.com URLs (the only
+// inline-image host GitHub's step-summary sanitiser allow-lists).
+// Otherwise each row carries a `data:` URI so the verb stays usable
+// offline. When a push to the branch fails the rows are returned
+// with their Error field populated and an empty URL — the renderer
+// surfaces the message inline so failures stay visible rather than
+// silently flipping back to an unrenderable data URI.
+func resolveShots(repo, shotsDir, branch string, runIDFlag int64) []pushedShot {
+	raw := collectShots(shotsDir)
+	if len(raw) == 0 {
+		return nil
+	}
+	if branch == "" {
+		return dataURIShots(raw)
+	}
+	runID := runIDFlag
+	if runID == 0 {
+		if v := os.Getenv("GITHUB_RUN_ID"); v != "" {
+			fmt.Sscanf(v, "%d", &runID)
+		}
+	}
+	if runID == 0 {
+		runID = time.Now().UTC().Unix()
+	}
+	pushed, err := pushShotsToBranch(repo, branch, runID, raw)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "shots: push to %s failed: %v\n", branch, err)
+		return errorShots(raw, fmt.Sprintf("push to %s failed: %v", branch, err))
+	}
+	return pushed
 }
 
 // --- GitHub API DTOs -------------------------------------------------

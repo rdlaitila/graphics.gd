@@ -349,7 +349,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write  # for the screenshots orphan-branch push (workflow_sum_shots_push.go)
       actions: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -378,4 +378,6 @@ jobs:
             --workflow gdnext.yml \
             --branch "${{ github.ref_name }}" \
             --runs 14 \
-            --shots shots >> "$GITHUB_STEP_SUMMARY"
+            --shots shots \
+            --shots-branch screenshots \
+            --shots-run-id "${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
