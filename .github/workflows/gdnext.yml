@@ -276,7 +276,11 @@ jobs:
       - name: Install gsudo
         if: runner.os == 'Windows'
         shell: pwsh
-        run: choco install -y gsudo --no-progress
+        run: |
+          choco install -y gsudo --no-progress
+          # choco appends gsudo to the machine PATH but subsequent
+          # steps inherit only the captured job PATH, so export it.
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\tools\gsudo\Current'
 
       # Build the matrix's target. (goos, goarch) is validated against
       # product.PlatformMatrix inside `gdnext ci build-target`, so a
