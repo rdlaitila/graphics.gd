@@ -64,6 +64,14 @@ func NewMatrixCommand(di do.Injector) (*MatrixCommand, error) {
 				Value: []string{"canarybird"},
 				Usage: "example name (repeatable; cross-products with the target list)",
 			},
+			&cli.StringFlag{
+				Name:  "filter-host",
+				Usage: "comma-separated <goos>/<goarch> host tuples; empty allows every host",
+			},
+			&cli.StringFlag{
+				Name:  "filter-target",
+				Usage: "comma-separated <goos>/<goarch> target tuples; empty allows every target",
+			},
 			&cli.BoolFlag{
 				Name:  "summary",
 				Usage: "also print a human-readable matrix to stderr",
@@ -81,7 +89,8 @@ func NewMatrixActions(di do.Injector) (*MatrixActions, error) {
 
 func (t *MatrixActions) action(_ context.Context, cmd *cli.Command) error {
 	examples := cmd.StringSlice("example")
-	rows := buildMatrix(examples)
+	filter := parseMatrixFilter(cmd.String("filter-host"), cmd.String("filter-target"))
+	rows := buildMatrix(examples, filter)
 	doc := struct {
 		Include []matrixRow `json:"include"`
 	}{Include: rows}
@@ -109,7 +118,7 @@ func (t *MatrixActions) action(_ context.Context, cmd *cli.Command) error {
 
 // buildMatrix emits one include: row per (host, platform, linkMode,
 // example) the workflow should run. Host axis outermost.
-func buildMatrix(examples []string) []matrixRow {
+func buildMatrix(examples []string, filter matrixFilter) []matrixRow {
 	var out []matrixRow
 	for _, host := range gha {
 		for _, platform := range product.PlatformMatrix {
@@ -126,6 +135,9 @@ func buildMatrix(examples []string) []matrixRow {
 				continue
 			}
 			if !platform.CanBuildOn(host.Host.GOOS, host.Host.GOARCH) {
+				continue
+			}
+			if !filter.allows(host.Host.Tuple(), platform.Tuple()) {
 				continue
 			}
 			experimental := platform.Status.Has(product.Experimental)

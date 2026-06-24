@@ -49,6 +49,14 @@ func NewPlayMatrixCommand(di do.Injector) (*PlayMatrixCommand, error) {
 				Value: []string{"canarybird"},
 				Usage: "example name (repeatable; cross-products with the target list)",
 			},
+			&cli.StringFlag{
+				Name:  "filter-host",
+				Usage: "comma-separated <goos>/<goarch> build-host tuples; empty allows every host",
+			},
+			&cli.StringFlag{
+				Name:  "filter-target",
+				Usage: "comma-separated <goos>/<goarch> target tuples; empty allows every target",
+			},
 			&cli.BoolFlag{
 				Name:  "summary",
 				Usage: "also print a human-readable matrix to stderr",
@@ -66,7 +74,8 @@ func NewPlayMatrixActions(di do.Injector) (*PlayMatrixActions, error) {
 
 func (t *PlayMatrixActions) action(_ context.Context, cmd *cli.Command) error {
 	examples := cmd.StringSlice("example")
-	rows := buildPlayMatrix(examples)
+	filter := parseMatrixFilter(cmd.String("filter-host"), cmd.String("filter-target"))
+	rows := buildPlayMatrix(examples, filter)
 	doc := struct {
 		Include []playMatrixRow `json:"include"`
 	}{Include: rows}
@@ -93,7 +102,7 @@ func (t *PlayMatrixActions) action(_ context.Context, cmd *cli.Command) error {
 // example, play-host) the build matrix would produce × the
 // platform's PlayHosts entries. Artefact name mirrors the build
 // job's upload key (see ArtifactName).
-func buildPlayMatrix(examples []string) []playMatrixRow {
+func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 	var out []playMatrixRow
 	for _, buildHost := range gha {
 		for _, platform := range product.PlatformMatrix {
@@ -110,6 +119,9 @@ func buildPlayMatrix(examples []string) []playMatrixRow {
 				continue
 			}
 			if !platform.CanBuildOn(buildHost.Host.GOOS, buildHost.Host.GOARCH) {
+				continue
+			}
+			if !filter.allows(buildHost.Host.Tuple(), platform.Tuple()) {
 				continue
 			}
 			if len(platform.PlayHosts) == 0 {

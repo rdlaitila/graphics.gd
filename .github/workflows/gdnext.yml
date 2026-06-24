@@ -16,6 +16,17 @@ on:
       - "product/**"
       - ".github/workflows/gdnext.yml"
   workflow_dispatch:
+    inputs:
+      filter-host:
+        description: "Comma-separated <goos>/<goarch> host tuples (empty = all)"
+        required: false
+        default: ""
+        type: string
+      filter-target:
+        description: "Comma-separated <goos>/<goarch> target tuples (empty = all)"
+        required: false
+        default: ""
+        type: string
 
 # Only one run per branch at a time. A new push cancels any in-flight
 # run for the same ref so we don't burn runner-minutes on stale work.
@@ -43,7 +54,9 @@ jobs:
         run: |
           set -euo pipefail
           go install ./cmd/gdnext
-          matrix=$("$(go env GOPATH)/bin/gdnext" ci matrix --summary)
+          matrix=$("$(go env GOPATH)/bin/gdnext" ci matrix --summary \
+            --filter-host "${{ inputs.filter-host }}" \
+            --filter-target "${{ inputs.filter-target }}")
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
 
   # CLI smoke checks that don't depend on (target, example). Runs
@@ -316,7 +329,9 @@ jobs:
         run: |
           set -euo pipefail
           go install ./cmd/gdnext
-          matrix=$("$(go env GOPATH)/bin/gdnext" ci play-matrix --summary)
+          matrix=$("$(go env GOPATH)/bin/gdnext" ci play-matrix --summary \
+            --filter-host "${{ inputs.filter-host }}" \
+            --filter-target "${{ inputs.filter-target }}")
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
           # Skip the gdnext-play job entirely when no rows exist
           # (e.g. every play target was excluded). Otherwise GHA
