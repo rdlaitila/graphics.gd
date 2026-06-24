@@ -261,18 +261,15 @@ func CopyDir(src, dst string) error {
 	if err != nil {
 		return err
 	}
-
 	// Create destination directory
 	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
 		return err
 	}
-
 	// Read source directory entries
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
-
 	// Iterate through directory entries
 	for _, entry := range entries {
 		srcPath := filepath.Join(src, entry.Name())
@@ -301,19 +298,16 @@ func CopyFile(src, dst string) error {
 		return err
 	}
 	defer srcFile.Close()
-
 	// Create destination file
 	dstFile, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	defer dstFile.Close()
-
 	// Copy file contents
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		return err
 	}
-
 	// Copy file permissions
 	srcInfo, err := os.Stat(src)
 	if err != nil {

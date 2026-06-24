@@ -60,11 +60,9 @@ func (t *StageExampleActions) action(_ context.Context, cmd *cli.Command) error 
 			return fmt.Errorf("%s is not a valid example (missing %s)", src, must)
 		}
 	}
-
 	if err := copyTree(src, target); err != nil {
 		return fmt.Errorf("copy %s -> %s: %w", src, target, err)
 	}
-
 	// Rewrite the example's go.mod so its graphics.gd require
 	// resolves against the actual checkout, then tidy.
 	modEdit := fmt.Sprintf("-replace=graphics.gd=%s", root)
@@ -74,7 +72,6 @@ func (t *StageExampleActions) action(_ context.Context, cmd *cli.Command) error 
 	if err := runIn(target, "go", "mod", "tidy"); err != nil {
 		return err
 	}
-
 	// Sanity: builders downstream assume both files are present.
 	for _, must := range []string{"graphics/project.godot", "graphics/main.tscn"} {
 		if _, err := os.Stat(filepath.Join(target, must)); err != nil {

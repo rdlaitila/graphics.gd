@@ -4,11 +4,6 @@
 // as a self-documenting subcommand tree, plus first-class verbs for the
 // previously buried subsystems (toolchain management, keystore, APK ops,
 // macOS lipo/codesign, web serve, musl setup, project init, fix).
-//
-// See docs/plans/2026-gdnext-cli.md for the design rationale. Every
-// subcommand and the global flag set live in cmd/gdnext/internal/cli;
-// this file only assembles the root command tree and runs the urfave
-// dispatcher with a Go-style flag rewrite preprocessor.
 package main
 
 import (
