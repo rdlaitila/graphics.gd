@@ -176,6 +176,26 @@ jobs:
           echo "tmp=$tmp" >> $GITHUB_OUTPUT
           gdnext ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
 
+      # Windows Defender opens link.exe's `<output>~` temp files for
+      # scanning as soon as they're written, which races with Go's
+      # atomic rename and surfaces as `rename darwin_arm64.dylib~
+      # darwin_arm64.dylib: Access is denied` on the windows-latest
+      # runner. Excluding the scratch dir (and ~/gd, the toolchain
+      # cache the build reads through) stops the scanner from holding
+      # those handles. Conditional + best-effort so non-Windows hosts
+      # skip it and a runner that disallows Add-MpPreference doesn't
+      # fail the job.
+      - name: Disable Windows Defender on build dirs
+        if: runner.os == 'Windows'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Add-MpPreference -ExclusionPath "${{ steps.stage.outputs.tmp }}"
+          Add-MpPreference -ExclusionPath "$env:USERPROFILE\gd"
+          Add-MpPreference -ExclusionProcess "link.exe"
+          Add-MpPreference -ExclusionProcess "go.exe"
+          Add-MpPreference -ExclusionProcess "zig.exe"
+
       # Confirm the cache restore brought ~/gd in fully. --fix runs
       # install for whatever's missing, so a cold cache still works
       # (just slower) and a stale cache self-heals.
