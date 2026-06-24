@@ -252,7 +252,12 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	}
 	var name = variables.Replace(exe.Name)
 	var install_path = filepath.Join(install_dir, name)
-	if runtime.GOOS == "windows" {
+	// .exe is for executables we drop into GDBin on a Windows host;
+	// libraries carry their own extension via $(EXT) (e.g. .a, .lib)
+	// and must never get a host-driven suffix tacked on. Without this
+	// gate libgodot.musl.amd64.a was being looked up as
+	// libgodot.musl.amd64.a.exe on the Windows runner.
+	if runtime.GOOS == "windows" && !exe.IsLibrary {
 		install_path += ".exe"
 	}
 	if exe.IsApp && runtime.GOOS == "darwin" {
