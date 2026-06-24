@@ -101,6 +101,7 @@ type summary struct {
 	Checks       []checkRow
 	Builds       []buildRow
 	Plays        []playRow
+	Shots        []shotRow
 	Toolchains   []toolchainRow
 	LastFailures []failureRow
 }
@@ -170,6 +171,7 @@ func NewWorkflowSummaryCommand(di do.Injector) (*WorkflowSummaryCommand, error) 
 			&cli.IntFlag{Name: "runs", Value: 14, Usage: "max runs to include"},
 			&cli.IntFlag{Name: "log-tail", Value: 60, Usage: "lines of log to tail per failed job in the latest run"},
 			&cli.StringFlag{Name: "branch", Usage: "limit to a single branch (e.g. gdnext-cli)"},
+			&cli.StringFlag{Name: "shots", Usage: "directory containing screenshot-<cell>/play-screenshot.png artefacts to inline as a grid"},
 		},
 		Action: shared.BindAction(t.Injector, (*WorkflowSummaryActions).action),
 	}
@@ -187,6 +189,7 @@ func (t *WorkflowSummaryActions) action(_ context.Context, cmd *cli.Command) err
 	n := int(cmd.Int("runs"))
 	tail := int(cmd.Int("log-tail"))
 	branch := cmd.String("branch")
+	shotsDir := cmd.String("shots")
 	runs, err := fetchRuns(repo, workflow, n, branch)
 	if err != nil {
 		return fmt.Errorf("fetch runs: %w", err)
@@ -222,6 +225,7 @@ func (t *WorkflowSummaryActions) action(_ context.Context, cmd *cli.Command) err
 		}
 		s.Toolchains = collectToolchains(repo, latest.Run.ID, prior)
 	}
+	s.Shots = collectShots(shotsDir)
 	return renderMarkdown(os.Stdout, s)
 }
 
@@ -635,6 +639,7 @@ func renderMarkdown(w io.Writer, s summary) error {
 	renderChecksMarkdown(w, s.Checks)
 	renderBuildsMarkdown(w, s.Builds)
 	renderPlaysMarkdown(w, s.Plays)
+	renderShotsMarkdown(w, s.Shots)
 	renderFailuresMarkdown(w, s.LastFailures)
 	renderCommitsMarkdown(w, s.Window)
 	renderToolchainsMarkdown(w, s.Toolchains)

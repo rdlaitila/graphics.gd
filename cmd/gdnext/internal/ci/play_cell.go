@@ -92,6 +92,8 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	}
 	reportPath := filepath.Join(scratch, "play-report.json")
 	_ = os.Remove(reportPath)
+	screenshotPath := filepath.Join(scratch, "play-screenshot.png")
+	_ = os.Remove(screenshotPath)
 	argv, err := launchCommand(bin, plat, mode)
 	if err != nil {
 		return err
@@ -103,6 +105,7 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	c.Env = append(os.Environ(),
 		"GDNEXT_PLAY=1",
 		"GDNEXT_PLAY_REPORT="+reportPath,
+		"GDNEXT_PLAY_SCREENSHOT="+screenshotPath,
 	)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -110,6 +113,9 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	if runErr != nil {
 		// engine exit is best-effort: bot quits via SceneTree which exits 0 even on player crash; the report is the source of truth.
 		fmt.Fprintf(os.Stderr, "engine exit: %v\n", runErr)
+	}
+	if st, err := os.Stat(screenshotPath); err == nil {
+		fmt.Printf("==> screenshot: %s (%d bytes)\n", screenshotPath, st.Size())
 	}
 	report, err := readReport(reportPath)
 	if err != nil {

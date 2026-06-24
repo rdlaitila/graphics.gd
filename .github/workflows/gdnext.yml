@@ -325,6 +325,21 @@ jobs:
             echo "no play-report.json"
           fi
 
+      # Per-cell screenshot grabbed by the playbot at game-over. The
+      # artefact name encodes both the play host (`matrix.os`) and the
+      # build artefact (which already carries build host + example +
+      # target + link) so every distinct cell uploads to its own slot.
+      # Without `matrix.os` in the name, multiple play hosts driving
+      # the same build artefact would overwrite each other's image.
+      - name: Upload play screenshot
+        if: always() && hashFiles('scratch/play-screenshot.png') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: shot-${{ matrix.os }}-${{ matrix.artifact }}
+          path: scratch/play-screenshot.png
+          if-no-files-found: warn
+          retention-days: 7
+
   # Aggregate every cell of this run plus the last 14 runs of this
   # branch into a single markdown step summary so the workflow's
   # success / failure history is visible at a glance from the UI.
@@ -346,6 +361,13 @@ jobs:
         run: |
           go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+      # Pull every play-cell's screenshot into shots/<artefact>/play-screenshot.png
+      # so the summary verb can inline them in a markdown grid.
+      - name: Download play screenshots
+        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v8.0.1
+        with:
+          pattern: shot-*
+          path: shots
       - name: Render workflow summary
         env:
           GH_TOKEN: ${{ github.token }}
@@ -355,4 +377,5 @@ jobs:
             --repo "${{ github.repository }}" \
             --workflow gdnext.yml \
             --branch "${{ github.ref_name }}" \
-            --runs 14 >> "$GITHUB_STEP_SUMMARY"
+            --runs 14 \
+            --shots shots >> "$GITHUB_STEP_SUMMARY"

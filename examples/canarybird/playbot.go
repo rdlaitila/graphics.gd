@@ -81,7 +81,26 @@ func (t *playBot) finish(crashed bool) {
 			_ = os.WriteFile(path, data, 0644)
 		}
 	}
+	t.snapshot()
 	if tree, ok := Object.As[SceneTree.Instance](Engine.GetMainLoop()); ok {
 		tree.Quit()
 	}
+}
+
+// snapshot writes a PNG of the root viewport's current frame to
+// $GDNEXT_PLAY_SCREENSHOT when set. SavePngToBuffer + os.WriteFile is
+// used (rather than Image.SavePng with a `user://...` path) so the CI
+// driver can hand any absolute host path it owns and pick the file up
+// from there directly.
+func (t *playBot) snapshot() {
+	path := os.Getenv("GDNEXT_PLAY_SCREENSHOT")
+	if path == "" {
+		return
+	}
+	tree, ok := Object.As[SceneTree.Instance](Engine.GetMainLoop())
+	if !ok {
+		return
+	}
+	img := tree.Root().AsViewport().GetTexture().AsTexture2D().GetImage()
+	_ = os.WriteFile(path, img.SavePngToBuffer(), 0644)
 }

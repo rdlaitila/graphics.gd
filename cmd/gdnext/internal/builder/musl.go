@@ -270,7 +270,6 @@ func (t *Musl) Test(args ...string) error {
 		return xray.New(err)
 	}
 	t.useGodotAt(filepath.Join(project.GraphicsDirectory, "musl_"+GOARCH+".editor"))
-
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
