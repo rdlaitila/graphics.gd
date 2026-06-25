@@ -202,24 +202,26 @@ var (
 		GOARCH:     GOARCHAmd64,
 		Aliases:    []string{GOOSMacos},
 		Kind:       Host | Target,
-		Status:     Supported | Stable,
+		Status:     Supported | Quirky,
 		LinkModes:  GDExtension,
 		BuildHosts: HostMatrix,
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"metal", "opengl3", "gl_compatibility"},
 		Notes:      "exports as a universal .app alongside arm64",
+		Quirks:     []Quirk{QuirkWindowsDarwinBuildAccessDenied},
 	}
 	PlatformDarwinArm64 = Platform{
 		Title:      "macOS Apple Silicon",
 		GOOS:       GOOSDarwin,
 		GOARCH:     GOARCHArm64,
 		Kind:       Host | Target,
-		Status:     Supported | Stable,
+		Status:     Supported | Quirky,
 		LinkModes:  GDExtension,
 		BuildHosts: HostMatrix,
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"metal", "opengl3", "gl_compatibility"},
 		Notes:      "produces a universal .app; lipo + codesign need a darwin host",
+		Quirks:     []Quirk{QuirkWindowsDarwinBuildAccessDenied},
 	}
 	// --- iOS ------------------------------------------------------------
 	PlatformIOSArm64 = Platform{

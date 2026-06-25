@@ -18,10 +18,15 @@ import (
 // *how* it is supported (or why it isn't):
 //
 //   - Supported | Stable        rock-solid, no known issues
-//   - Supported | Quirky        works with documented caveats (see Notes)
+//   - Supported | Quirky        works with documented caveats; see Platform.Quirks
 //   - Supported | Experimental  no CI, no stability promise
 //   - Supported | Deprecated    still maintained while phasing out
 //   - Experimental | Broken     known not to build or run; CI may fail
+//
+// Quirky should be paired with one or more Platform.Quirks entries so
+// the caveat is machine-readable (host scope, reason, refs) rather than
+// buried in free-form Notes. See product/quirk.go for the schema and
+// Platform.CIBlockedFor for the CI gate it drives.
 //
 // An entry without Supported set is unsupported by definition;
 // downstream gates should check Status.Has(Supported) to decide whether

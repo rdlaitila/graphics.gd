@@ -11,6 +11,7 @@ unrelated files when making a change.
     - [No spurious blank lines](#no-spurious-blank-lines)
     - [Name method receivers `t`](#name-method-receivers-t)
     - [Don't over-comment](#dont-over-comment)
+    - [Wrap comments at 120 characters](#wrap-comments-at-120-characters)
     - [Align struct field tags](#align-struct-field-tags)
   - [Git](#git)
     - [Use Conventional Commits](#use-conventional-commits)
@@ -313,6 +314,17 @@ func (t *Canary) tick(delta Float.X) {
     t.bird.SetPosition(pos)
 }
 ```
+
+### Wrap comments at 120 characters
+
+Wrap Go comments at 120 columns. Go code itself has no hard line limit
+— leave a long signature or expression on one line if breaking it
+hurts — but comments are prose and benefit from a consistent margin.
+
+**Rationale:** 80 is the historical default a lot of `gofmt`-adjacent
+tools assume, but it makes paragraph-shaped doc comments narrow and
+choppy. 120 is wide enough to fit one or two sentences per line
+without running off side-by-side editors or PR diff views.
 
 ### Align struct field tags
 

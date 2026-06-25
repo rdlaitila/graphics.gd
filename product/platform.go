@@ -27,6 +27,7 @@ type Platform struct {
 	BuildTools []Toolchain `json:"build_tools,omitempty" xml:"build_tools,omitempty" yaml:"build_tools,omitempty"`
 	Renderers  []string    `json:"renderers,omitempty"   xml:"renderers>renderer,omitempty" yaml:"renderers,omitempty"`
 	Notes      string      `json:"notes,omitempty"       xml:"notes,omitempty"              yaml:"notes,omitempty"`
+	Quirks     []Quirk     `json:"quirks,omitempty"      xml:"quirks>quirk,omitempty"       yaml:"quirks,omitempty"`
 }
 
 // BuildHost is the machine gdnext is running on: OS, arch, and the
@@ -84,34 +85,34 @@ const (
 // messaging ("Android Arm64", "Windows x86_64"). Falls back to a
 // "<GOOS> <GOARCH>" construction when Title is unset — callers can
 // rely on this never returning the empty string.
-func (p Platform) DisplayTitle() string {
-	if p.Title != "" {
-		return p.Title
+func (t Platform) DisplayTitle() string {
+	if t.Title != "" {
+		return t.Title
 	}
-	return p.GOOS + " " + p.GOARCH
+	return t.GOOS + " " + t.GOARCH
 }
 
 // Tuple returns the canonical "goos/goarch" platform identifier (the
 // same shape Docker / buildx / `go env` use, e.g. "linux/amd64").
 // Use this anywhere you'd otherwise hand-format the pair.
-func (p Platform) Tuple() string {
-	return Tuple(p.GOOS, p.GOARCH)
+func (t Platform) Tuple() string {
+	return Tuple(t.GOOS, t.GOARCH)
 }
 
 // Names returns every name (canonical + aliases) that should resolve to
 // this row. Convenience for completion + lookup callers.
-func (p Platform) Names() []string {
-	out := make([]string, 0, 1+len(p.Aliases))
-	out = append(out, p.GOOS)
-	out = append(out, p.Aliases...)
+func (t Platform) Names() []string {
+	out := make([]string, 0, 1+len(t.Aliases))
+	out = append(out, t.GOOS)
+	out = append(out, t.Aliases...)
 	return out
 }
 
 // CanPlayOn reports whether this target can be launched + ticked
 // headlessly on the given host. An empty PlayHosts is treated as
 // "no host can play this yet" — the play matrix skips the row.
-func (p Platform) CanPlayOn(hostGOOS, hostGOARCH string) bool {
-	for _, host := range p.PlayHosts {
+func (t Platform) CanPlayOn(hostGOOS, hostGOARCH string) bool {
+	for _, host := range t.PlayHosts {
 		if host.GOOS == hostGOOS && host.GOARCH == hostGOARCH {
 			return true
 		}
@@ -124,11 +125,11 @@ func (p Platform) CanPlayOn(hostGOOS, hostGOARCH string) bool {
 // which is the right default for zig-cross-compilable targets. Set
 // BuildHosts when a target genuinely needs a specific host — darwin
 // (no zig cross path), musl (linux-only build chain), etc.
-func (p Platform) CanBuildOn(hostGOOS, hostGOARCH string) bool {
-	if len(p.BuildHosts) == 0 {
+func (t Platform) CanBuildOn(hostGOOS, hostGOARCH string) bool {
+	if len(t.BuildHosts) == 0 {
 		return false
 	}
-	for _, host := range p.BuildHosts {
+	for _, host := range t.BuildHosts {
 		if host.GOOS == hostGOOS && host.GOARCH == hostGOARCH {
 			return true
 		}
