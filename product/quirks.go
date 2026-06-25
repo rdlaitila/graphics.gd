@@ -90,6 +90,7 @@ var QuirkWebWasmGDExtensionPlayBroken = Quirk{
 		"https://github.com/godotengine/godot/issues/100789",
 	},
 }
+
 // allow-fail when built from a windows host; user builds on a local
 // windows host may still succeed.
 var QuirkWindowsDarwinBuildAccessDenied = Quirk{

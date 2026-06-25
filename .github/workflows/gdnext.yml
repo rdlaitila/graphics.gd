@@ -278,7 +278,10 @@ jobs:
           set -euo pipefail
           go install ./cmd/gdnext
           matrix=$("$(go env GOPATH)/bin/gdnext" ci play-matrix --summary \
-
+            --filter-host "${{ inputs.filter-host }}" \
+            --filter-target "${{ inputs.filter-target }}" \
+            --filter-link "${{ inputs.filter-link }}")
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
           # Skip the gdnext-play job entirely when no rows exist
           # (e.g. every play target was excluded). Otherwise GHA
           # complains about an empty matrix.
