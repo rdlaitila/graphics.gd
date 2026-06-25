@@ -12,7 +12,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// TestHeadlessCommand wires `gdnext ci test-headless`. Runtime state
+// TestHeadlessCommand wires `gdnext ci build-test-headless`. Runtime state
 // lives on *TestHeadlessActions.
 type TestHeadlessCommand struct {
 	*cli.Command
@@ -26,7 +26,7 @@ type TestHeadlessActions struct{}
 func NewTestHeadlessCommand(di do.Injector) (*TestHeadlessCommand, error) {
 	t := do.MustInvokeStruct[*TestHeadlessCommand](di)
 	t.Command = &cli.Command{
-		Name:  "test-headless",
+		Name:  "build-test-headless",
 		Usage: "run `gdnext test` against the staged example",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "scratch", Usage: "staged example directory to test in", Required: true},

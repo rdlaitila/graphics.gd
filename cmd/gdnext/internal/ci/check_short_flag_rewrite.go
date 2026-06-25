@@ -9,7 +9,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// ShortFlagRewriteCommand wires `gdnext ci short-flag-rewrite`.
+// ShortFlagRewriteCommand wires `gdnext ci check-short-flag-rewrite`.
 // Runtime state lives on *ShortFlagRewriteActions.
 type ShortFlagRewriteCommand struct {
 	*cli.Command
@@ -23,7 +23,7 @@ type ShortFlagRewriteActions struct{}
 func NewShortFlagRewriteCommand(di do.Injector) (*ShortFlagRewriteCommand, error) {
 	t := do.MustInvokeStruct[*ShortFlagRewriteCommand](di)
 	t.Command = &cli.Command{
-		Name:   "short-flag-rewrite",
+		Name:   "check-short-flag-rewrite",
 		Usage:  "verify `-goos` (single-dash, multi-char) is rewritten to `--goos`",
 		Action: shared.BindAction(t.Injector, (*ShortFlagRewriteActions).action),
 	}

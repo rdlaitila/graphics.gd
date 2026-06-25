@@ -11,7 +11,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// GoPassthroughCommand wires `gdnext ci go-passthrough`. Runtime
+// GoPassthroughCommand wires `gdnext ci check-go-passthrough`. Runtime
 // state lives on *GoPassthroughActions.
 type GoPassthroughCommand struct {
 	*cli.Command
@@ -25,7 +25,7 @@ type GoPassthroughActions struct{}
 func NewGoPassthroughCommand(di do.Injector) (*GoPassthroughCommand, error) {
 	t := do.MustInvokeStruct[*GoPassthroughCommand](di)
 	t.Command = &cli.Command{
-		Name:   "go-passthrough",
+		Name:   "check-go-passthrough",
 		Usage:  "confirm gdnext forwards unknown verbs to the underlying go toolchain",
 		Action: shared.BindAction(t.Injector, (*GoPassthroughActions).action),
 	}

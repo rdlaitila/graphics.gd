@@ -12,7 +12,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// ToolchainInstallCommand wires `gdnext ci toolchain-install`.
+// ToolchainInstallCommand wires `gdnext ci check-toolchain-install`.
 // Runtime state lives on *ToolchainInstallActions.
 type ToolchainInstallCommand struct {
 	*cli.Command
@@ -48,7 +48,7 @@ var optionalInstall = map[string]bool{
 func NewToolchainInstallCommand(di do.Injector) (*ToolchainInstallCommand, error) {
 	t := do.MustInvokeStruct[*ToolchainInstallCommand](di)
 	t.Command = &cli.Command{
-		Name:   "toolchain-install",
+		Name:   "check-toolchain-install",
 		Usage:  "smoke-test `gdnext toolchain install` and its path round-trip",
 		Action: shared.BindAction(t.Injector, (*ToolchainInstallActions).action),
 	}

@@ -254,7 +254,7 @@ GOOS=linux gdnext build                      # ok
 ```
 
 The rewrite covers every global flag gdnext registers. The CI verb
-`gdnext ci short-flag-rewrite` pins the behaviour.
+`gdnext ci check-short-flag-rewrite` pins the behaviour.
 
 #### Go passthrough
 
@@ -268,7 +268,7 @@ gdnext vet ./...          # → go vet ./...
 gdnext env GOOS           # → go env GOOS
 ```
 
-The `gdnext ci go-passthrough` verb covers this in CI; see
+The `gdnext ci check-go-passthrough` verb covers this in CI; see
 [workflow.md → `go-passthrough`](workflow.md#go-passthrough).
 
 ### Top-level verbs
@@ -460,11 +460,11 @@ CI helpers for the GitHub Actions workflow. Full reference in
 [workflow.md → CI verbs](workflow.md#ci-verbs).
 
 ```
-gdnext ci matrix                # emit the build matrix as JSON
-gdnext ci build-target          # build one (goos, goarch) cell
-gdnext ci play-cell             # drive a built example via the play-bot
-gdnext ci workflow-summary      # render the rolling step summary
-gdnext ci toolchain-checksums   # harvest SHAs for KnownChecksums
+gdnext ci build-matrix            # emit the build matrix as JSON
+gdnext ci build-target            # build one (goos, goarch) cell
+gdnext ci play-cell               # drive a built example via the play-bot
+gdnext ci workflow-summary        # render the rolling step summary
+gdnext ci check-toolchain-checksums  # harvest SHAs for KnownChecksums
 ...
 ```
 

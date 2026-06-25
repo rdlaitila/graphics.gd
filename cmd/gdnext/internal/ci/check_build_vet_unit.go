@@ -9,7 +9,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// BuildVetTestCommand wires `gdnext ci build-vet-test`. Runtime
+// BuildVetTestCommand wires `gdnext ci check-build-vet-test`. Runtime
 // state lives on *BuildVetTestActions.
 type BuildVetTestCommand struct {
 	*cli.Command
@@ -23,7 +23,7 @@ type BuildVetTestActions struct{}
 func NewBuildVetTestCommand(di do.Injector) (*BuildVetTestCommand, error) {
 	t := do.MustInvokeStruct[*BuildVetTestCommand](di)
 	t.Command = &cli.Command{
-		Name:   "build-vet-test",
+		Name:   "check-build-vet-test",
 		Usage:  "compile, vet, and unit-test the gdnext CLI tree",
 		Action: shared.BindAction(t.Injector, (*BuildVetTestActions).action),
 	}

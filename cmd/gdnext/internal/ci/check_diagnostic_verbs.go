@@ -14,7 +14,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// DiagnosticVerbsCommand wires `gdnext ci diagnostic-verbs`. Must run
+// DiagnosticVerbsCommand wires `gdnext ci check-diagnostic-verbs`. Must run
 // BEFORE toolchain-install so the no-download invariant on
 // `gdnext toolchain doctor` is meaningful (the $GDPATH is still empty).
 type DiagnosticVerbsCommand struct {
@@ -29,7 +29,7 @@ type DiagnosticVerbsActions struct{}
 func NewDiagnosticVerbsCommand(di do.Injector) (*DiagnosticVerbsCommand, error) {
 	t := do.MustInvokeStruct[*DiagnosticVerbsCommand](di)
 	t.Command = &cli.Command{
-		Name:   "diagnostic-verbs",
+		Name:   "check-diagnostic-verbs",
 		Usage:  "verify the diagnostic verbs that must work without any toolchain installed",
 		Action: shared.BindAction(t.Injector, (*DiagnosticVerbsActions).action),
 	}

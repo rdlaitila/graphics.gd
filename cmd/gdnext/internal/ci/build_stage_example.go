@@ -12,7 +12,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// StageExampleCommand wires `gdnext ci stage-example`. Runtime state
+// StageExampleCommand wires `gdnext ci build-stage-example`. Runtime state
 // lives on *StageExampleActions.
 type StageExampleCommand struct {
 	*cli.Command
@@ -26,7 +26,7 @@ type StageExampleActions struct{}
 func NewStageExampleCommand(di do.Injector) (*StageExampleCommand, error) {
 	t := do.MustInvokeStruct[*StageExampleCommand](di)
 	t.Command = &cli.Command{
-		Name:  "stage-example",
+		Name:  "build-stage-example",
 		Usage: "stage examples/<name>/ into an empty scratch dir, rewriting graphics.gd to the local checkout",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "example", Usage: "example name under examples/", Required: true},

@@ -87,7 +87,7 @@ catch regressions is to actually exercise every cell of it. The
 workflow follows a few rules to keep that real, not aspirational:
 
 - **Every supported `(host, target, link-mode)` triple has a CI
-  cell.** `gdnext ci matrix` walks `product.PlatformMatrix` and
+  cell.** `gdnext ci build-matrix` walks `product.PlatformMatrix` and
   emits one row per Cartesian product of CI runners (linux, windows,
   darwin) × supported targets × supported link modes.
 - **No host-locked workflow edits.** Adding a row to
@@ -135,7 +135,7 @@ discover-targets ──┐
                  summary  (always(), aggregates everything)
 ```
 
-- **`discover-targets`** runs `gdnext ci matrix --summary` and stashes
+- **`discover-targets`** runs `gdnext ci build-matrix --summary` and stashes
   the JSON as a step output. The build matrix consumes it via
   `fromJSON(needs.discover-targets.outputs.matrix)`. The matrix is
   a fully-expanded `include:` list — each cell is `(os, example,

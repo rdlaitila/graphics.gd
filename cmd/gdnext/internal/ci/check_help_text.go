@@ -19,7 +19,7 @@ var helpVerbs = []string{
 	"android", "ios", "macos", "web", "musl", "ci",
 }
 
-// HelpTextCommand wires `gdnext ci help-text`. Runtime state lives
+// HelpTextCommand wires `gdnext ci check-help-text`. Runtime state lives
 // on *HelpTextActions.
 type HelpTextCommand struct {
 	*cli.Command
@@ -33,7 +33,7 @@ type HelpTextActions struct{}
 func NewHelpTextCommand(di do.Injector) (*HelpTextCommand, error) {
 	t := do.MustInvokeStruct[*HelpTextCommand](di)
 	t.Command = &cli.Command{
-		Name:   "help-text",
+		Name:   "check-help-text",
 		Usage:  "assert every registered gdnext verb resolves --help",
 		Action: shared.BindAction(t.Injector, (*HelpTextActions).action),
 	}

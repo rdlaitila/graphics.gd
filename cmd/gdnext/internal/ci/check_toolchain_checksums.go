@@ -18,7 +18,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// ToolchainChecksumsCommand wires `gdnext ci toolchain-checksums`,
+// ToolchainChecksumsCommand wires `gdnext ci check-toolchain-checksums`,
 // the maintainer-side harvest helper for product.Toolchain.KnownChecksums.
 // It scans recent workflow runs for the first successful one, downloads
 // every `toolchain-audit-<runner>` artefact, aggregates the
@@ -37,7 +37,7 @@ type ToolchainChecksumsActions struct{}
 func NewToolchainChecksumsCommand(di do.Injector) (*ToolchainChecksumsCommand, error) {
 	t := do.MustInvokeStruct[*ToolchainChecksumsCommand](di)
 	t.Command = &cli.Command{
-		Name:  "toolchain-checksums",
+		Name:  "check-toolchain-checksums",
 		Usage: "harvest toolchain SHA256s from the latest successful workflow run",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "repo", Required: true, Usage: "owner/repo (e.g. grow-graphics/gd)"},

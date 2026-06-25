@@ -59,6 +59,10 @@ func NewPlayMatrixCommand(di do.Injector) (*PlayMatrixCommand, error) {
 				Name:  "filter-target",
 				Usage: "comma-separated <goos>/<goarch> target tuples; empty allows every target",
 			},
+			&cli.StringFlag{
+				Name:  "filter-link",
+				Usage: "comma-separated link modes (gdextension|libgodot); empty allows every mode",
+			},
 			&cli.BoolFlag{
 				Name:  "summary",
 				Usage: "also print a human-readable matrix to stderr",
@@ -76,7 +80,7 @@ func NewPlayMatrixActions(di do.Injector) (*PlayMatrixActions, error) {
 
 func (t *PlayMatrixActions) action(_ context.Context, cmd *cli.Command) error {
 	examples := cmd.StringSlice("example")
-	filter := parseMatrixFilter(cmd.String("filter-host"), cmd.String("filter-target"))
+	filter := parseMatrixFilter(cmd.String("filter-host"), cmd.String("filter-target"), cmd.String("filter-link"))
 	rows := buildPlayMatrix(examples, filter)
 	doc := struct {
 		Include []playMatrixRow `json:"include"`
@@ -149,6 +153,9 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 				link := ""
 				if mode != 0 {
 					link = mode.String()
+				}
+				if !filter.allowsLink(link) {
+					continue
 				}
 				for _, ex := range examples {
 					ex = strings.TrimSpace(ex)

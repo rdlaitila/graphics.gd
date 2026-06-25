@@ -27,6 +27,11 @@ on:
         required: false
         default: ""
         type: string
+      filter-link:
+        description: "Comma-separated link modes (gdextension|libgodot; empty = all)"
+        required: false
+        default: ""
+        type: string
 
 # Only one run per branch at a time. A new push cancels any in-flight
 # run for the same ref so we don't burn runner-minutes on stale work.
@@ -36,7 +41,7 @@ concurrency:
 
 jobs:
   # Pre-job: enumerate the supported build targets from product data.
-  # `gdnext ci matrix` emits a fully-expanded include: list keyed by
+  # `gdnext ci build-matrix` emits a fully-expanded include: list keyed by
   # (os, target, example, experimental); the build job consumes it via
   # fromJSON. Adding a new row to product.PlatformMatrix (or flipping
   # its BuildHosts) lands in CI with zero workflow edits.
@@ -55,9 +60,10 @@ jobs:
         run: |
           set -euo pipefail
           go install ./cmd/gdnext
-          matrix=$("$(go env GOPATH)/bin/gdnext" ci matrix --summary \
+          matrix=$("$(go env GOPATH)/bin/gdnext" ci build-matrix --summary \
             --filter-host "${{ inputs.filter-host }}" \
-            --filter-target "${{ inputs.filter-target }}")
+            --filter-target "${{ inputs.filter-target }}" \
+            --filter-link "${{ inputs.filter-link }}")
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
           # Derive the distinct runner labels appearing in the build
           # matrix so gdnext-checks only runs on hosts that survived
@@ -93,23 +99,23 @@ jobs:
 
       - name: Build + vet + unit tests
         shell: bash
-        run: gdnext ci build-vet-test
+        run: gdnext ci check-build-vet-test
 
       - name: Help text smoke
         shell: bash
-        run: gdnext ci help-text
+        run: gdnext ci check-help-text
 
       - name: Diagnostic verbs (pre-install)
         shell: bash
-        run: gdnext ci diagnostic-verbs
+        run: gdnext ci check-diagnostic-verbs
 
       - name: Go passthrough
         shell: bash
-        run: gdnext ci go-passthrough
+        run: gdnext ci check-go-passthrough
 
       - name: Short-flag rewrite
         shell: bash
-        run: gdnext ci short-flag-rewrite
+        run: gdnext ci check-short-flag-rewrite
 
       - name: Toolchain install
         shell: bash
@@ -118,7 +124,7 @@ jobs:
         # libgodot, libgodot-editor). Strict verification is the
         # default — set GDNEXT_SKIP_CHECKSUM=1 here only to bootstrap
         # a brand-new tool whose hash hasn't landed in the catalog yet.
-        run: gdnext ci toolchain-install
+        run: gdnext ci check-toolchain-install
 
       - name: Toolchain doctor (post-install)
         shell: bash
@@ -198,7 +204,7 @@ jobs:
           rm -rf "$tmp"
           mkdir -p "$tmp"
           echo "tmp=$tmp" >> $GITHUB_OUTPUT
-          gdnext ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
+          gdnext ci build-stage-example --example "${{ matrix.example }}" --scratch "$tmp"
 
       # Confirm the cache restore brought ~/gd in fully. --fix runs
       # install for whatever's missing, so a cold cache still works
@@ -248,7 +254,7 @@ jobs:
 
       - name: Headless test pipeline
         shell: bash
-        run: gdnext ci test-headless --scratch "${{ steps.stage.outputs.tmp }}"
+        run: gdnext ci build-test-headless --scratch "${{ steps.stage.outputs.tmp }}"
 
   # Pre-job: enumerate the (play-host, build-host, target, link) quads
   # the play matrix should drive. Only emitted for Platforms whose
@@ -272,9 +278,7 @@ jobs:
           set -euo pipefail
           go install ./cmd/gdnext
           matrix=$("$(go env GOPATH)/bin/gdnext" ci play-matrix --summary \
-            --filter-host "${{ inputs.filter-host }}" \
-            --filter-target "${{ inputs.filter-target }}")
-          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+
           # Skip the gdnext-play job entirely when no rows exist
           # (e.g. every play target was excluded). Otherwise GHA
           # complains about an empty matrix.

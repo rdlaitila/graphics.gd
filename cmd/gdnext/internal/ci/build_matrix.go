@@ -30,7 +30,7 @@ var gha = []struct {
 // Keyed by "goos/goarch".
 var excludedTargets = map[string]string{}
 
-// MatrixCommand wires `gdnext ci matrix`. Runtime state lives on
+// MatrixCommand wires `gdnext ci build-matrix`. Runtime state lives on
 // *MatrixActions. The build matrix consumes the emitted JSON via
 // fromJSON, so adding a row to product.PlatformMatrix lands in CI
 // with zero workflow edits.
@@ -56,7 +56,7 @@ type matrixRow struct {
 func NewMatrixCommand(di do.Injector) (*MatrixCommand, error) {
 	t := do.MustInvokeStruct[*MatrixCommand](di)
 	t.Command = &cli.Command{
-		Name:  "matrix",
+		Name:  "build-matrix",
 		Usage: "emit the GHA build matrix derived from product.PlatformMatrix",
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{
@@ -71,6 +71,10 @@ func NewMatrixCommand(di do.Injector) (*MatrixCommand, error) {
 			&cli.StringFlag{
 				Name:  "filter-target",
 				Usage: "comma-separated <goos>/<goarch> target tuples; empty allows every target",
+			},
+			&cli.StringFlag{
+				Name:  "filter-link",
+				Usage: "comma-separated link modes (gdextension|libgodot); empty allows every mode",
 			},
 			&cli.BoolFlag{
 				Name:  "summary",
@@ -89,7 +93,7 @@ func NewMatrixActions(di do.Injector) (*MatrixActions, error) {
 
 func (t *MatrixActions) action(_ context.Context, cmd *cli.Command) error {
 	examples := cmd.StringSlice("example")
-	filter := parseMatrixFilter(cmd.String("filter-host"), cmd.String("filter-target"))
+	filter := parseMatrixFilter(cmd.String("filter-host"), cmd.String("filter-target"), cmd.String("filter-link"))
 	rows := buildMatrix(examples, filter)
 	doc := struct {
 		Include []matrixRow `json:"include"`
@@ -156,6 +160,9 @@ func buildMatrix(examples []string, filter matrixFilter) []matrixRow {
 				link := ""
 				if mode != 0 {
 					link = mode.String()
+				}
+				if !filter.allowsLink(link) {
+					continue
 				}
 				for _, ex := range examples {
 					ex = strings.TrimSpace(ex)
