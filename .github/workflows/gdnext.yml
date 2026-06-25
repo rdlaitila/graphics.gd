@@ -44,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.list.outputs.matrix }}
+      runners: ${{ steps.list.outputs.runners }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -58,15 +59,25 @@ jobs:
             --filter-host "${{ inputs.filter-host }}" \
             --filter-target "${{ inputs.filter-target }}")
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
+          # Derive the distinct runner labels appearing in the build
+          # matrix so gdnext-checks only runs on hosts that survived
+          # the filter. jq -c keeps the output a one-line JSON array
+          # ready for fromJSON in the consuming job.
+          runners=$(echo "$matrix" | jq -c '[.include[].os] | unique')
+          echo "runners=$runners" >> $GITHUB_OUTPUT
 
   # CLI smoke checks that don't depend on (target, example). Runs
-  # once per host OS instead of once per matrix cell.
+  # once per host OS the build matrix actually uses, so
+  # --filter-host=windows/amd64 skips ubuntu + macos checks instead
+  # of wasting a slot each.
   gdnext-checks:
+    needs: [discover-targets]
+    if: needs.discover-targets.outputs.runners != '[]'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ fromJSON(needs.discover-targets.outputs.runners) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -334,9 +345,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends xvfb
           case "${{ matrix.compat }}" in
             wine)
+              # Ubuntu noble ships Wine 9.0 which segfaults on first
+              # launch of Godot/cgo apps. Use the WineHQ stable repo
+              # (Wine 10.x) instead.
               sudo dpkg --add-architecture i386
+              sudo mkdir -pm755 /etc/apt/keyrings
+              sudo wget -qO /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
+              sudo wget -qNP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources
               sudo apt-get update -y
-              sudo apt-get install -y --no-install-recommends wine wine64 wine32:i386
+              sudo apt-get install -y --install-recommends winehq-stable
               ;;
             proton|proton-8|proton-9|proton-10)
               # umu-launcher isn't on PyPI; install the upstream
@@ -346,6 +363,14 @@ jobs:
               # can resolve them.
               sudo dpkg --add-architecture i386
               sudo apt-get update -y
+              # umu/Proton runs games inside pressure-vessel, which
+              # uses bwrap to set up a user-namespace container.
+              # Ubuntu 24.04 ships AppArmor profiles that block
+              # unprivileged user namespaces; without relaxing those
+              # bwrap fails with 'setting up uid map: Permission
+              # denied'. The runner has sudo so we flip both knobs.
+              sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+              sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
               umu_ver="1.4.0"
               umu_deb="python3-umu-launcher_${umu_ver}-1_amd64_ubuntu-noble.deb"
               umu_url="https://github.com/Open-Wine-Components/umu-launcher/releases/download/${umu_ver}/${umu_deb}"
