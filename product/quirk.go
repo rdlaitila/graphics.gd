@@ -1,5 +1,7 @@
 package product
 
+import "sort"
+
 // Quirk is a structured caveat attached to a Platform. Empty Hosts
 // means the quirk applies to every build host for the Platform.
 type Quirk struct {
@@ -87,4 +89,43 @@ func (t Platform) CIBlockedFor(hostGOOS, hostGOARCH string) bool {
 		}
 	}
 	return false
+}
+
+// QuirkEntry pairs a Quirk with the platforms it is attached to.
+// Returned by KnownQuirks; CLI + summary renderers consume the same value.
+type QuirkEntry struct {
+	Quirk     Quirk    `json:"quirk"`
+	Platforms []string `json:"platforms"`
+}
+
+// KnownQuirks walks PlatformMatrix and returns every distinct Quirk
+// (deduplicated by Title) with its attached platform tuples. Scope
+// descending then Title ascending so renderers don't re-sort.
+func KnownQuirks() []QuirkEntry {
+	by := map[string]*QuirkEntry{}
+	var order []string
+	for _, p := range PlatformMatrix {
+		for _, q := range p.Quirks {
+			e, ok := by[q.Title]
+			if !ok {
+				e = &QuirkEntry{Quirk: q}
+				by[q.Title] = e
+				order = append(order, q.Title)
+			}
+			e.Platforms = append(e.Platforms, p.Tuple())
+		}
+	}
+	out := make([]QuirkEntry, 0, len(order))
+	for _, title := range order {
+		e := by[title]
+		sort.Strings(e.Platforms)
+		out = append(out, *e)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Quirk.Scope != out[j].Quirk.Scope {
+			return out[i].Quirk.Scope > out[j].Quirk.Scope
+		}
+		return out[i].Quirk.Title < out[j].Quirk.Title
+	})
+	return out
 }

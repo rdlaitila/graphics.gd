@@ -152,7 +152,7 @@ const (
 	iconFail    = "🟥"
 	iconSkip    = "⬜"
 	iconRunning = "🟨"
-	iconMissing = "□ "
+	iconMissing = "⬛"
 )
 
 // ghaTimestamp matches the ISO timestamp GHA prepends to every log
@@ -681,9 +681,11 @@ func renderMarkdown(w io.Writer, s summary) error {
 		fmt.Fprintln(w)
 	}
 	renderCountsMarkdown(w, s)
+	renderLegendMarkdown(w)
 	renderTOCMarkdown(w, s)
 	renderChecksMarkdown(w, s.Checks)
 	renderBuildsMarkdown(w, s.Builds)
+	renderQuirksMarkdown(w)
 	renderPlaysMarkdown(w, s.Plays)
 	renderShotsMarkdown(w, s.Shots)
 	renderFailuresMarkdown(w, s.LastFailures)
@@ -712,8 +714,15 @@ func renderCountsMarkdown(w io.Writer, s summary) {
 }
 
 func renderTOCMarkdown(w io.Writer, s summary) {
-	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Plays](#plays) · [Latest run failures](#latest-run-failures) · [Commits](#commits) · [Toolchains](#toolchains)")
+	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Known quirks](#known-quirks) · [Plays](#plays) · [Latest run failures](#latest-run-failures) · [Commits](#commits) · [Toolchains](#toolchains)")
 	fmt.Fprintln(w)
+}
+
+// renderLegendMarkdown prints the sparkline icon legend once at the
+// top of the summary so the row glyphs are self-describing.
+func renderLegendMarkdown(w io.Writer) {
+	fmt.Fprintf(w, "**Legend:** %s pass · %s fail · %s running · %s skipped · %s missing\n\n",
+		iconPass, iconFail, iconRunning, iconSkip, iconMissing)
 }
 
 // writeSectionHeader emits an HTML-anchored heading so the TOC link

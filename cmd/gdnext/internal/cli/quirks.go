@@ -2,9 +2,9 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	"graphics.gd/cmd/gdnext/internal/shared"
@@ -31,10 +31,16 @@ func NewQuirksCommand(di do.Injector) (*QuirksCommand, error) {
 		Name:  "quirks",
 		Usage: "list every known platform quirk (CI gates, runtime caveats)",
 		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "format",
+				Aliases: []string{"f"},
+				Value:   "table",
+				Usage:   "output format: table | json",
+			},
 			&cli.IntFlag{
 				Name:  "width",
 				Value: 0,
-				Usage: "wrap reason text at N columns (0 = auto-detect terminal, fall back to 80)",
+				Usage: "wrap reason text at N columns (0 = auto-detect terminal, fall back to 80); table format only",
 			},
 		},
 		Action: shared.BindAction(t.Injector, (*QuirksActions).action),
@@ -48,11 +54,20 @@ func NewQuirksActions(di do.Injector) (*QuirksActions, error) {
 }
 
 func (t *QuirksActions) action(_ context.Context, cmd *cli.Command) error {
+	entries := product.KnownQuirks()
+	switch strings.ToLower(cmd.String("format")) {
+	case "json":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(entries)
+	case "", "table":
+	default:
+		return fmt.Errorf("unknown --format %q (want: table | json)", cmd.String("format"))
+	}
 	width := cmd.Int("width")
 	if width <= 0 {
 		width = detectWidth()
 	}
-	entries := collectQuirks()
 	if len(entries) == 0 {
 		fmt.Println("no quirks declared")
 		return nil
@@ -66,45 +81,8 @@ func (t *QuirksActions) action(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// quirkEntry pairs a Quirk with the platforms it is attached to.
-// Quirks are de-duplicated by Title so a single QuirkBuild* var shared
-// across multiple Platform rows renders once.
-type quirkEntry struct {
-	Quirk     product.Quirk
-	Platforms []string
-}
-
-func collectQuirks() []quirkEntry {
-	by := map[string]*quirkEntry{}
-	var order []string
-	for _, p := range product.PlatformMatrix {
-		for _, q := range p.Quirks {
-			e, ok := by[q.Title]
-			if !ok {
-				e = &quirkEntry{Quirk: q}
-				by[q.Title] = e
-				order = append(order, q.Title)
-			}
-			e.Platforms = append(e.Platforms, p.Tuple())
-		}
-	}
-	out := make([]quirkEntry, 0, len(order))
-	for _, title := range order {
-		e := by[title]
-		sort.Strings(e.Platforms)
-		out = append(out, *e)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Quirk.Scope != out[j].Quirk.Scope {
-			return out[i].Quirk.Scope > out[j].Quirk.Scope
-		}
-		return out[i].Quirk.Title < out[j].Quirk.Title
-	})
-	return out
-}
-
 // printQuirk renders one entry to stdout, wrapping reason / result / refs at width.
-func printQuirk(e quirkEntry, width int) {
+func printQuirk(e product.QuirkEntry, width int) {
 	fmt.Printf("[%s] %s\n", e.Quirk.Scope, e.Quirk.Title)
 	indent := "  "
 	printField(indent, "platforms", strings.Join(e.Platforms, ", "), width)
