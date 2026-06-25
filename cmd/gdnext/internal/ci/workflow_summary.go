@@ -152,7 +152,7 @@ const (
 	iconFail    = "🟥"
 	iconSkip    = "⬜"
 	iconRunning = "🟨"
-	iconMissing = "·"
+	iconMissing = "□ "
 )
 
 // ghaTimestamp matches the ISO timestamp GHA prepends to every log
@@ -366,6 +366,13 @@ func stripTimestamp(s string) string { return ghaTimestamp.ReplaceAllString(s, "
 func outcomeFromJob(j ghJob) outcome {
 	switch j.Conclusion {
 	case "success":
+		// continue-on-error masks step failures as a job 'success';
+		// surface them as red anyway so allow-fail rows are visible.
+		for _, s := range j.Steps {
+			if s.Conclusion == "failure" {
+				return outcomeFailure
+			}
+		}
 		return outcomeSuccess
 	case "failure":
 		return outcomeFailure
