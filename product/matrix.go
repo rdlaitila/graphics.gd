@@ -221,15 +221,15 @@ var (
 		LinkModes:  GDExtension,
 		BuildHosts: HostMatrix,
 		PlayHosts: []PlayHost{
-			PlayLinuxAmd64,
-			PlayLinuxAmd64Wine,
 			PlayLinuxAmd64Proton,
+			//PlayLinuxAmd64Wine,
 			//PlayLinuxAmd64Proton10,
 			//PlayLinuxAmd64Proton9,
 			//PlayLinuxAmd64Proton8,
 		},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
+		Quirks:     []Quirk{QuirkWindowsAmd64WinePlayBroken},
 	}
 	PlatformWindowsArm64 = Platform{
 		Title:      "Windows ARM64",

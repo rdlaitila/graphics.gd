@@ -160,6 +160,9 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 						if !ok {
 							continue
 						}
+						if platform.PlayBlockedFor(playHost.GOOS, playHost.GOARCH, playHost.CompatLayer) {
+							continue
+						}
 						out = append(out, playMatrixRow{
 							OS:        playRunner,
 							BuildOS:   buildHost.Runner,
