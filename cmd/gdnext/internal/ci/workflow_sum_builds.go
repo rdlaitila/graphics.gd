@@ -51,7 +51,16 @@ func collectBuilds(asc []runWithJobs) []buildRow {
 		}
 	}
 	sort.Slice(order, func(a, b int) bool {
-		return buildRank(order[a]) < buildRank(order[b])
+		if order[a].example != order[b].example {
+			return order[a].example < order[b].example
+		}
+		if order[a].target != order[b].target {
+			return targetRank(order[a].target) < targetRank(order[b].target)
+		}
+		if order[a].host != order[b].host {
+			return hostRank(order[a].host) < hostRank(order[b].host)
+		}
+		return linkSubrank(order[a].link) < linkSubrank(order[b].link)
 	})
 	out := make([]buildRow, 0, len(order))
 	for _, k := range order {
@@ -60,6 +69,10 @@ func collectBuilds(asc []runWithJobs) []buildRow {
 	return out
 }
 
+// buildRank keeps the original (host, target, link) precedence so the
+// failure-list sort in workflow_sum_failures.go stays aligned with
+// the historical layout. The build-table sort above uses its own
+// multi-key comparator.
 func buildRank(k buildKey) int {
 	return hostRank(k.host)*1_000_000 + targetRank(k.target)*1000 + linkSubrank(k.link)
 }

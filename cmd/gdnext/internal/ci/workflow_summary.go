@@ -152,7 +152,7 @@ const (
 	iconFail    = "🟥"
 	iconSkip    = "⬜"
 	iconRunning = "🟨"
-	iconMissing = "⬛"
+	iconMissing = "🔳"
 )
 
 // ghaTimestamp matches the ISO timestamp GHA prepends to every log
