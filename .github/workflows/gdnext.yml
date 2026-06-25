@@ -341,6 +341,11 @@ jobs:
             proton|proton-8|proton-9|proton-10)
               # umu-launcher isn't on PyPI; install the upstream
               # ubuntu-noble .deb published with each tagged release.
+              # The .deb depends on libgl1-mesa-dri:i386 + libglx-mesa0:i386,
+              # so the i386 architecture has to be enabled before apt
+              # can resolve them.
+              sudo dpkg --add-architecture i386
+              sudo apt-get update -y
               umu_ver="1.4.0"
               umu_deb="python3-umu-launcher_${umu_ver}-1_amd64_ubuntu-noble.deb"
               umu_url="https://github.com/Open-Wine-Components/umu-launcher/releases/download/${umu_ver}/${umu_deb}"

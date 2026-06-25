@@ -57,7 +57,22 @@ func collectPlays(asc []runWithJobs) []playRow {
 		}
 	}
 	sort.Slice(order, func(a, b int) bool {
-		return playRank(order[a]) < playRank(order[b])
+		if order[a].example != order[b].example {
+			return order[a].example < order[b].example
+		}
+		if order[a].target != order[b].target {
+			return targetRank(order[a].target) < targetRank(order[b].target)
+		}
+		if order[a].link != order[b].link {
+			return linkSubrank(order[a].link) < linkSubrank(order[b].link)
+		}
+		if order[a].compat != order[b].compat {
+			return order[a].compat < order[b].compat
+		}
+		if order[a].buildHost != order[b].buildHost {
+			return hostRank(order[a].buildHost) < hostRank(order[b].buildHost)
+		}
+		return hostRank(order[a].playHost) < hostRank(order[b].playHost)
 	})
 	out := make([]playRow, 0, len(order))
 	for _, k := range order {
@@ -66,6 +81,10 @@ func collectPlays(asc []runWithJobs) []playRow {
 	return out
 }
 
+// playRank keeps the original (target, link, build host, play host)
+// precedence for any other code that still consumes a single int
+// (none today, but the helper stays cheap and symmetric with
+// buildRank).
 func playRank(k playKey) int {
 	return targetRank(k.target)*1_000_000_000 + linkSubrank(k.link)*10_000_000 + hostRank(k.buildHost)*10_000 + hostRank(k.playHost)*10
 }
