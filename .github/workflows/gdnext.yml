@@ -403,6 +403,19 @@ jobs:
                 echo "$tag already present (cache hit)"
               fi
               ;;
+            chrome|firefox)
+              # js/wasm cells run the bundle in a real browser driven
+              # by Playwright. node is already on the runner image;
+              # we install playwright into scratch/ (the same dir
+              # the bundle was staged into so the script can resolve
+              # it as a sibling node_modules), then `playwright
+              # install --with-deps <browser>` pulls the matched
+              # browser build + apt libs.
+              echo "::group::install playwright + ${{ matrix.compat }}"
+              ( cd scratch && npm init -y >/dev/null && npm install --no-audit --no-fund playwright )
+              ( cd scratch && npx playwright install --with-deps "${{ matrix.compat }}" )
+              echo "::endgroup::"
+              ;;
           esac
 
       - name: Save Proton (${{ matrix.proton_tag }})

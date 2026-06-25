@@ -170,6 +170,7 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 						if platform.PlayBlockedFor(playHost.GOOS, playHost.GOARCH, playHost.CompatLayer) {
 							continue
 						}
+						rowAllowFail := allowFail || platform.PlayAllowFailFor(playHost.GOOS, playHost.GOARCH, playHost.CompatLayer)
 						out = append(out, playMatrixRow{
 							OS:        playRunner,
 							BuildOS:   buildHost.Runner,
@@ -178,7 +179,7 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 							Link:      link,
 							Compat:    playHost.CompatLayer,
 							ProtonTag: protonRelease(playHost.CompatLayer),
-							AllowFail: allowFail,
+							AllowFail: rowAllowFail,
 							Artifact:  ArtifactName(buildHost.Runner, ex, platform.Tuple(), link),
 						})
 					}

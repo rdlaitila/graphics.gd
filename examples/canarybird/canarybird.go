@@ -3,7 +3,6 @@ package main
 import (
 	"math"
 	"math/rand/v2"
-	"os"
 
 	"graphics.gd/classdb/AudioStreamPlayer"
 	"graphics.gd/classdb/AudioStreamWAV"
@@ -21,7 +20,6 @@ import (
 	"graphics.gd/classdb/OmniLight3D"
 	"graphics.gd/classdb/SphereMesh"
 	"graphics.gd/classdb/StandardMaterial3D"
-	"graphics.gd/product"
 	"graphics.gd/variant/Angle"
 	"graphics.gd/variant/Color"
 	"graphics.gd/variant/Euler"
@@ -81,7 +79,7 @@ func (g *CanaryBird) Ready() {
 	g.buildScene()
 	g.buildHUD()
 	g.reset()
-	if os.Getenv(product.EnvPlay) != "" {
+	if playRequested() {
 		g.bot = newPlayBot(g)
 	}
 }

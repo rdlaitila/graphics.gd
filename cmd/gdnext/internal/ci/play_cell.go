@@ -77,36 +77,52 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	if mode == 0 {
 		mode = product.GDExtension
 	}
-	bin, err := releaseBinary(scratch, example, plat, mode)
-	if err != nil {
-		return err
-	}
-	// download-artifact strips the executable bit; restore it.
-	if err := os.Chmod(bin, 0755); err != nil {
-		return fmt.Errorf("chmod +x %s: %w", bin, err)
-	}
 	reportPath := filepath.Join(scratch, "play-report.json")
 	_ = os.Remove(reportPath)
 	screenshotPath := filepath.Join(scratch, "play-screenshot.png")
 	_ = os.Remove(screenshotPath)
-	argv, err := launchCommand(bin, plat, mode, compat)
-	if err != nil {
-		return err
+	hud := buildPlayHUD(target, mode, compat, buildHost)
+	var runErr error
+	if plat.GOOS == product.GOOSJS || compat == "chrome" || compat == "firefox" {
+		runErr = runBrowserPlay(browserPlayOpts{
+			scratch:        scratch,
+			target:         target,
+			link:           mode.String(),
+			compat:         compat,
+			buildHost:      buildHost,
+			reportPath:     reportPath,
+			screenshotPath: screenshotPath,
+			hud:            hud,
+			timeout:        timeout,
+		})
+	} else {
+		bin, err := releaseBinary(scratch, example, plat, mode)
+		if err != nil {
+			return err
+		}
+		// download-artifact strips the executable bit; restore it.
+		if err := os.Chmod(bin, 0755); err != nil {
+			return fmt.Errorf("chmod +x %s: %w", bin, err)
+		}
+		argv, err := launchCommand(bin, plat, mode, compat)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("==> play %s [%s] compat=%s build-host=%s: %s\n", target, mode, compatOrNative(compat), buildHostOrLocal(buildHost), strings.Join(argv, " "))
+		ctx, cancel := contextWithTimeout(timeout)
+		defer cancel()
+		c := exec.CommandContext(ctx, argv[0], argv[1:]...)
+		c.Env = append(os.Environ(),
+			product.EnvPlay+"=1",
+			product.EnvPlayReport+"="+reportPath,
+			product.EnvPlayScreenshot+"="+screenshotPath,
+			product.EnvPlayHUD+"="+hud,
+		)
+		c.Env = append(c.Env, protonEnv(compat)...)
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+		runErr = c.Run()
 	}
-	fmt.Printf("==> play %s [%s] compat=%s build-host=%s: %s\n", target, mode, compatOrNative(compat), buildHostOrLocal(buildHost), strings.Join(argv, " "))
-	ctx, cancel := contextWithTimeout(timeout)
-	defer cancel()
-	c := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	c.Env = append(os.Environ(),
-		product.EnvPlay+"=1",
-		product.EnvPlayReport+"="+reportPath,
-		product.EnvPlayScreenshot+"="+screenshotPath,
-		product.EnvPlayHUD+"="+buildPlayHUD(target, mode, compat, buildHost),
-	)
-	c.Env = append(c.Env, protonEnv(compat)...)
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	runErr := c.Run()
 	if runErr != nil {
 		// engine exit is best-effort: bot quits via SceneTree which exits 0 even on player crash; the report is the source of truth.
 		fmt.Fprintf(os.Stderr, "engine exit: %v\n", runErr)

@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"graphics.gd/classdb/CanvasLayer"
 	"graphics.gd/classdb/Control"
@@ -95,38 +94,14 @@ func (t *playBot) finish(crashed bool) {
 		"game_data": gameData,
 		"hud_data":  t.hudCols,
 	}
-	if path := os.Getenv(product.EnvPlayReport); path != "" {
-		data, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			panic(fmt.Errorf("marshal play report: %w", err))
-		}
-		if err := os.WriteFile(path, data, 0644); err != nil {
-			panic(fmt.Errorf("write play report %s: %w", path, err))
-		}
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		panic(fmt.Errorf("marshal play report: %w", err))
 	}
-	t.snapshot()
+	writePlayReport(data)
+	writePlayScreenshotFromViewport()
 	if tree, ok := Object.As[SceneTree.Instance](Engine.GetMainLoop()); ok {
 		tree.Quit()
-	}
-}
-
-// snapshot writes a PNG of the root viewport's current frame to
-// $GDNEXT_PLAY_SCREENSHOT when set. SavePngToBuffer + os.WriteFile is
-// used (rather than Image.SavePng with a `user://...` path) so the CI
-// driver can hand any absolute host path it owns and pick the file up
-// from there directly.
-func (t *playBot) snapshot() {
-	path := os.Getenv(product.EnvPlayScreenshot)
-	if path == "" {
-		return
-	}
-	tree, ok := Object.As[SceneTree.Instance](Engine.GetMainLoop())
-	if !ok {
-		panic("play screenshot requested but engine main loop is not a SceneTree")
-	}
-	data := tree.Root().AsViewport().GetTexture().AsTexture2D().GetImage().SavePngToBuffer()
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		panic(fmt.Errorf("write play screenshot %s: %w", path, err))
 	}
 }
 
@@ -134,11 +109,11 @@ func (t *playBot) snapshot() {
 // viewport with build/CI provenance and returns the fully-populated
 // column slice (Godot Version prepended) so the play report can
 // archive the same HUD next to the game data. Columns come from
-// $GDNEXT_PLAY_HUD (JSON, supplied by `gdnext ci play-cell`).
-// Returns nil when the env is empty so the overlay doesn't leak
-// into local runs.
+// $GDNEXT_PLAY_HUD on native builds and from the URL query string on
+// WASM (see play_env.go / play_env_js.go). Returns nil when the env
+// is empty so the overlay doesn't leak into local runs.
 func mountDebugOverlay(game *CanaryBird) []product.PlayHUDColumn {
-	raw := os.Getenv(product.EnvPlayHUD)
+	raw := playEnv(product.EnvPlayHUD)
 	if raw == "" {
 		return nil
 	}

@@ -130,7 +130,12 @@ var (
 // shape: PlayLinuxAmd64 is the native linux play host; PlayLinuxAmd64Wine
 // drives windows artefacts through wine; PlayLinuxAmd64Proton{,8,9,10}
 // drive them through pinned GE-Proton versions that mirror Steam's
-// bundled compatibility tool dropdown (Proton 8.0 / 9.0 / 10.0 / latest).
+// bundled compatibility tool dropdown (Proton 8.0 / 9.0 / 10.0 / latest);
+// PlayLinuxAmd64Chrome and PlayLinuxAmd64Firefox drive js/wasm artefacts
+// through a headless browser launched via Playwright (the CI driver
+// stands up a localhost HTTP server with COEP/COOP headers, navigates
+// the browser to the index.html, and round-trips the play report via
+// console.log because wasm has no host filesystem).
 // The exact GE-Proton tag each token resolves to is decided by the CI
 // driver — see protonRelease() in cmd/gdnext/internal/ci/play_cell.go.
 var PlayMatrix = []PlayHost{
@@ -140,6 +145,8 @@ var PlayMatrix = []PlayHost{
 	PlayLinuxAmd64Proton10,
 	PlayLinuxAmd64Proton9,
 	PlayLinuxAmd64Proton8,
+	PlayLinuxAmd64Chrome,
+	PlayLinuxAmd64Firefox,
 	PlayWindowsAmd64,
 	PlayDarwinArm64,
 }
@@ -179,6 +186,18 @@ var (
 		GOARCH:         GOARCHAmd64,
 		VirtualDisplay: "xvfb",
 		CompatLayer:    "proton-8",
+	}
+	PlayLinuxAmd64Chrome = PlayHost{
+		GOOS:           GOOSLinux,
+		GOARCH:         GOARCHAmd64,
+		VirtualDisplay: "xvfb",
+		CompatLayer:    "chrome",
+	}
+	PlayLinuxAmd64Firefox = PlayHost{
+		GOOS:           GOOSLinux,
+		GOARCH:         GOARCHAmd64,
+		VirtualDisplay: "xvfb",
+		CompatLayer:    "firefox",
 	}
 	PlayWindowsAmd64 = PlayHost{
 		GOOS:   GOOSWindows,
@@ -357,8 +376,10 @@ var (
 		Status:     Supported,
 		LinkModes:  GDExtension,
 		BuildHosts: HostMatrix,
+		PlayHosts:  []PlayHost{PlayLinuxAmd64Chrome, PlayLinuxAmd64Firefox},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"gl_compatibility"},
+		Quirks:     []Quirk{QuirkWebWasmGDExtensionPlayBroken},
 		Notes:      "COEP/COOP headers required when serving",
 	}
 )
