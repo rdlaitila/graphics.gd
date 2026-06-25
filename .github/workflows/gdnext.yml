@@ -336,7 +336,7 @@ jobs:
             wine)
               sudo dpkg --add-architecture i386
               sudo apt-get update -y
-              sudo apt-get install -y --no-install-recommends wine wine64
+              sudo apt-get install -y --no-install-recommends wine wine64 wine32:i386
               ;;
             proton|proton-8|proton-9|proton-10)
               # umu-launcher isn't on PyPI; install the upstream
