@@ -147,7 +147,7 @@ jobs:
     needs: [discover-targets, gdnext-checks]
     # Pin the displayed name so the matrix axes (which include long
     # artefact slugs + boolean flags) don't leak into the UI label.
-    name: gdnext-build (${{ matrix.os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.experimental && ', exp' || '' }})
+    name: gdnext-build (${{ matrix.os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.allow_fail && ', allow-fail' || '' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -189,76 +189,6 @@ jobs:
           echo "tmp=$tmp" >> $GITHUB_OUTPUT
           gdnext ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
 
-      # `rename darwin_<arch>.dylib~ darwin_<arch>.dylib: Access is
-      # denied` keeps surfacing on windows-latest. Defender's
-      # WdFilter minifilter cannot be detached from CI (Tamper
-      # Protection blocks every disable lever short of the runner
-      # being a different image). So we layer the cheap mitigations
-      # here — path / process / extension exclusions, realtime off,
-      # WSearch stop — and rely on a single-shot retry inside the
-      # macOS builder for the residual rename race. Best-effort,
-      # Windows-only.
-      - name: Disable Windows Defender on build dirs
-        if: runner.os == 'Windows'
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          $paths = @(
-            '${{ steps.stage.outputs.tmp }}',
-            "$env:USERPROFILE\gd",
-            "$env:USERPROFILE\go",
-            "$env:LOCALAPPDATA\go-build",
-            "$env:LOCALAPPDATA\Temp",
-            "$env:TEMP",
-            'C:\hostedtoolcache\windows\go',
-            '${{ github.workspace }}',
-            'D:\a'
-          )
-          foreach ($p in $paths) {
-            try { Add-MpPreference -ExclusionPath $p -ErrorAction Stop } catch { Write-Host "skip path $p : $_" }
-          }
-          $procs = @(
-            'link.exe','go.exe','zig.exe','compile.exe','cgo.exe',
-            'gdnext.exe','godot.exe','cc.exe','clang.exe','clang++.exe',
-            'ld.exe','asm.exe'
-          )
-          foreach ($proc in $procs) {
-            try { Add-MpPreference -ExclusionProcess $proc -ErrorAction Stop } catch { Write-Host "skip proc $proc : $_" }
-          }
-          $exts = @('dylib','so','dll','a','lib','wasm','exe','tmp')
-          foreach ($ext in $exts) {
-            try { Add-MpPreference -ExclusionExtension $ext -ErrorAction Stop } catch { Write-Host "skip ext $ext : $_" }
-          }
-          # Heavy hammer: turn the engine itself off. windows-latest
-          # ships with Tamper Protection disabled, so this is allowed.
-          try {
-            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
-            Set-MpPreference -DisableBehaviorMonitoring $true -ErrorAction Stop
-            Set-MpPreference -DisableIOAVProtection $true -ErrorAction Stop
-            Set-MpPreference -DisableScriptScanning $true -ErrorAction Stop
-            Set-MpPreference -DisableArchiveScanning $true -ErrorAction Stop
-            Write-Host "Defender realtime/behaviour/IOAV scanning disabled"
-          } catch {
-            Write-Host "Set-MpPreference failed: $_"
-          }
-          # WSearch keeps file handles open on freshly written files
-          # while it indexes; same symptom as Defender.
-          try {
-            Stop-Service -Name WSearch -Force -ErrorAction Stop
-            Set-Service -Name WSearch -StartupType Disabled -ErrorAction Stop
-            Write-Host "WSearch indexer stopped"
-          } catch {
-            Write-Host "WSearch stop failed: $_"
-          }
-          Write-Host "--- Get-MpPreference summary ---"
-          Get-MpComputerStatus | Format-List RealTimeProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled,AntivirusEnabled
-          Write-Host "--- exclusion paths ---"
-          (Get-MpPreference).ExclusionPath
-          Write-Host "--- exclusion processes ---"
-          (Get-MpPreference).ExclusionProcess
-          Write-Host "--- exclusion extensions ---"
-          (Get-MpPreference).ExclusionExtension
-
       # Confirm the cache restore brought ~/gd in fully. --fix runs
       # install for whatever's missing, so a cold cache still works
       # (just slower) and a stale cache self-heals.
@@ -266,82 +196,20 @@ jobs:
         shell: bash
         run: gdnext toolchain doctor --fix
 
-      # gsudo elevates the build on Windows. The job process runs as
-      # 'runneradmin' but unelevated (UAC split token), and Defender's
-      # WdFilter intercepts link.exe's `<out>~` -> `<out>` rename in
-      # that token. Running the build elevated lets us probe whether
-      # the rename succeeds with admin privileges; if it still fails
-      # we can extend this step to fltmc-detach WdFilter from D:
-      # before invoking gdnext.
-      - name: Install gsudo
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install -y gsudo --no-progress
-          # choco appends gsudo to the machine PATH but subsequent
-          # steps inherit only the captured job PATH, so export it.
-          Add-Content -Path $env:GITHUB_PATH -Value 'C:\tools\gsudo\Current'
-
-      # Elevated pre-build hardening. gsudo gives us a real admin
-      # token (vs the job's unelevated split token), so we can do
-      # everything the previous unelevated attempts couldn't: stop
-      # WinDefend / MDCoreSvc / Sense, detach WdFilter from D:, and
-      # widen DACLs on the scratch + graphics dirs to Everyone:F.
-      # The script also dumps `whoami /priv` so we can confirm the
-      # elevation actually took.
-      - name: Pre-build elevated hardening
-        if: runner.os == 'Windows'
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          $tmp = '${{ steps.stage.outputs.tmp }}'
-          $script = "$env:RUNNER_TEMP\elevated-prebuild.ps1"
-          @"
-          Write-Host '--- elevated whoami ---'
-          whoami /priv | Out-Host
-          Write-Host '--- stop Defender services ---'
-          foreach (`$svc in @('WinDefend','MDCoreSvc','Sense','SecurityHealthService')) {
-            try {
-              Stop-Service -Name `$svc -Force -ErrorAction Stop
-              Set-Service  -Name `$svc -StartupType Disabled -ErrorAction Stop
-              Write-Host ("stopped " + `$svc)
-            } catch {
-              Write-Host ("skip "    + `$svc + ' : ' + `$_)
-            }
-          }
-          Write-Host '--- detach minifilters from D: ---'
-          foreach (`$flt in @('WdFilter','WdNisDrv','MsSecFlt')) {
-            `$r = & fltmc detach `$flt D: 2>&1
-            Write-Host ("fltmc detach " + `$flt + ' D: => ' + `$r)
-          }
-          Write-Host '--- widen DACLs on scratch + graphics ---'
-          foreach (`$p in @('$tmp', (Join-Path '$tmp' 'graphics'))) {
-            if (Test-Path `$p) {
-              & icacls `$p /grant 'Everyone:(OI)(CI)F' /T /Q | Out-Null
-              Write-Host ('icacls Everyone:F on ' + `$p)
-            }
-          }
-          Write-Host '--- fltmc instances (D:) post-hardening ---'
-          fltmc instances -v D: | Out-Host
-          "@ | Set-Content -Path $script -Encoding UTF8
-          gsudo --loglevel none -- pwsh -NoProfile -ExecutionPolicy Bypass -File $script
-
       # Build the matrix's target. (goos, goarch) is validated against
       # product.PlatformMatrix inside `gdnext ci build-target`, so a
       # typo'd target fails with a clear "unknown platform" message
-      # instead of a cryptic deeper error. Experimental targets carry
-      # continue-on-error so the job stays green when they break —
-      # the failure still shows up in the matrix UI as a yellow row.
-      - name: Build ${{ matrix.target }} [${{ matrix.link || 'default' }}]${{ matrix.experimental && ' (experimental)' || '' }}
-        continue-on-error: ${{ matrix.experimental }}
+      # instead of a cryptic deeper error. allow-fail targets (set by
+      # an experimental Status bit or a QuirkCIBuildBroken on the
+      # current host) run with continue-on-error so the job stays
+      # green when they break — GHA can't render the cell yellow, but
+      # `gdnext ci workflow-summary` tags the row `(allow-fail)`.
+      - name: Build ${{ matrix.target }} [${{ matrix.link || 'default' }}]${{ matrix.allow_fail && ' (allow-fail)' || '' }}
+        continue-on-error: ${{ matrix.allow_fail }}
         shell: bash
         run: |
           IFS=/ read -r goos goarch <<< "${{ matrix.target }}"
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            gsudo --loglevel none -- gdnext ci build-target --goos "$goos" --goarch "$goarch" --link "${{ matrix.link }}" --scratch "${{ steps.stage.outputs.tmp }}"
-          else
-            gdnext ci build-target --goos "$goos" --goarch "$goarch" --link "${{ matrix.link }}" --scratch "${{ steps.stage.outputs.tmp }}"
-          fi
+          gdnext ci build-target --goos "$goos" --goarch "$goarch" --link "${{ matrix.link }}" --scratch "${{ steps.stage.outputs.tmp }}"
 
       - name: Tree ${{ matrix.target }} [${{ matrix.link || 'default' }}]
         if: always()
@@ -413,7 +281,7 @@ jobs:
   gdnext-play:
     needs: [discover-plays]
     if: ${{ always() && needs.discover-plays.outputs.empty == 'false' }}
-    name: gdnext-play (${{ matrix.os }}, ${{ matrix.build_os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.experimental && ', exp' || '' }})
+    name: gdnext-play (${{ matrix.os }}, ${{ matrix.build_os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.allow_fail && ', allow-fail' || '' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -453,7 +321,7 @@ jobs:
           fi
 
       - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] (built on ${{ matrix.build_os }})
-        continue-on-error: ${{ matrix.experimental }}
+        continue-on-error: ${{ matrix.allow_fail }}
         shell: bash
         run: |
           gdnext ci play-cell \

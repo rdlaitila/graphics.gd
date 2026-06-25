@@ -9,12 +9,12 @@ import (
 // buildRow is one (host, example, target, link) build cell across the
 // window.
 type buildRow struct {
-	Host         string
-	Example      string
-	Target       string
-	Link         string
-	Experimental bool
-	History      history
+	Host      string
+	Example   string
+	Target    string
+	Link      string
+	AllowFail bool
+	History   history
 }
 
 type buildKey struct{ host, example, target, link string }
@@ -42,11 +42,11 @@ func collectBuilds(asc []runWithJobs) []buildRow {
 				rows[k] = row
 				order = append(order, k)
 			}
-			// asc is oldest-first, so this leaves the newest run's
-			// experimental flag in place — flipping a platform between
-			// experimental and stable in product.PlatformMatrix is
-			// reflected immediately, not on a window-rotation delay.
-			row.Experimental = exp
+			// asc is oldest-first, so the newest run's allow-fail flag
+			// is what's left in place — changes to a Quirk's scope or to
+			// Status's Experimental bit reflect immediately, not on a
+			// window-rotation delay.
+			row.AllowFail = exp
 			row.History[i] = entryFromJob(j)
 		}
 	}
@@ -81,8 +81,8 @@ func renderBuildsMarkdown(w io.Writer, rows []buildRow) {
 		if link == "" {
 			link = "—"
 		}
-		if r.Experimental {
-			link += " (exp.)"
+		if r.AllowFail {
+			link += " (allow-fail)"
 		}
 		writeMarkdownRow(w, []string{r.Example, r.Target, link, r.Host}, r.History)
 	}

@@ -9,13 +9,13 @@ import (
 // playRow is one (play-host, build-host, target, link) play cell
 // across the window. Populated from `gdnext-play` jobs only.
 type playRow struct {
-	PlayHost     string
-	BuildHost    string
-	Example      string
-	Target       string
-	Link         string
-	Experimental bool
-	History      history
+	PlayHost  string
+	BuildHost string
+	Example   string
+	Target    string
+	Link      string
+	AllowFail bool
+	History   history
 }
 
 type playKey struct{ playHost, buildHost, example, target, link string }
@@ -44,7 +44,7 @@ func collectPlays(asc []runWithJobs) []playRow {
 				rows[k] = row
 				order = append(order, k)
 			}
-			row.Experimental = exp
+			row.AllowFail = exp
 			row.History[i] = entryFromJob(j)
 		}
 	}
@@ -79,8 +79,8 @@ func renderPlaysMarkdown(w io.Writer, rows []playRow) {
 		if link == "" {
 			link = "—"
 		}
-		if r.Experimental {
-			link += " (exp.)"
+		if r.AllowFail {
+			link += " (allow-fail)"
 		}
 		writeMarkdownRow(w, []string{r.Example, r.Target, link, r.BuildHost, r.PlayHost}, r.History)
 	}

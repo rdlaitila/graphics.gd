@@ -28,13 +28,13 @@ type PlayMatrixCommand struct {
 type PlayMatrixActions struct{}
 
 type playMatrixRow struct {
-	OS           string `json:"os"`
-	BuildOS      string `json:"build_os"`
-	Example      string `json:"example"`
-	Target       string `json:"target"`
-	Link         string `json:"link,omitempty"`
-	Experimental bool   `json:"experimental"`
-	Artifact     string `json:"artifact"`
+	OS        string `json:"os"`
+	BuildOS   string `json:"build_os"`
+	Example   string `json:"example"`
+	Target    string `json:"target"`
+	Link      string `json:"link,omitempty"`
+	AllowFail bool   `json:"allow_fail"`
+	Artifact  string `json:"artifact"`
 }
 
 // NewPlayMatrixCommand constructs the play-matrix subcommand.
@@ -127,7 +127,8 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 			if len(platform.PlayHosts) == 0 {
 				continue
 			}
-			experimental := platform.Status.Has(product.Experimental)
+			allowFail := platform.Status.Has(product.Experimental) ||
+				platform.CIBlockedFor(buildHost.Host.GOOS, buildHost.Host.GOARCH)
 			modes := []product.LinkMode{0}
 			if platform.LinkModes != 0 {
 				modes = modes[:0]
@@ -154,13 +155,13 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 							continue
 						}
 						out = append(out, playMatrixRow{
-							OS:           playRunner,
-							BuildOS:      buildHost.Runner,
-							Example:      ex,
-							Target:       platform.Tuple(),
-							Link:         link,
-							Experimental: experimental,
-							Artifact:     ArtifactName(buildHost.Runner, ex, platform.Tuple(), link),
+							OS:        playRunner,
+							BuildOS:   buildHost.Runner,
+							Example:   ex,
+							Target:    platform.Tuple(),
+							Link:      link,
+							AllowFail: allowFail,
+							Artifact:  ArtifactName(buildHost.Runner, ex, platform.Tuple(), link),
 						})
 					}
 				}

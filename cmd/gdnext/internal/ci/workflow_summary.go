@@ -563,18 +563,18 @@ func collect(window []runWithJobs, branch string) summary {
 	return s
 }
 
-// parseLinkExp pulls (link, experimental) out of the suffix axes
-// after (host, example, target). Pinned build job names render the
-// suffix as `(link, experimental)`; pre-rename runs in the window
-// include extra trailing axes — content detection (LinkMode catalog
-// for link, bool literal for experimental) stays robust to both.
-func parseLinkExp(tail []string) (link string, experimental bool) {
+// parseLinkExp pulls (link, allow-fail) out of the suffix axes after
+// (host, example, target). Pinned build job names render the suffix
+// as `(link, allow-fail)`; pre-rename runs in the window include
+// extra trailing axes — content detection (LinkMode catalog for link,
+// bool literal for allow-fail) stays robust to both.
+func parseLinkExp(tail []string) (link string, allowFail bool) {
 	if len(tail) > 0 && isLinkMode(tail[0]) {
 		link = tail[0]
 	}
 	for _, t := range tail {
 		if t == "true" {
-			experimental = true
+			allowFail = true
 			return
 		}
 		if t == "false" {

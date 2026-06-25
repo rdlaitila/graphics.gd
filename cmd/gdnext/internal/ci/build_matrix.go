@@ -43,13 +43,13 @@ type MatrixCommand struct {
 type MatrixActions struct{}
 
 type matrixRow struct {
-	OS           string `json:"os"`
-	Example      string `json:"example"`
-	Target       string `json:"target"`
-	Link         string `json:"link,omitempty"`
-	Experimental bool   `json:"experimental"`
-	Playable     bool   `json:"playable"`
-	Artifact     string `json:"artifact,omitempty"`
+	OS        string `json:"os"`
+	Example   string `json:"example"`
+	Target    string `json:"target"`
+	Link      string `json:"link,omitempty"`
+	AllowFail bool   `json:"allow_fail"`
+	Playable  bool   `json:"playable"`
+	Artifact  string `json:"artifact,omitempty"`
 }
 
 // NewMatrixCommand constructs the matrix subcommand.
@@ -103,8 +103,8 @@ func (t *MatrixActions) action(_ context.Context, cmd *cli.Command) error {
 		fmt.Fprintf(os.Stderr, "Build matrix (%d cells):\n", len(rows))
 		for _, r := range rows {
 			tag := ""
-			if r.Experimental {
-				tag = "  (experimental)"
+			if r.AllowFail {
+				tag = "  (allow-fail)"
 			}
 			link := r.Link
 			if link == "" {
@@ -140,7 +140,8 @@ func buildMatrix(examples []string, filter matrixFilter) []matrixRow {
 			if !filter.allows(host.Host.Tuple(), platform.Tuple()) {
 				continue
 			}
-			experimental := platform.Status.Has(product.Experimental)
+			allowFail := platform.Status.Has(product.Experimental) ||
+				platform.CIBlockedFor(host.Host.GOOS, host.Host.GOARCH)
 			modes := []product.LinkMode{0}
 			if platform.LinkModes != 0 {
 				modes = modes[:0]
@@ -167,13 +168,13 @@ func buildMatrix(examples []string, filter matrixFilter) []matrixRow {
 						artifact = ArtifactName(host.Runner, ex, platform.Tuple(), link)
 					}
 					out = append(out, matrixRow{
-						OS:           host.Runner,
-						Example:      ex,
-						Target:       platform.Tuple(),
-						Link:         link,
-						Experimental: experimental,
-						Playable:     playable,
-						Artifact:     artifact,
+						OS:        host.Runner,
+						Example:   ex,
+						Target:    platform.Tuple(),
+						Link:      link,
+						AllowFail: allowFail,
+						Playable:  playable,
+						Artifact:  artifact,
 					})
 				}
 			}
