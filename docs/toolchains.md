@@ -231,7 +231,7 @@ Example (per-tool header, source URL, and full sha256 line per artefact):
 toolchain install for linux/amd64
 
 ==> godot v4.6.2
-    source: https://github.com/godotengine/godot/releases/download/4.6.2-stable/Godot_v4.6.2-stable_linux.x86_64.zip
+    source: https://github.com/godotengine/godot/releases/download/4.7-stable/Godot_v4.7-stable_linux.x86_64.zip
     skip: already installed (gd-managed at /home/me/gd/bin/godot)
     sha256:30e6b6d141f0cd5bebd629ad1d0ef1324e60091bb20662d026b402ba58c59937
 

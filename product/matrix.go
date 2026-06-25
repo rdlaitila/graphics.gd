@@ -418,9 +418,9 @@ var (
 	ToolchainGodot = Toolchain{
 		Slug:           "godot",
 		Name:           "godot",
-		Version:        "4.6.2",
+		Version:        "4.7",
 		VersionFlags:   []string{"--version"},
-		VersionPrefix:  "4.6.",
+		VersionPrefix:  "4.7.",
 		RequiredFor:    "graphics",
 		AvailableHosts: HostMatrix,
 		DownloadHint:   "https://godotengine.org/download",
@@ -435,6 +435,11 @@ var (
 			"-gcflags": "",
 		},
 		KnownChecksums: []string{
+			// 4.7
+			"sha256:a6708c336f690e0dd8abd3d587d661707f4f33ed436946a3ec000d2fb497fd6c", // darwin (macos.universal)
+			"sha256:0b1a6c54c2c619c12e169fe9241edda4b81080b519451cec2984bf0d2c6cb73c", // linux/amd64
+			"sha256:02a5312236f4e0209c78bcb2f52135b1963e6b8888c873c9cee81459e60bcd71", // windows/amd64
+			// 4.6.2
 			"sha256:666b2a64e4b5c59db0e4974605b888eb72eb7d4e60e870d2be6cc19727b50807", // darwin/arm64
 			"sha256:30e6b6d141f0cd5bebd629ad1d0ef1324e60091bb20662d026b402ba58c59937", // linux/amd64
 			"sha256:14293422efb54b24a51f79d4cb55ab4001ef3d936e064a6c8af32e1f984024be", // windows/amd64
