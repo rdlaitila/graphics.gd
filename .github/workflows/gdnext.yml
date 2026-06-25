@@ -339,11 +339,19 @@ jobs:
               sudo apt-get install -y --no-install-recommends wine wine64
               ;;
             proton|proton-8|proton-9|proton-10)
-              # umu-launcher drives Proton outside Steam. python3 is
-              # preinstalled on ubuntu-latest; install umu via pip
-              # into the user prefix and export it onto PATH.
-              python3 -m pip install --user umu-launcher
-              echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+              # umu-launcher isn't on PyPI; install the upstream
+              # ubuntu-noble .deb published with each tagged release.
+              umu_ver="1.4.0"
+              umu_deb="python3-umu-launcher_${umu_ver}-1_amd64_ubuntu-noble.deb"
+              umu_url="https://github.com/Open-Wine-Components/umu-launcher/releases/download/${umu_ver}/${umu_deb}"
+              if ! command -v umu-run >/dev/null 2>&1; then
+                echo "::group::install umu-launcher ${umu_ver}"
+                tmp=$(mktemp -d)
+                curl -fsSL -o "$tmp/${umu_deb}" "$umu_url"
+                sudo apt-get install -y "$tmp/${umu_deb}"
+                rm -rf "$tmp"
+                echo "::endgroup::"
+              fi
               # Fetch the pinned GE-Proton tarball only when the cache
               # missed; otherwise the restore step already populated it.
               compat_dir="$HOME/.local/share/Steam/compatibilitytools.d"
