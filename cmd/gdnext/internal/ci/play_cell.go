@@ -28,13 +28,6 @@ type PlayCellCommand struct {
 // PlayCellActions carries the runtime state.
 type PlayCellActions struct{}
 
-type playReport struct {
-	Score   int     `json:"score"`
-	Flaps   int     `json:"flaps"`
-	Elapsed float64 `json:"elapsed"`
-	Crashed bool    `json:"crashed"`
-}
-
 type target struct{ GOOS, GOARCH string }
 
 // NewPlayCellCommand constructs the play-cell subcommand.
@@ -51,7 +44,6 @@ func NewPlayCellCommand(di do.Injector) (*PlayCellCommand, error) {
 			&cli.StringFlag{Name: "compat", Usage: "compatibility layer to drive the target through (wine|proton|proton-9|...); blank = native"},
 			&cli.StringFlag{Name: "build-host", Usage: "GHA runner label that produced the artefact (informational; surfaced on the HUD)"},
 			&cli.DurationFlag{Name: "timeout", Value: 90 * time.Second, Usage: "hard kill after this much wall-clock time"},
-			&cli.IntFlag{Name: "min-score", Value: 1, Usage: "minimum score for a passing report"},
 		},
 		Action: shared.BindAction(t.Injector, (*PlayCellActions).action),
 	}
@@ -74,7 +66,6 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	compat := cmd.String("compat")
 	buildHost := cmd.String("build-host")
 	timeout := cmd.Duration("timeout")
-	minScore := int(cmd.Int("min-score"))
 	plat, ok := parseTuple(target)
 	if !ok {
 		return fmt.Errorf("invalid --target %q (want goos/goarch)", target)
@@ -107,10 +98,10 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	defer cancel()
 	c := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	c.Env = append(os.Environ(),
-		"GDNEXT_PLAY=1",
-		"GDNEXT_PLAY_REPORT="+reportPath,
-		"GDNEXT_PLAY_SCREENSHOT="+screenshotPath,
-		"GDNEXT_PLAY_LABEL="+buildPlayLabel(target, mode, compat, buildHost),
+		product.EnvPlay+"=1",
+		product.EnvPlayReport+"="+reportPath,
+		product.EnvPlayScreenshot+"="+screenshotPath,
+		product.EnvPlayHUD+"="+buildPlayHUD(target, mode, compat, buildHost),
 	)
 	c.Env = append(c.Env, protonEnv(compat)...)
 	c.Stdout = os.Stdout
@@ -127,18 +118,20 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("play report unreadable at %s: %w (engine exit: %v)", reportPath, err, runErr)
 	}
-	fmt.Printf("==> report: score=%d flaps=%d elapsed=%.2fs crashed=%v\n",
-		report.Score, report.Flaps, report.Elapsed, report.Crashed)
-	if report.Score < minScore {
-		return fmt.Errorf("play failed: score %d < min %d", report.Score, minScore)
-	}
-	if report.Elapsed < 1.0 {
-		return fmt.Errorf("play failed: elapsed %.2fs < 1s (engine likely exited before bot ticked)", report.Elapsed)
-	}
-	if !report.Crashed {
-		return fmt.Errorf("play failed: bot exited without crashing (gameOver path not exercised)")
+	fmt.Printf("==> report: success=%v game_data=%s\n", report.Success, gameDataSummary(report.GameData))
+	if !report.Success {
+		return fmt.Errorf("play failed: example reported success=false (game_data=%s)", gameDataSummary(report.GameData))
 	}
 	return nil
+}
+
+// gameDataSummary renders a compact one-line preview of an example's
+// game_data blob for the CI log. Empty payloads render as `{}`.
+func gameDataSummary(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return "{}"
+	}
+	return string(raw)
 }
 
 // releaseBinary resolves the playable artefact written by `gdnext
@@ -285,8 +278,8 @@ func mustExecutable(path string) (string, error) {
 	return path, nil
 }
 
-func readReport(path string) (playReport, error) {
-	var r playReport
+func readReport(path string) (product.PlayReport, error) {
+	var r product.PlayReport
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return r, err
@@ -312,36 +305,38 @@ func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), d)
 }
 
-// buildPlayLabel composes the multi-line HUD label the example
-// stamps top-right when GDNEXT_PLAY is set. Every field is best-
-// effort: missing env vars just don't appear on the overlay.
-func buildPlayLabel(target string, mode product.LinkMode, compat, buildHost string) string {
-	lines := []string{
-		"target " + target,
-		"link   " + mode.String(),
-		"compat " + compatOrNative(compat),
-		"host   " + runtime.GOOS + "/" + runtime.GOARCH,
+// hudColumn mirrors the struct the canarybird example parses out of
+// $GDNEXT_PLAY_HUD; ordering is preserved so the HUD's column layout
+// matches the slice order built by buildPlayHUD.
+type hudColumn = product.PlayHUDColumn
+
+// buildPlayHUD returns the JSON payload the example renders as a
+// bottom-spanning, one-row provenance table. The Godot Version
+// column is filled in by the running engine itself, so this slice
+// covers everything the CLI/CI side knows: target tuple, link mode,
+// build/play hosts, compat layer, and the workflow's GITHUB_* env.
+func buildPlayHUD(target string, mode product.LinkMode, compat, buildHost string) string {
+	cols := []hudColumn{
+		{Name: "Target Host", Value: target},
+		{Name: "Link Mode", Value: mode.String()},
+		{Name: "Build Host", Value: buildHostOrLocal(buildHost)},
+		{Name: "Play Host", Value: runtime.GOOS + "/" + runtime.GOARCH},
+		{Name: "Compat Mode", Value: compatOrNative(compat)},
+		{Name: "GH Runner", Value: strings.ToLower(os.Getenv("RUNNER_OS"))},
+		{Name: "GH Run ID", Value: os.Getenv("GITHUB_RUN_ID")},
+		{Name: "GIT Ref", Value: os.Getenv("GITHUB_REF_NAME")},
+		{Name: "GIT Sha", Value: shortSha(os.Getenv("GITHUB_SHA"))},
 	}
-	if buildHost != "" {
-		lines = append(lines, "build  "+buildHost)
+	data, err := json.Marshal(cols)
+	if err != nil {
+		return ""
 	}
-	if v := os.Getenv("RUNNER_OS"); v != "" {
-		lines = append(lines, "runner "+strings.ToLower(v))
+	return string(data)
+}
+
+func shortSha(s string) string {
+	if len(s) > 7 {
+		return s[:7]
 	}
-	if v := os.Getenv("GITHUB_REF_NAME"); v != "" {
-		lines = append(lines, "ref    "+v)
-	}
-	if v := os.Getenv("GITHUB_SHA"); v != "" {
-		if len(v) > 7 {
-			v = v[:7]
-		}
-		lines = append(lines, "sha    "+v)
-	}
-	if v := os.Getenv("GITHUB_RUN_ID"); v != "" {
-		lines = append(lines, "run    "+v)
-	}
-	if v := os.Getenv("GITHUB_RUN_ATTEMPT"); v != "" {
-		lines = append(lines, "try    "+v)
-	}
-	return strings.Join(lines, "\n")
+	return s
 }

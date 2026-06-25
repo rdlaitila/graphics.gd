@@ -2,18 +2,21 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 
 	"graphics.gd/classdb/CanvasLayer"
 	"graphics.gd/classdb/Control"
 	"graphics.gd/classdb/Engine"
 	"graphics.gd/classdb/GUI"
+	"graphics.gd/classdb/GridContainer"
 	"graphics.gd/classdb/Input"
 	"graphics.gd/classdb/Label"
+	"graphics.gd/classdb/PanelContainer"
 	"graphics.gd/classdb/SceneTree"
+	"graphics.gd/product"
 	"graphics.gd/variant/Float"
 	"graphics.gd/variant/Object"
-	"graphics.gd/variant/Vector2"
 )
 
 // playBot scripts canarybird from a fixed flap schedule when
@@ -28,6 +31,7 @@ type playBot struct {
 	holdEnd  Float.X
 	flaps    int
 	exited   bool
+	hudCols  []product.PlayHUDColumn
 }
 
 // playSchedule is the flap timeline in game-seconds from statePlaying.
@@ -38,8 +42,9 @@ var playSchedule = []Float.X{
 
 func newPlayBot(game *CanaryBird) *playBot {
 	Engine.SetMaxFps(60)
-	mountDebugOverlay(game)
-	return &playBot{game: game, schedule: playSchedule}
+	bot := &playBot{game: game, schedule: playSchedule}
+	bot.hudCols = mountDebugOverlay(game)
+	return bot
 }
 
 func (t *playBot) tick(delta Float.X) {
@@ -76,15 +81,27 @@ func (t *playBot) press() {
 
 func (t *playBot) finish(crashed bool) {
 	t.exited = true
-	report := map[string]any{
+	gameData := map[string]any{
 		"score":   t.game.score,
 		"flaps":   t.flaps,
 		"elapsed": t.elapsed,
 		"crashed": crashed,
 	}
-	if path := os.Getenv("GDNEXT_PLAY_REPORT"); path != "" {
-		if data, err := json.MarshalIndent(report, "", "  "); err == nil {
-			_ = os.WriteFile(path, data, 0644)
+	// canarybird passes when the bot reaches gameOver via the floor
+	// (gravity path) with at least one cloud passed under bot control.
+	success := crashed && t.game.score >= 1 && t.elapsed >= 1.0
+	report := map[string]any{
+		"success":   success,
+		"game_data": gameData,
+		"hud_data":  t.hudCols,
+	}
+	if path := os.Getenv(product.EnvPlayReport); path != "" {
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			panic(fmt.Errorf("marshal play report: %w", err))
+		}
+		if err := os.WriteFile(path, data, 0644); err != nil {
+			panic(fmt.Errorf("write play report %s: %w", path, err))
 		}
 	}
 	t.snapshot()
@@ -99,36 +116,70 @@ func (t *playBot) finish(crashed bool) {
 // driver can hand any absolute host path it owns and pick the file up
 // from there directly.
 func (t *playBot) snapshot() {
-	path := os.Getenv("GDNEXT_PLAY_SCREENSHOT")
+	path := os.Getenv(product.EnvPlayScreenshot)
 	if path == "" {
 		return
 	}
 	tree, ok := Object.As[SceneTree.Instance](Engine.GetMainLoop())
 	if !ok {
-		return
+		panic("play screenshot requested but engine main loop is not a SceneTree")
 	}
-	img := tree.Root().AsViewport().GetTexture().AsTexture2D().GetImage()
-	_ = os.WriteFile(path, img.SavePngToBuffer(), 0644)
+	data := tree.Root().AsViewport().GetTexture().AsTexture2D().GetImage().SavePngToBuffer()
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		panic(fmt.Errorf("write play screenshot %s: %w", path, err))
+	}
 }
 
-// mountDebugOverlay stamps build metadata (target tuple, link mode,
-// host, sha, run-id, ...) into the top-right corner. The text comes
-// from $GDNEXT_PLAY_LABEL, which `gdnext ci play-cell` populates from
-// its --target/--link flags and the workflow's GITHUB_* env. Skipped
-// when the env is empty so the overlay doesn't leak into local runs.
-func mountDebugOverlay(game *CanaryBird) {
-	text := os.Getenv("GDNEXT_PLAY_LABEL")
-	if text == "" {
-		return
+// mountDebugOverlay renders a one-row table along the bottom of the
+// viewport with build/CI provenance and returns the fully-populated
+// column slice (Godot Version prepended) so the play report can
+// archive the same HUD next to the game data. Columns come from
+// $GDNEXT_PLAY_HUD (JSON, supplied by `gdnext ci play-cell`).
+// Returns nil when the env is empty so the overlay doesn't leak
+// into local runs.
+func mountDebugOverlay(game *CanaryBird) []product.PlayHUDColumn {
+	raw := os.Getenv(product.EnvPlayHUD)
+	if raw == "" {
+		return nil
 	}
+	var cols []product.PlayHUDColumn
+	if err := json.Unmarshal([]byte(raw), &cols); err != nil {
+		panic(fmt.Errorf("parse %s: %w", product.EnvPlayHUD, err))
+	}
+	cols = append([]product.PlayHUDColumn{{Name: "Godot Version", Value: Engine.GetVersionInfo().String}}, cols...)
 	layer := CanvasLayer.New()
 	game.AsNode().AddChild(layer.AsNode())
-	label := Label.New()
-	label.SetText(text)
-	label.SetHorizontalAlignment(GUI.HorizontalAlignmentRight)
-	ctl := label.AsControl()
-	ctl.SetAnchorsPreset(Control.PresetTopRight)
-	ctl.SetPosition(Vector2.New[Float.X](-260, 16))
-	ctl.SetSize(Vector2.New[Float.X](244, 160))
-	layer.AsNode().AddChild(label.AsNode())
+	panel := PanelContainer.New()
+	pctl := panel.AsControl()
+	pctl.SetAnchorsPreset(Control.PresetBottomWide)
+	pctl.SetOffsetTop(-56)
+	pctl.SetMouseFilter(Control.MouseFilterIgnore)
+	layer.AsNode().AddChild(panel.AsNode())
+	grid := GridContainer.New()
+	grid.SetColumns(len(cols))
+	grid.AsControl().SetMouseFilter(Control.MouseFilterIgnore)
+	panel.AsNode().AddChild(grid.AsNode())
+	for _, c := range cols {
+		h := Label.New()
+		h.SetText(c.Name)
+		h.SetHorizontalAlignment(GUI.HorizontalAlignmentCenter)
+		hctl := h.AsControl()
+		hctl.SetMouseFilter(Control.MouseFilterIgnore)
+		hctl.SetSizeFlagsHorizontal(Control.SizeExpandFill)
+		grid.AsNode().AddChild(h.AsNode())
+	}
+	for _, c := range cols {
+		v := c.Value
+		if v == "" {
+			v = "—"
+		}
+		l := Label.New()
+		l.SetText(v)
+		l.SetHorizontalAlignment(GUI.HorizontalAlignmentCenter)
+		lctl := l.AsControl()
+		lctl.SetMouseFilter(Control.MouseFilterIgnore)
+		lctl.SetSizeFlagsHorizontal(Control.SizeExpandFill)
+		grid.AsNode().AddChild(l.AsNode())
+	}
+	return cols
 }

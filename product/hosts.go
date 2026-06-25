@@ -71,34 +71,6 @@ const (
 	GDManaged
 )
 
-// HostMatrix is the canonical list of platforms that can act as hosts
-// for building graphics.gd projects.
-var HostMatrix = []BuildHost{
-	HostLinuxAmd64,
-	HostWindowsAmd64,
-	HostDarwinAmd64,
-	HostDarwinArm64,
-}
-
-var (
-	HostLinuxAmd64 = BuildHost{
-		GOOS:   GOOSLinux,
-		GOARCH: GOARCHAmd64,
-	}
-	HostWindowsAmd64 = BuildHost{
-		GOOS:   GOOSWindows,
-		GOARCH: GOARCHAmd64,
-	}
-	HostDarwinAmd64 = BuildHost{
-		GOOS:   GOOSDarwin,
-		GOARCH: GOARCHAmd64,
-	}
-	HostDarwinArm64 = BuildHost{
-		GOOS:   GOOSDarwin,
-		GOARCH: GOARCHArm64,
-	}
-)
-
 // Tuple returns the host as "goos/goarch".
 func (t BuildHost) Tuple() string { return Tuple(t.GOOS, t.GOARCH) }
 

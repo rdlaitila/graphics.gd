@@ -21,6 +21,7 @@ import (
 	"graphics.gd/classdb/OmniLight3D"
 	"graphics.gd/classdb/SphereMesh"
 	"graphics.gd/classdb/StandardMaterial3D"
+	"graphics.gd/product"
 	"graphics.gd/variant/Angle"
 	"graphics.gd/variant/Color"
 	"graphics.gd/variant/Euler"
@@ -80,7 +81,7 @@ func (g *CanaryBird) Ready() {
 	g.buildScene()
 	g.buildHUD()
 	g.reset()
-	if os.Getenv("GDNEXT_PLAY") != "" {
+	if os.Getenv(product.EnvPlay) != "" {
 		g.bot = newPlayBot(g)
 	}
 }

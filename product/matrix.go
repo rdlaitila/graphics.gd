@@ -97,8 +97,33 @@ var GOOSAliasLinkMode = map[string]LinkMode{
 	GOOSMusl: LibGodot,
 }
 
-// HostMatrix + Host* declarations live in hosts.go alongside the
-// BuildHost type.
+// HostMatrix is the canonical list of platforms that can act as hosts
+// for building graphics.gd projects.
+var HostMatrix = []BuildHost{
+	HostLinuxAmd64,
+	HostWindowsAmd64,
+	HostDarwinAmd64,
+	HostDarwinArm64,
+}
+
+var (
+	HostLinuxAmd64 = BuildHost{
+		GOOS:   GOOSLinux,
+		GOARCH: GOARCHAmd64,
+	}
+	HostWindowsAmd64 = BuildHost{
+		GOOS:   GOOSWindows,
+		GOARCH: GOARCHAmd64,
+	}
+	HostDarwinAmd64 = BuildHost{
+		GOOS:   GOOSDarwin,
+		GOARCH: GOARCHAmd64,
+	}
+	HostDarwinArm64 = BuildHost{
+		GOOS:   GOOSDarwin,
+		GOARCH: GOARCHArm64,
+	}
+)
 
 // PlayMatrix is the canonical, ordered list of play hosts the CI
 // driver can run `gdnext-play` on. Each variant is one matrix cell
