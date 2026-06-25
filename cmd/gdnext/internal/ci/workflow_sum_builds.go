@@ -57,10 +57,10 @@ func collectBuilds(asc []runWithJobs) []buildRow {
 		if order[a].target != order[b].target {
 			return targetRank(order[a].target) < targetRank(order[b].target)
 		}
-		if order[a].host != order[b].host {
-			return hostRank(order[a].host) < hostRank(order[b].host)
+		if order[a].link != order[b].link {
+			return linkSubrank(order[a].link) < linkSubrank(order[b].link)
 		}
-		return linkSubrank(order[a].link) < linkSubrank(order[b].link)
+		return hostRank(order[a].host) < hostRank(order[b].host)
 	})
 	out := make([]buildRow, 0, len(order))
 	for _, k := range order {
@@ -88,7 +88,7 @@ func renderBuildsMarkdown(w io.Writer, rows []buildRow) {
 		fmt.Fprintln(w)
 		return
 	}
-	writeMarkdownHeader(w, "Example", "Target Host", "Link", "Build Host")
+	writeMarkdownHeader(w, "Example", "Target Host", "Link Mode", "Build Host")
 	for _, r := range rows {
 		link := r.Link
 		if link == "" {

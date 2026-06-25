@@ -6,19 +6,20 @@ import (
 	"sort"
 )
 
-// playRow is one (play-host, build-host, target, link) play cell
-// across the window. Populated from `gdnext-play` jobs only.
+// playRow is one (play-host, build-host, target, link, compat) play
+// cell across the window. Populated from `gdnext-play` jobs only.
 type playRow struct {
 	PlayHost  string
 	BuildHost string
 	Example   string
 	Target    string
 	Link      string
+	Compat    string
 	AllowFail bool
 	History   history
 }
 
-type playKey struct{ playHost, buildHost, example, target, link string }
+type playKey struct{ playHost, buildHost, example, target, link, compat string }
 
 func collectPlays(asc []runWithJobs) []playRow {
 	rows := map[playKey]*playRow{}
@@ -30,7 +31,13 @@ func collectPlays(asc []runWithJobs) []playRow {
 				continue
 			}
 			link, exp := parseLinkExp(axes[4:])
-			k := playKey{playHost: axes[0], buildHost: axes[1], example: axes[2], target: axes[3], link: link}
+			compat := ""
+			if len(axes) >= 6 {
+				if c := axes[5]; c != "true" && c != "false" && c != "allow-fail" {
+					compat = c
+				}
+			}
+			k := playKey{playHost: axes[0], buildHost: axes[1], example: axes[2], target: axes[3], link: link, compat: compat}
 			row, exists := rows[k]
 			if !exists {
 				row = &playRow{
@@ -39,6 +46,7 @@ func collectPlays(asc []runWithJobs) []playRow {
 					Example:   k.example,
 					Target:    k.target,
 					Link:      k.link,
+					Compat:    k.compat,
 					History:   make(history, len(asc)),
 				}
 				rows[k] = row
@@ -73,7 +81,7 @@ func renderPlaysMarkdown(w io.Writer, rows []playRow) {
 		fmt.Fprintln(w)
 		return
 	}
-	writeMarkdownHeader(w, "Example", "Target Host", "Link", "Build Host", "Play Host")
+	writeMarkdownHeader(w, "Example", "Target Host", "Link Mode", "Compat Layer", "Build Host", "Play Host")
 	for _, r := range rows {
 		link := r.Link
 		if link == "" {
@@ -82,7 +90,11 @@ func renderPlaysMarkdown(w io.Writer, rows []playRow) {
 		if r.AllowFail {
 			link += " (allow-fail)"
 		}
-		writeMarkdownRow(w, []string{r.Example, r.Target, link, r.BuildHost, r.PlayHost}, r.History)
+		compat := r.Compat
+		if compat == "" {
+			compat = "native"
+		}
+		writeMarkdownRow(w, []string{r.Example, r.Target, link, compat, r.BuildHost, r.PlayHost}, r.History)
 	}
 	fmt.Fprintln(w)
 }

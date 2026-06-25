@@ -97,29 +97,69 @@ var GOOSAliasLinkMode = map[string]LinkMode{
 	GOOSMusl: LibGodot,
 }
 
-// HostMatrix is the canonical list of platforms that can act as hosts
-// for building graphics.gd projects.
-var HostMatrix = []BuildHost{
-	HostLinuxAmd64,
-	HostWindowsAmd64,
-	HostDarwinAmd64,
-	HostDarwinArm64,
+// HostMatrix + Host* declarations live in hosts.go alongside the
+// BuildHost type.
+
+// PlayMatrix is the canonical, ordered list of play hosts the CI
+// driver can run `gdnext-play` on. Each variant is one matrix cell
+// shape: PlayLinuxAmd64 is the native linux play host; PlayLinuxAmd64Wine
+// drives windows artefacts through wine; PlayLinuxAmd64Proton{,8,9,10}
+// drive them through pinned GE-Proton versions that mirror Steam's
+// bundled compatibility tool dropdown (Proton 8.0 / 9.0 / 10.0 / latest).
+// The exact GE-Proton tag each token resolves to is decided by the CI
+// driver — see protonRelease() in cmd/gdnext/internal/ci/play_cell.go.
+var PlayMatrix = []PlayHost{
+	PlayLinuxAmd64,
+	PlayLinuxAmd64Wine,
+	PlayLinuxAmd64Proton,
+	PlayLinuxAmd64Proton10,
+	PlayLinuxAmd64Proton9,
+	PlayLinuxAmd64Proton8,
+	PlayWindowsAmd64,
+	PlayDarwinArm64,
 }
 
 var (
-	HostLinuxAmd64 = BuildHost{
-		GOOS:   GOOSLinux,
-		GOARCH: GOARCHAmd64,
+	PlayLinuxAmd64 = PlayHost{
+		GOOS:           GOOSLinux,
+		GOARCH:         GOARCHAmd64,
+		VirtualDisplay: "xvfb",
 	}
-	HostWindowsAmd64 = BuildHost{
+	PlayLinuxAmd64Wine = PlayHost{
+		GOOS:           GOOSLinux,
+		GOARCH:         GOARCHAmd64,
+		VirtualDisplay: "xvfb",
+		CompatLayer:    "wine",
+	}
+	PlayLinuxAmd64Proton = PlayHost{
+		GOOS:           GOOSLinux,
+		GOARCH:         GOARCHAmd64,
+		VirtualDisplay: "xvfb",
+		CompatLayer:    "proton",
+	}
+	PlayLinuxAmd64Proton10 = PlayHost{
+		GOOS:           GOOSLinux,
+		GOARCH:         GOARCHAmd64,
+		VirtualDisplay: "xvfb",
+		CompatLayer:    "proton-10",
+	}
+	PlayLinuxAmd64Proton9 = PlayHost{
+		GOOS:           GOOSLinux,
+		GOARCH:         GOARCHAmd64,
+		VirtualDisplay: "xvfb",
+		CompatLayer:    "proton-9",
+	}
+	PlayLinuxAmd64Proton8 = PlayHost{
+		GOOS:           GOOSLinux,
+		GOARCH:         GOARCHAmd64,
+		VirtualDisplay: "xvfb",
+		CompatLayer:    "proton-8",
+	}
+	PlayWindowsAmd64 = PlayHost{
 		GOOS:   GOOSWindows,
 		GOARCH: GOARCHAmd64,
 	}
-	HostDarwinAmd64 = BuildHost{
-		GOOS:   GOOSDarwin,
-		GOARCH: GOARCHAmd64,
-	}
-	HostDarwinArm64 = BuildHost{
+	PlayDarwinArm64 = PlayHost{
 		GOOS:   GOOSDarwin,
 		GOARCH: GOARCHArm64,
 	}
@@ -153,7 +193,7 @@ var (
 		Status:     Supported | Stable,
 		LinkModes:  GDExtension | LibGodot,
 		BuildHosts: HostMatrix,
-		PlayHosts:  []BuildHost{HostLinuxAmd64},
+		PlayHosts:  []PlayHost{PlayLinuxAmd64},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
 		Notes:      "libgodot mode (--link=libgodot or GOOS=musl alias) currently fetches the .musl. artefact",
@@ -180,7 +220,13 @@ var (
 		Status:     Supported | Stable,
 		LinkModes:  GDExtension,
 		BuildHosts: HostMatrix,
-		PlayHosts:  []BuildHost{HostLinuxAmd64},
+		PlayHosts: []PlayHost{
+			PlayLinuxAmd64Wine,
+			PlayLinuxAmd64Proton,
+			PlayLinuxAmd64Proton10,
+			PlayLinuxAmd64Proton9,
+			PlayLinuxAmd64Proton8,
+		},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
 	}

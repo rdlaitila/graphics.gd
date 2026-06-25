@@ -281,7 +281,7 @@ jobs:
   gdnext-play:
     needs: [discover-plays]
     if: ${{ always() && needs.discover-plays.outputs.empty == 'false' }}
-    name: gdnext-play (${{ matrix.os }}, ${{ matrix.build_os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.allow_fail && ', allow-fail' || '' }})
+    name: gdnext-play (${{ matrix.os }}, ${{ matrix.build_os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}, ${{ matrix.compat || 'native' }}${{ matrix.allow_fail && ', allow-fail' || '' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -304,23 +304,73 @@ jobs:
           name: ${{ matrix.artifact }}
           path: scratch
 
-      # xvfb-run gives the engine a virtual display; wine lets linux
-      # runners drive windows binaries. Both are no-ops when not
-      # needed (play-cell short-circuits xvfb when $DISPLAY is set).
-      - name: Install xvfb + wine
+      # xvfb-run gives the engine a virtual display; wine and proton
+      # (via umu-launcher) let linux runners drive windows binaries.
+      # Compat-layer choice comes from the matrix. proton_tag is the
+      # pinned GE-Proton release for proton variants; the install step
+      # fetches the tarball when the cache misses.
+      - name: Restore Proton (${{ matrix.proton_tag }})
+        if: runner.os == 'Linux' && matrix.proton_tag != ''
+        id: restore-proton
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.local/share/Steam/compatibilitytools.d/${{ matrix.proton_tag }}
+          key: proton-${{ matrix.proton_tag }}-v1
+
+      - name: Restore umu runtime cache
+        if: runner.os == 'Linux' && matrix.proton_tag != ''
+        id: restore-umu
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.local/share/umu
+          key: umu-runtime-v1
+
+      - name: Install xvfb + compat layer (${{ matrix.compat || 'native' }})
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends xvfb
-          if [ "${{ matrix.target }}" = "windows/amd64" ]; then
-            sudo dpkg --add-architecture i386
-            sudo apt-get update -y
-            sudo apt-get install -y --no-install-recommends wine wine64
-          fi
+          case "${{ matrix.compat }}" in
+            wine)
+              sudo dpkg --add-architecture i386
+              sudo apt-get update -y
+              sudo apt-get install -y --no-install-recommends wine wine64
+              ;;
+            proton|proton-8|proton-9|proton-10)
+              # umu-launcher drives Proton outside Steam. python3 is
+              # preinstalled on ubuntu-latest; install umu via pip
+              # into the user prefix and export it onto PATH.
+              python3 -m pip install --user umu-launcher
+              echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+              # Fetch the pinned GE-Proton tarball only when the cache
+              # missed; otherwise the restore step already populated it.
+              compat_dir="$HOME/.local/share/Steam/compatibilitytools.d"
+              tag="${{ matrix.proton_tag }}"
+              mkdir -p "$compat_dir"
+              if [ ! -d "$compat_dir/$tag" ]; then
+                echo "::group::download $tag"
+                url="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/$tag/$tag.tar.gz"
+                tmp=$(mktemp -d)
+                curl -fsSL -o "$tmp/proton.tar.gz" "$url"
+                tar -xzf "$tmp/proton.tar.gz" -C "$compat_dir"
+                rm -rf "$tmp"
+                echo "::endgroup::"
+              else
+                echo "$tag already present (cache hit)"
+              fi
+              ;;
+          esac
 
-      - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] (built on ${{ matrix.build_os }})
+      - name: Save Proton (${{ matrix.proton_tag }})
+        if: runner.os == 'Linux' && matrix.proton_tag != '' && steps.restore-proton.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.local/share/Steam/compatibilitytools.d/${{ matrix.proton_tag }}
+          key: proton-${{ matrix.proton_tag }}-v1
+
+      - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=${{ matrix.compat || 'native' }} (built on ${{ matrix.build_os }})
         continue-on-error: ${{ matrix.allow_fail }}
         shell: bash
         run: |
@@ -328,7 +378,16 @@ jobs:
             --scratch scratch \
             --example "${{ matrix.example }}" \
             --target "${{ matrix.target }}" \
-            --link "${{ matrix.link }}"
+            --link "${{ matrix.link }}" \
+            --compat "${{ matrix.compat }}" \
+            --build-host "${{ matrix.build_os }}"
+
+      - name: Save umu runtime cache
+        if: runner.os == 'Linux' && matrix.proton_tag != '' && always() && steps.restore-umu.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.local/share/umu
+          key: umu-runtime-v1
 
       - name: Show play report
         if: always()
@@ -343,16 +402,16 @@ jobs:
           fi
 
       # Per-cell screenshot grabbed by the playbot at game-over. The
-      # artefact name encodes both the play host (`matrix.os`) and the
-      # build artefact (which already carries build host + example +
-      # target + link) so every distinct cell uploads to its own slot.
-      # Without `matrix.os` in the name, multiple play hosts driving
-      # the same build artefact would overwrite each other's image.
+      # artefact name encodes the play host, the build artefact (which
+      # carries build host + example + target + link), and the compat
+      # layer when one is set. Without those axes, cells driving the
+      # same build artefact through different layers would overwrite
+      # each other.
       - name: Upload play screenshot
         if: always() && hashFiles('scratch/play-screenshot.png') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: shot-${{ matrix.os }}-${{ matrix.artifact }}
+          name: shot-${{ matrix.os }}-${{ matrix.artifact }}${{ matrix.compat && format('-{0}', matrix.compat) || '' }}
           path: scratch/play-screenshot.png
           if-no-files-found: warn
           retention-days: 7

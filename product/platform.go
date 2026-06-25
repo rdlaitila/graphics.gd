@@ -3,11 +3,7 @@ package product
 import (
 	"encoding/xml"
 	"fmt"
-	"path/filepath"
-	"runtime"
 	"strings"
-
-	"github.com/samber/lo"
 )
 
 // Platform is one row in the graphics.gd support matrix: a canonical
@@ -23,55 +19,15 @@ type Platform struct {
 	Status     Status      `json:"status"                xml:"status,attr"                  yaml:"status"`
 	LinkModes  LinkMode    `json:"link_modes,omitempty"  xml:"link_modes,attr,omitempty"    yaml:"link_modes,omitempty"`
 	BuildHosts []BuildHost `json:"build_hosts,omitempty" xml:"build_hosts,omitempty"        yaml:"build_hosts,omitempty"`
-	PlayHosts  []BuildHost `json:"play_hosts,omitempty"  xml:"play_hosts,omitempty"         yaml:"play_hosts,omitempty"`
+	PlayHosts  []PlayHost  `json:"play_hosts,omitempty"  xml:"play_hosts,omitempty"         yaml:"play_hosts,omitempty"`
 	BuildTools []Toolchain `json:"build_tools,omitempty" xml:"build_tools,omitempty" yaml:"build_tools,omitempty"`
 	Renderers  []string    `json:"renderers,omitempty"   xml:"renderers>renderer,omitempty" yaml:"renderers,omitempty"`
 	Notes      string      `json:"notes,omitempty"       xml:"notes,omitempty"              yaml:"notes,omitempty"`
 	Quirks     []Quirk     `json:"quirks,omitempty"      xml:"quirks>quirk,omitempty"       yaml:"quirks,omitempty"`
 }
 
-// BuildHost is the machine gdnext is running on: OS, arch, and the
-// resolved gdnext/godot directory paths.
-type BuildHost struct {
-	GOOS   string
-	GOARCH string
-	// GD* paths come from the CLI's prepareBuildEnv ($GDPATH, default ~/gd).
-	GDRootPath string
-	GDLibPath  string
-	GDBinPath  string
-	// UserHomeRoot is os.UserHomeDir; UserAppdataRoot is $APPDATA on
-	// Windows and equal to UserHomeRoot elsewhere.
-	UserHomeRoot    string
-	UserAppdataRoot string
-}
-
-// ManageType labels who owns a toolchain on disk: GDManaged (gdnext
-// downloaded it under GDRootPath and can be trusted to keep it up to
-// date), or UserManaged (the user supplied it via $PATH or an
-// existing install). Resolved at Lookup time by inspecting Tool.Path.
-type ManageType uint8
-
-// TargetHost is the (GOOS, GOARCH, LinkMode) a build is producing for.
-type TargetHost struct {
-	GOOS     string
-	GOARCH   string
-	LinkMode LinkMode
-}
-
-// BuildEnv pairs the host gdnext is running on with the target a build
-// is producing for.
-type BuildEnv struct {
-	Host   BuildHost
-	Target TargetHost
-}
-
 // Kind is a bitmask of platform roles. Use Has to test for membership.
 type Kind uint8
-
-const (
-	UserManaged ManageType = iota
-	GDManaged
-)
 
 const (
 	// Target means graphics.gd can build for this platform.
@@ -137,58 +93,6 @@ func (t Platform) CanBuildOn(hostGOOS, hostGOARCH string) bool {
 	return false
 }
 
-// Tuple returns the host as "goos/goarch".
-func (t BuildHost) Tuple() string { return Tuple(t.GOOS, t.GOARCH) }
-
-// GDChecksumsPath returns <GDRootPath>/checksums, the directory holding
-// per-artefact sha256 sidecar files written by `gdnext toolchain install`
-// and consulted by the verifier alongside catalog KnownChecksums.
-func (h BuildHost) GDChecksumsPath() string {
-	if h.GDRootPath == "" {
-		return ""
-	}
-	return filepath.Join(h.GDRootPath, "checksums")
-}
-
-// String returns the short token used in audit output: "user" or "gd".
-func (t ManageType) String() string {
-	switch t {
-	case GDManaged:
-		return "gd"
-	case UserManaged:
-		return "user"
-	}
-	return ""
-}
-
-// MarshalText so JSON / YAML / XML render the short token.
-func (t ManageType) MarshalText() ([]byte, error) { return []byte(t.String()), nil }
-
-// Tuple returns the target as "goos/goarch".
-func (t TargetHost) Tuple() string { return Tuple(t.GOOS, t.GOARCH) }
-
-// Validate checks every field downstream code (builders, tooling,
-// setup) reads without defensive fallbacks. A non-nil return is always
-// a bug in the CLI assembly path, not user input.
-func (e BuildEnv) Validate() error {
-	if e.Host.GOOS == "" || e.Host.GOARCH == "" {
-		return fmt.Errorf("product.BuildEnv: Host (GOOS, GOARCH) is not populated")
-	}
-	if e.Target.GOOS == "" || e.Target.GOARCH == "" {
-		return fmt.Errorf("product.BuildEnv: Target (GOOS, GOARCH) is not populated")
-	}
-	if e.Target.LinkMode == 0 {
-		return fmt.Errorf("product.BuildEnv: Target.LinkMode is not populated")
-	}
-	if e.Host.GDRootPath == "" || e.Host.GDBinPath == "" || e.Host.GDLibPath == "" {
-		return fmt.Errorf("product.BuildEnv: Host GD*Path values are not populated")
-	}
-	if e.Host.UserHomeRoot == "" || e.Host.UserAppdataRoot == "" {
-		return fmt.Errorf("product.BuildEnv: Host User*Root values are not populated")
-	}
-	return nil
-}
-
 // Has reports whether k contains every bit in want.
 func (k Kind) Has(want Kind) bool { return k&want == want }
 
@@ -236,87 +140,6 @@ func Tuple(goos, goarch string) string {
 		return goos
 	}
 	return goos + "/" + goarch
-}
-
-// FindBuildEnv resolves the BuildEnv for the current runtime host and
-// the given target (GOOS, GOARCH, LinkMode) tokens, applying defaults
-// for empty fields. Returns an error when host is unknown, a token is
-// unrecognised, or the link mode is unsupported by the target.
-func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, error) {
-	var env BuildEnv
-	for _, host := range HostMatrix {
-		if host.GOOS == runtime.GOOS && host.GOARCH == runtime.GOARCH {
-			env.Host = host
-			break
-		}
-	}
-	if env.Host.GOOS == "" {
-		return env, fmt.Errorf(
-			"host '%s' is not a supported gdnext host (see gdnext platform)",
-			Tuple(runtime.GOOS, runtime.GOARCH),
-		)
-	}
-	if targetGOOS != "" && !lo.Contains(GOOSMatrix, targetGOOS) {
-		return env, fmt.Errorf(
-			"target GOOS '%s' is not recognized",
-			targetGOOS,
-		)
-	}
-	if targetGOARCH != "" && !lo.Contains(GOARCHMatrix, targetGOARCH) {
-		return env, fmt.Errorf(
-			"target GOARCH '%s' is not recognized",
-			targetGOARCH,
-		)
-	}
-	// Capture GOOS-alias implied LinkMode before remapping the GOOS,
-	// otherwise GOOS=musl loses its LibGodot implication.
-	impliedMode, hasImplied := GOOSAliasLinkMode[targetGOOS]
-	if remap, ok := GOOSRemaps[targetGOOS]; ok {
-		targetGOOS = remap
-	}
-	if targetGOOS != "" {
-		env.Target.GOOS = targetGOOS
-	}
-	if targetGOARCH != "" {
-		env.Target.GOARCH = targetGOARCH
-	}
-	if env.Target.GOOS != "" && env.Target.GOARCH == "" {
-		if def, ok := GOOSArchDefaults[env.Target.GOOS]; ok {
-			env.Target.GOARCH = def
-		}
-	}
-	if env.Target.GOOS == "" {
-		env.Target.GOOS = env.Host.GOOS
-	}
-	if env.Target.GOARCH == "" {
-		env.Target.GOARCH = env.Host.GOARCH
-	}
-	// LinkMode precedence: --link > GOOS alias > GOOSLinkModeDefaults > GDExtension.
-	mode, err := ParseLinkMode(targetLinkMode)
-	if err != nil {
-		return env, err
-	}
-	switch {
-	case mode != 0:
-		env.Target.LinkMode = mode
-	case hasImplied:
-		env.Target.LinkMode = impliedMode
-	default:
-		if def, ok := GOOSLinkModeDefaults[env.Target.GOOS]; ok {
-			env.Target.LinkMode = def
-		} else {
-			env.Target.LinkMode = GDExtension
-		}
-	}
-	if plat, ok := FindPlatformByTargetEnv(env.Target.GOOS, env.Target.GOARCH); ok {
-		if plat.LinkModes != 0 && !plat.LinkModes.Has(env.Target.LinkMode) {
-			return env, fmt.Errorf(
-				"target %s does not support --link=%s (supports: %s)",
-				env.Target.Tuple(), env.Target.LinkMode, plat.LinkModes,
-			)
-		}
-	}
-	return env, nil
 }
 
 // Targets returns the subset of Matrix that can be built for.

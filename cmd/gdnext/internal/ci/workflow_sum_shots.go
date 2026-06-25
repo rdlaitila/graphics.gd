@@ -31,54 +31,72 @@ type shotRow struct {
 // renderer derive it from the same fields so a rename only happens
 // in one place.
 //
-// Shape: `shot-<play-runner>-play-<build-runner>-<example>-<goos>-<goarch>[-<link>]`
-// (the embedded `play-` delimiter mirrors ArtifactName's build-cell
-// prefix, which lets parseScreenshotArtifactName split the two halves
-// cleanly without a second token-counting heuristic).
-func ScreenshotArtifactName(playRunner, buildRunner, example, target, link string) string {
-	return "shot-" + playRunner + "-" + ArtifactName(buildRunner, example, target, link)
+// Shape: `shot-<play-runner>-play-<build-runner>-<example>-<goos>-<goarch>[-<link>][-<compat>]`.
+// Compat is appended last so cells driving the same artefact through
+// different compatibility layers (wine, proton, proton-9, ...) upload
+// to distinct slots. Native cells omit the compat suffix.
+func ScreenshotArtifactName(playRunner, buildRunner, example, target, link, compat string) string {
+	name := "shot-" + playRunner + "-" + ArtifactName(buildRunner, example, target, link)
+	if compat != "" {
+		name += "-" + compat
+	}
+	return name
 }
 
-// parseScreenshotArtifactName recovers (target, link, buildRunner, playRunner)
+// parseScreenshotArtifactName recovers (target, link, compat, buildRunner, playRunner)
 // from a name produced by ScreenshotArtifactName. Returns ok=false when
 // the name doesn't match the expected shape so collectShots can fall
 // back to the raw token list rather than mislabelling the cell.
-func parseScreenshotArtifactName(name string) (target, link, buildRunner, playRunner string, ok bool) {
+func parseScreenshotArtifactName(name string) (target, link, compat, buildRunner, playRunner string, ok bool) {
 	rest, found := strings.CutPrefix(name, "shot-")
 	if !found {
-		return "", "", "", "", false
+		return "", "", "", "", "", false
 	}
 	head, buildRest, found := strings.Cut(rest, "-play-")
 	if !found || head == "" {
-		return "", "", "", "", false
+		return "", "", "", "", "", false
 	}
-	// buildRest = `<build-runner>-<example>-<goos>-<goarch>[-<link>]`.
+	// buildRest = `<build-runner>-<example>-<goos>-<goarch>[-<link>][-<compat>]`.
 	// Runner labels are `<os>-latest`; split off the first two tokens.
 	parts := strings.SplitN(buildRest, "-", 3)
 	if len(parts) < 3 || !strings.HasSuffix(parts[1], "latest") {
-		return "", "", "", "", false
+		return "", "", "", "", "", false
 	}
 	buildRunner = parts[0] + "-" + parts[1]
 	tail := parts[2]
-	// tail = `<example>-<goos>-<goarch>[-<link>]`. The link token, when
-	// present, is one of the well-known LinkMode names; sniff that
-	// first so the goos/goarch pair always sits at a fixed offset.
 	tokens := strings.Split(tail, "-")
 	if len(tokens) < 3 {
-		return "", "", "", "", false
+		return "", "", "", "", "", false
+	}
+	// Optional trailing compat token: anything that isn't a LinkMode
+	// and isn't a goarch. We don't have a closed list of compat names,
+	// but the goarch slot is always second-to-last in (goos, goarch)
+	// pairs, so peel from the right: if the last token isn't a known
+	// link mode and the previous one isn't a known goarch, treat the
+	// last as compat.
+	knownArch := map[string]bool{"amd64": true, "arm64": true, "wasm": true, "386": true}
+	knownLink := map[string]bool{"gdextension": true, "libgodot": true}
+	if !knownLink[tokens[len(tokens)-1]] && len(tokens) >= 4 && knownArch[tokens[len(tokens)-2]] {
+		// last = compat, second-to-last = goarch
+		compat = tokens[len(tokens)-1]
+		tokens = tokens[:len(tokens)-1]
+	} else if !knownLink[tokens[len(tokens)-1]] && len(tokens) >= 5 && knownLink[tokens[len(tokens)-2]] {
+		// last = compat, second-to-last = link mode
+		compat = tokens[len(tokens)-1]
+		tokens = tokens[:len(tokens)-1]
 	}
 	last := tokens[len(tokens)-1]
-	if last == "gdextension" || last == "libgodot" {
+	if knownLink[last] {
 		link = last
 		tokens = tokens[:len(tokens)-1]
 	}
 	if len(tokens) < 3 {
-		return "", "", "", "", false
+		return "", "", "", "", "", false
 	}
 	archIdx := len(tokens) - 1
 	goosIdx := archIdx - 1
 	target = tokens[goosIdx] + "/" + tokens[archIdx]
-	return target, link, buildRunner, head, true
+	return target, link, compat, buildRunner, head, true
 }
 
 // collectShots walks dir for artefact subdirectories named
@@ -135,13 +153,16 @@ func collectShots(dir string) []shotRow {
 // trimmed name when parsing fails so unknown shapes still show up
 // rather than disappearing silently.
 func shotLabel(name string) (head, tail string) {
-	target, link, buildRunner, playRunner, ok := parseScreenshotArtifactName(name)
+	target, link, compat, buildRunner, playRunner, ok := parseScreenshotArtifactName(name)
 	if !ok {
 		return strings.TrimPrefix(name, "shot-"), ""
 	}
 	head = target
 	if link != "" {
 		head += "+" + link
+	}
+	if compat != "" {
+		head += " (" + compat + ")"
 	}
 	tail = fmt.Sprintf("b: %s p: %s", buildRunner, playRunner)
 	return head, tail

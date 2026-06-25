@@ -48,6 +48,8 @@ func NewPlayCellCommand(di do.Injector) (*PlayCellCommand, error) {
 			&cli.StringFlag{Name: "example", Required: true, Usage: "example name (binary basename inside releases/<goos>/<goarch>/)"},
 			&cli.StringFlag{Name: "target", Required: true, Usage: "target goos/goarch (e.g. linux/amd64, windows/amd64)"},
 			&cli.StringFlag{Name: "link", Usage: "link mode (gdextension|libgodot); blank = platform default"},
+			&cli.StringFlag{Name: "compat", Usage: "compatibility layer to drive the target through (wine|proton|proton-9|...); blank = native"},
+			&cli.StringFlag{Name: "build-host", Usage: "GHA runner label that produced the artefact (informational; surfaced on the HUD)"},
 			&cli.DurationFlag{Name: "timeout", Value: 90 * time.Second, Usage: "hard kill after this much wall-clock time"},
 			&cli.IntFlag{Name: "min-score", Value: 1, Usage: "minimum score for a passing report"},
 		},
@@ -69,6 +71,8 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	example := cmd.String("example")
 	target := cmd.String("target")
 	link := cmd.String("link")
+	compat := cmd.String("compat")
+	buildHost := cmd.String("build-host")
 	timeout := cmd.Duration("timeout")
 	minScore := int(cmd.Int("min-score"))
 	plat, ok := parseTuple(target)
@@ -94,11 +98,11 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	_ = os.Remove(reportPath)
 	screenshotPath := filepath.Join(scratch, "play-screenshot.png")
 	_ = os.Remove(screenshotPath)
-	argv, err := launchCommand(bin, plat, mode)
+	argv, err := launchCommand(bin, plat, mode, compat)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("==> play %s [%s]: %s\n", target, mode, strings.Join(argv, " "))
+	fmt.Printf("==> play %s [%s] compat=%s build-host=%s: %s\n", target, mode, compatOrNative(compat), buildHostOrLocal(buildHost), strings.Join(argv, " "))
 	ctx, cancel := contextWithTimeout(timeout)
 	defer cancel()
 	c := exec.CommandContext(ctx, argv[0], argv[1:]...)
@@ -106,8 +110,9 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		"GDNEXT_PLAY=1",
 		"GDNEXT_PLAY_REPORT="+reportPath,
 		"GDNEXT_PLAY_SCREENSHOT="+screenshotPath,
-		"GDNEXT_PLAY_LABEL="+buildPlayLabel(target, mode),
+		"GDNEXT_PLAY_LABEL="+buildPlayLabel(target, mode, compat, buildHost),
 	)
+	c.Env = append(c.Env, protonEnv(compat)...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	runErr := c.Run()
@@ -153,24 +158,107 @@ func releaseBinary(scratch, example string, plat target, mode product.LinkMode) 
 }
 
 // launchCommand wraps the produced binary in whatever runtime the
-// play host needs to drive a (potentially foreign) target.
-func launchCommand(bin string, plat target, mode product.LinkMode) ([]string, error) {
+// play host needs to drive a (potentially foreign) target. compat
+// selects the wrapper explicitly ("wine", "proton", "proton-<ver>",
+// or ""/"native" for direct execution); the dispatcher falls back to
+// auto-detect when compat is unset so local invocations of play-cell
+// keep working. Proton variants are routed through umu-run, with the
+// concrete GE-Proton tag resolved by protonRelease(); the caller is
+// expected to set PROTONPATH in the child env (see protonEnv()).
+func launchCommand(bin string, plat target, mode product.LinkMode, compat string) ([]string, error) {
 	hostGOOS := runtime.GOOS
-	switch {
-	case hostGOOS == product.GOOSLinux && plat.GOOS == product.GOOSLinux:
-		return withXvfb(bin), nil
-	case hostGOOS == product.GOOSLinux && plat.GOOS == product.GOOSWindows:
+	switch compat {
+	case "", "native":
+		switch {
+		case hostGOOS == product.GOOSLinux && plat.GOOS == product.GOOSLinux:
+			return withXvfb(bin), nil
+		case hostGOOS == product.GOOSLinux && plat.GOOS == product.GOOSWindows:
+			wine, err := exec.LookPath("wine")
+			if err != nil {
+				return nil, fmt.Errorf("linux→windows play needs wine on PATH (or --compat=wine|proton): %w", err)
+			}
+			return withXvfb(wine, bin), nil
+		case hostGOOS == product.GOOSWindows && plat.GOOS == product.GOOSWindows:
+			return []string{bin}, nil
+		case hostGOOS == product.GOOSDarwin && plat.GOOS == product.GOOSDarwin:
+			return []string{bin}, nil
+		}
+	case "wine":
 		wine, err := exec.LookPath("wine")
 		if err != nil {
-			return nil, fmt.Errorf("linux→windows play needs wine on PATH: %w", err)
+			return nil, fmt.Errorf("compat=wine: wine not on PATH: %w", err)
 		}
 		return withXvfb(wine, bin), nil
-	case hostGOOS == product.GOOSWindows && plat.GOOS == product.GOOSWindows:
-		return []string{bin}, nil
-	case hostGOOS == product.GOOSDarwin && plat.GOOS == product.GOOSDarwin:
-		return []string{bin}, nil
+	case "proton", "proton-8", "proton-9", "proton-10":
+		umu, err := exec.LookPath("umu-run")
+		if err != nil {
+			return nil, fmt.Errorf("compat=%s: umu-run not on PATH (apt install umu-launcher or pip install umu-launcher): %w", compat, err)
+		}
+		return withXvfb(umu, bin), nil
+	default:
+		return nil, fmt.Errorf("unknown --compat %q", compat)
 	}
-	return nil, fmt.Errorf("no launch recipe: host=%s target=%s/%s", hostGOOS, plat.GOOS, plat.GOARCH)
+	return nil, fmt.Errorf("no launch recipe: host=%s target=%s/%s compat=%s", hostGOOS, plat.GOOS, plat.GOARCH, compat)
+}
+
+// protonRelease returns the GE-Proton tag pinned to a compat token.
+// Pinned versions mirror Steam's bundled compatibility-tool dropdown
+// so users can correlate a CI green/red signal with the Proton they
+// actually run locally:
+//
+//	proton    -> latest GE-Proton (Proton 11 series, alias for users
+//	             who don't care which sub-version)
+//	proton-10 -> last GE release on the Proton 10 line
+//	proton-9  -> last GE release on the Proton 9 line ("Proton 9.0")
+//	proton-8  -> last GE release on the Proton 8 line ("Proton 8.0")
+//
+// Used by the workflow's install step to fetch the tarball and by
+// protonEnv() to set PROTONPATH. Returns "" for non-proton tokens.
+func protonRelease(compat string) string {
+	switch compat {
+	case "proton":
+		return "GE-Proton11-1"
+	case "proton-10":
+		return "GE-Proton10-34"
+	case "proton-9":
+		return "GE-Proton9-25"
+	case "proton-8":
+		return "GE-Proton8-32"
+	}
+	return ""
+}
+
+// protonEnv returns the env vars umu-run needs to drive bin through
+// the GE-Proton release pinned to compat. Empty slice for non-proton
+// tokens. GAMEID=0 selects the umu-default protonfix.
+func protonEnv(compat string) []string {
+	tag := protonRelease(compat)
+	if tag == "" {
+		return nil
+	}
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = "."
+	}
+	pp := filepath.Join(home, ".local", "share", "Steam", "compatibilitytools.d", tag)
+	return []string{
+		"GAMEID=0",
+		"PROTONPATH=" + pp,
+	}
+}
+
+func compatOrNative(compat string) string {
+	if compat == "" {
+		return "native"
+	}
+	return compat
+}
+
+func buildHostOrLocal(buildHost string) string {
+	if buildHost == "" {
+		return "(local)"
+	}
+	return buildHost
 }
 
 // withXvfb prepends `xvfb-run -a` when running headlessly so the
@@ -227,11 +315,15 @@ func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 // buildPlayLabel composes the multi-line HUD label the example
 // stamps top-right when GDNEXT_PLAY is set. Every field is best-
 // effort: missing env vars just don't appear on the overlay.
-func buildPlayLabel(target string, mode product.LinkMode) string {
+func buildPlayLabel(target string, mode product.LinkMode, compat, buildHost string) string {
 	lines := []string{
 		"target " + target,
 		"link   " + mode.String(),
+		"compat " + compatOrNative(compat),
 		"host   " + runtime.GOOS + "/" + runtime.GOARCH,
+	}
+	if buildHost != "" {
+		lines = append(lines, "build  "+buildHost)
 	}
 	if v := os.Getenv("RUNNER_OS"); v != "" {
 		lines = append(lines, "runner "+strings.ToLower(v))

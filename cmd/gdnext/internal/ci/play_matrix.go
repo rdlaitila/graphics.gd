@@ -33,6 +33,8 @@ type playMatrixRow struct {
 	Example   string `json:"example"`
 	Target    string `json:"target"`
 	Link      string `json:"link,omitempty"`
+	Compat    string `json:"compat,omitempty"`
+	ProtonTag string `json:"proton_tag,omitempty"`
 	AllowFail bool   `json:"allow_fail"`
 	Artifact  string `json:"artifact"`
 }
@@ -91,8 +93,12 @@ func (t *PlayMatrixActions) action(_ context.Context, cmd *cli.Command) error {
 			if link == "" {
 				link = "-"
 			}
-			fmt.Fprintf(os.Stderr, "  %-16s [%s] built on %-14s played on %-14s × %s\n",
-				r.Target, link, r.BuildOS, r.OS, r.Example)
+			compat := r.Compat
+			if compat == "" {
+				compat = "native"
+			}
+			fmt.Fprintf(os.Stderr, "  %-16s [%s] compat %-10s built on %-14s played on %-14s × %s\n",
+				r.Target, link, compat, r.BuildOS, r.OS, r.Example)
 		}
 	}
 	return nil
@@ -160,6 +166,8 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 							Example:   ex,
 							Target:    platform.Tuple(),
 							Link:      link,
+							Compat:    playHost.CompatLayer,
+							ProtonTag: protonRelease(playHost.CompatLayer),
 							AllowFail: allowFail,
 							Artifact:  ArtifactName(buildHost.Runner, ex, platform.Tuple(), link),
 						})
@@ -173,7 +181,8 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 }
 
 // playMatrixLess orders rows by target → link → build host → play
-// host → example so reading the human summary scans target-major.
+// host → compat layer → example so reading the human summary scans
+// target-major.
 func playMatrixLess(a, b playMatrixRow) bool {
 	if ar, br := targetRank(a.Target), targetRank(b.Target); ar != br {
 		return ar < br
@@ -187,12 +196,15 @@ func playMatrixLess(a, b playMatrixRow) bool {
 	if ar, br := hostRank(a.OS), hostRank(b.OS); ar != br {
 		return ar < br
 	}
+	if a.Compat != b.Compat {
+		return a.Compat < b.Compat
+	}
 	return a.Example < b.Example
 }
 
-// runnerFor maps a product.BuildHost to its GHA runner label.
+// runnerFor maps a product.PlayHost to its GHA runner label.
 // Returns ok=false when no runner is registered for the host.
-func runnerFor(host product.BuildHost) (string, bool) {
+func runnerFor(host product.PlayHost) (string, bool) {
 	for _, g := range gha {
 		if g.Host.GOOS == host.GOOS && g.Host.GOARCH == host.GOARCH {
 			return g.Runner, true
