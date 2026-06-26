@@ -28,6 +28,7 @@ import (
 	"graphics.gd/cmd/gdnext/internal/cryptic/signjar"
 	"graphics.gd/cmd/gdnext/internal/cryptic/zipslicer"
 	"graphics.gd/cmd/gdnext/internal/project"
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
@@ -55,16 +56,13 @@ func NewAndroid(di do.Injector) (*Android, error) {
 func (t *Android) Build(args ...string) error {
 	env := t.BuildEnv
 	tools := t.ToolCatalog
-	var godot string
-	switch env.Host.GOOS {
-	case product.GOOSLinux:
-		godot = "godot"
-	case product.GOOSWindows, product.GOOSDarwin:
-		godot = "Godot"
-	default:
+	debug_keystore, err := shared.AndroidDebugKeystorePath(env.Host)
+	if err != nil {
+		// Build is permissive about unsupported hosts (e.g. js, ios
+		// when somehow routed here): nil-out and let downstream
+		// builders fail later with a clearer message.
 		return nil
 	}
-	debug_keystore := filepath.Join(env.Host.UserAppdataRoot, godot, "keystores", "debug.keystore")
 	if err := os.MkdirAll(filepath.Dir(debug_keystore), 0755); err != nil {
 		return xray.New(err)
 	}
@@ -127,61 +125,12 @@ func (t *Android) Build(args ...string) error {
 			return xray.New(err)
 		}
 	}
-	var exe string
-	if env.Host.GOOS == product.GOOSWindows {
-		exe = ".exe"
-	}
-	if err := os.WriteFile(filepath.Join(env.Host.GDBinPath, "java"+exe), []byte("java stub"), 0755); err != nil {
+	// Resolve the gdnext-managed JDK (Temurin 21) so the bundle is on
+	// disk before Godot launches. The graphics.gd editor-startup hook
+	// in startup/editor.go finds it under $(GDPATH)/android/jdk and
+	// points Godot's android exporter at it via the editor settings.
+	if _, err := tools.JDK.Lookup(); err != nil {
 		return xray.New(err)
-	}
-	var default_sdk_path string
-	switch env.Host.GOOS {
-	case product.GOOSLinux:
-		default_sdk_path = filepath.Join(env.Host.UserHomeRoot, "Android", "Sdk")
-	case product.GOOSWindows:
-		default_sdk_path = filepath.Join(os.Getenv("LOCALAPPDATA"), "Android", "Sdk")
-		if _, err := tools.AndroidDebugBridge.Lookup(); err != nil {
-			return xray.New(err)
-		}
-		if _, err := tools.AndroidPackageSigner.Lookup(); err != nil {
-			return xray.New(err)
-		}
-	case product.GOOSDarwin:
-		default_sdk_path = filepath.Join(env.Host.UserHomeRoot, "Library", "Android", "Sdk")
-	}
-	if default_sdk_path != "" {
-		if _, err := os.Stat(default_sdk_path); os.IsNotExist(err) {
-			if err := os.MkdirAll(filepath.Join(default_sdk_path, "platform-tools"), 0755); err != nil {
-				return xray.New(err)
-			}
-			if err := os.MkdirAll(filepath.Join(default_sdk_path, "build-tools", "35"), 0755); err != nil {
-				return xray.New(err)
-			}
-			if env.Host.GOOS == product.GOOSWindows {
-				if err := project.CopyFile(filepath.Join(env.Host.GDBinPath, "AdbWinApi.dll"), filepath.Join(default_sdk_path, "platform-tools", "AdbWinApi.dll")); err != nil {
-					return xray.New(err)
-				}
-				if err := project.CopyFile(filepath.Join(env.Host.GDBinPath, "AdbWinUsbApi.dll"), filepath.Join(default_sdk_path, "platform-tools", "AdbWinUsbApi.dll")); err != nil {
-					return xray.New(err)
-				}
-				if err := project.CopyFile(filepath.Join(env.Host.GDBinPath, "adb.exe"), filepath.Join(default_sdk_path, "platform-tools", "adb.exe")); err != nil {
-					return xray.New(err)
-				}
-			} else {
-				if err := os.Symlink(filepath.Join(env.Host.GDBinPath, "adb"), filepath.Join(default_sdk_path, "platform-tools", "adb")); err != nil {
-					return xray.New(err)
-				}
-			}
-			if env.Host.GOOS == product.GOOSWindows {
-				if err := project.CopyFile(filepath.Join(env.Host.GDBinPath, "apksigner.exe"), filepath.Join(default_sdk_path, "build-tools", "35", "apksigner.bat")); err != nil {
-					return xray.New(err)
-				}
-			} else {
-				if err := os.Symlink(filepath.Join(env.Host.GDBinPath, "apksigner"), filepath.Join(default_sdk_path, "build-tools", "35", "apksigner")); err != nil {
-					return xray.New(err)
-				}
-			}
-		}
 	}
 	if !project.IncludesGo {
 		return nil
@@ -237,16 +186,10 @@ func (t *Android) Build(args ...string) error {
 func (t *Android) Run(args ...string) error {
 	env := t.BuildEnv
 	tools := t.ToolCatalog
-	var godot string
-	switch env.Host.GOOS {
-	case product.GOOSLinux:
-		godot = "godot"
-	case product.GOOSWindows, product.GOOSDarwin:
-		godot = "Godot"
-	default:
+	debug_keystore, err := shared.AndroidDebugKeystorePath(env.Host)
+	if err != nil {
 		return nil
 	}
-	debug_keystore := filepath.Join(env.Host.UserAppdataRoot, godot, "keystores", "debug.keystore")
 	if err := t.Build(args...); err != nil {
 		return xray.New(err)
 	}
@@ -353,11 +296,20 @@ func (t *Android) BuildMain(_ ...string) error {
 	if _, err := tools.AndroidPackageSigner.Lookup(); err != nil {
 		return xray.New(err)
 	}
-	var exe string
-	if env.Host.GOOS == product.GOOSWindows {
-		exe = ".exe"
+	// JDK must be on disk before --export-release: Godot's android
+	// exporter exec's <java_sdk_path>/bin/java. The headless export
+	// runs before the editor hook in startup/editor.go fires (the
+	// host gdextension isn't loaded for cross-target builds), so we
+	// also patch the editor_settings file directly here.
+	jdkDir, jdkErr := tools.JDK.Lookup()
+	if jdkErr != nil {
+		return xray.New(jdkErr)
 	}
-	if err := os.WriteFile(filepath.Join(env.Host.GDBinPath, "java"+exe), []byte("java stub"), 0755); err != nil {
+	if err := shared.SetGodotEditorAndroidPaths(
+		env.Host,
+		shared.JavaHomeForJDKInstall(jdkDir, env.Host.GOOS),
+		filepath.Join(env.Host.GDRootPath, "android", "sdk"),
+	); err != nil {
 		return xray.New(err)
 	}
 	presetName, exportPath, err := pickAndroidPreset(GOARCH)
@@ -372,6 +324,23 @@ func (t *Android) BuildMain(_ ...string) error {
 		return xray.New(err)
 	}
 	if err := tools.Godot.Exec("--headless", "--export-release", presetName); err != nil {
+		return xray.New(err)
+	}
+	// Sign the APK with the auto-generated debug keystore so it's
+	// installable straight out of `gdnext build` (matching what
+	// `gdnext run` already does on its debug export). Users who
+	// want a real release key can re-sign with `gdnext android apk
+	// sign --ks <their.keystore> ...`; this only writes a v1/v2/v3
+	// signing block, leaving the APK contents untouched.
+	debugKeystore, err := shared.AndroidDebugKeystorePath(env.Host)
+	if err != nil {
+		return xray.New(err)
+	}
+	if err := tools.AndroidPackageSigner.Exec(
+		"sign", "--ks", debugKeystore,
+		"--ks-key-alias", "androiddebugkey", "--ks-pass", "pass:android",
+		apkPath,
+	); err != nil {
 		return xray.New(err)
 	}
 	// Now that we have the .apk, we also want an .aab that can be uploaded to the Play Store.
@@ -543,6 +512,18 @@ func (t *Android) BuildMain(_ ...string) error {
 		return xray.New(err)
 	}
 	fmt.Println("\nBuilt Version", project.Name, project.Version, "("+strconv.Itoa(version_code)+")")
+	// AAB upload-key signing is optional and only matters for Play
+	// Console submission. Default to skip so iterative builds (and
+	// every non-Play-Console install: adb, waydroid, sideload) don't
+	// block on a passphrase prompt nobody asked for. Opt in by
+	// setting GDNEXT_AAB_SIGN=1 — and only then require a TTY.
+	if os.Getenv("GDNEXT_AAB_SIGN") == "" {
+		return nil
+	}
+	if !term.IsTerminal(int(syscall.Stdin)) {
+		fmt.Println("\nGDNEXT_AAB_SIGN is set but stdin is not a TTY \u2014 skipping AAB upload-key signing; sign with your own keystore before uploading to Play Console")
+		return nil
+	}
 	fmt.Println("\nFor the .aab to be elligible for upload to Play Console, gd can sign it with an Upload Key derived from a passphrase.")
 	fmt.Println("This means, you don't need to manage any keys and as long as you use Google Play's App Signing and use the same password ")
 	fmt.Println("(and project name) each build. If you forget this or change the project's name, you'll need Google to reset the Upload Key.")
@@ -610,7 +591,8 @@ func (t *Android) BuildMain(_ ...string) error {
 //     "Android x86_64".
 //  3. The first preset whose platform="Android" has the matching
 //     architectures/<abi>=true. Lets users rename or hand-craft.
-//
+// androidDebugKeystorePath moved to cmd/gdnext/internal/shared.AndroidDebugKeystorePath.
+
 // Returns the preset name (passed to godot --export-*) and the
 // project-relative export_path declared by that preset.
 func pickAndroidPreset(GOARCH string) (name, exportPath string, err error) {

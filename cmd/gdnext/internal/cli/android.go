@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
-	"graphics.gd/cmd/gdnext/internal/shared"
 	"github.com/urfave/cli/v3"
+	"graphics.gd/cmd/gdnext/internal/shared"
 )
 
 // AndroidCommand wires `gdnext android`. Runtime state lives on
@@ -166,26 +165,10 @@ func (t *AndroidActions) androidApkPackagename(_ context.Context, cmd *cli.Comma
 
 // androidKeystoreShow is the action handler for the `gdnext android keystore show` subcommand
 func (t *AndroidActions) androidKeystoreShow(_ context.Context, _ *cli.Command) error {
-	p, err := androidKeystorePath(t.BuildEnv.Host)
+	p, err := shared.AndroidDebugKeystorePath(t.BuildEnv.Host)
 	if err != nil {
 		return err
 	}
 	fmt.Println(p)
 	return nil
-}
-
-// androidKeystorePath returns the platform-specific path the legacy gd
-// command uses for the auto-generated debug.keystore (see the matching
-// switch in cmd/gdnext/internal/builder/android.go).
-func androidKeystorePath(host product.BuildHost) (string, error) {
-	var godot string
-	switch host.GOOS {
-	case product.GOOSLinux:
-		godot = "godot"
-	case product.GOOSWindows, product.GOOSDarwin:
-		godot = "Godot"
-	default:
-		return "", fmt.Errorf("no known keystore path for %s", host.GOOS)
-	}
-	return filepath.Join(host.UserAppdataRoot, godot, "keystores", "debug.keystore"), nil
 }
