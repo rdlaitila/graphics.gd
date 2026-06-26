@@ -456,15 +456,8 @@ jobs:
           target: google_apis
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          disable-animations: true
-          script: |
-            gdnext ci play-cell \
-              --scratch scratch \
-              --example "${{ matrix.example }}" \
-              --target "${{ matrix.target }}" \
-              --link "${{ matrix.link }}" \
-              --compat android-emu \
-              --build-host "${{ matrix.build_os }}"
+          disable-animations: true          
+          script: gdnext ci play-cell --scratch scratch --example "${{ matrix.example }}" --target "${{ matrix.target }}" --link "${{ matrix.link }}" --compat android-emu --build-host "${{ matrix.build_os }}"
 
       - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=${{ matrix.compat || 'native' }} (built on ${{ matrix.build_os }})
         if: matrix.compat != 'android-emu'

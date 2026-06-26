@@ -79,7 +79,6 @@ func (t *Android) Build(args ...string) error {
 		notBefore := time.Now()
 		notAfter := notBefore.Add(10000 * 24 * time.Hour) // 10,000 days
 		serialNumber, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-
 		certTemplate := x509.Certificate{
 			SerialNumber: serialNumber,
 			Subject: pkix.Name{
@@ -96,18 +95,15 @@ func (t *Android) Build(args ...string) error {
 			},
 			BasicConstraintsValid: true,
 		}
-
 		certDER, err := x509.CreateCertificate(rand.Reader, &certTemplate, &certTemplate, &privateKey.PublicKey, privateKey)
 		if err != nil {
 			return xray.New(err)
 		}
-
 		// Encode private key to PKCS#8 (required for JKS)
 		privateKeyDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
 		if err != nil {
 			return xray.New(err)
 		}
-
 		// Create keystore
 		ks := keystore.New()
 		ks.SetPrivateKeyEntry("androiddebugkey", keystore.PrivateKeyEntry{
@@ -120,14 +116,12 @@ func (t *Android) Build(args ...string) error {
 				},
 			},
 		}, []byte("android"))
-
 		// Write to file
 		f, err := os.OpenFile(debug_keystore, os.O_CREATE|os.O_WRONLY, 0600)
 		if err != nil {
 			return xray.New(err)
 		}
 		defer f.Close()
-
 		err = ks.Store(f, []byte("android")) // Store password: "android"
 		if err != nil {
 			return xray.New(err)
