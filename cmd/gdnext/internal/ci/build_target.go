@@ -85,6 +85,15 @@ func (t *BuildTargetActions) action(ctx context.Context, cmd *cli.Command) error
 		args = append(args, "-link", link)
 	}
 	args = append(args, "build")
+	// Android: bake the play-bot in for CI artefacts only. The
+	// `playbot` build tag flips canarybird/playenv_android_*.go
+	// from the user variant (no bot, runs the game on install) to
+	// the bot variant (auto-attaches and pipes the report to
+	// logcat). Local `gdnext build` deliberately omits the tag so
+	// `gdnext android install` produces a normal user APK.
+	if platform.GOOS == product.GOOSAndroid {
+		args = append(args, "--", "-tags", "playbot")
+	}
 	if err := runIn(scratch, "gdnext", args...); err != nil {
 		return err
 	}

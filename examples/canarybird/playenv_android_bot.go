@@ -1,4 +1,4 @@
-//go:build android
+//go:build android && playbot
 
 package main
 
@@ -7,10 +7,10 @@ import (
 	"fmt"
 )
 
-// On android the APK is dedicated to a single play run; always
-// attach the bot rather than gating on an env var. (am-start extras
-// don't reach os.Getenv, and pushing a sentinel file just to flip
-// this bit isn't worth it.)
+// On android the APK is dedicated to a single play run: build with
+// `-tags playbot` to bake the bot in. The non-playbot variant in
+// playenv_android_user.go returns false from playRequested so the
+// normal `gdnext build` APK installs and runs the game directly.
 func playRequested() bool { return true }
 
 // playEnv hydrates the same names the rest of the playbot reads on
