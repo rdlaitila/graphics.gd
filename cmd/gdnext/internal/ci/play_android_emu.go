@@ -49,13 +49,9 @@ func runAndroidPlay(opts androidPlayOpts) error {
 	if err != nil {
 		return fmt.Errorf("android play: adb not on PATH: %w", err)
 	}
-	aapt, err := exec.LookPath("aapt2")
+	aapt, err := findAapt()
 	if err != nil {
-		if a, e := exec.LookPath("aapt"); e == nil {
-			aapt = a
-		} else {
-			return fmt.Errorf("android play: aapt2 not on PATH (install build-tools): %w", err)
-		}
+		return err
 	}
 	pkg, err := androidPackageName(aapt, apk)
 	if err != nil {
@@ -165,6 +161,36 @@ func androidPackageName(aapt, apk string) (string, error) {
 		return "", fmt.Errorf("aapt returned empty packagename for %s", apk)
 	}
 	return pkg, nil
+}
+
+// findAapt resolves an aapt2 (or aapt) binary the dispatcher can
+// call. The reactivecircus emulator action only puts platform-tools
+// on PATH (adb); build-tools aren't exposed shell-side, so we also
+// look under gdnext's managed install root ($GDPATH/bin, default
+// ~/gd/bin) where `gdnext toolchain install` drops aapt2.
+func findAapt() (string, error) {
+	if p, err := exec.LookPath("aapt2"); err == nil {
+		return p, nil
+	}
+	if p, err := exec.LookPath("aapt"); err == nil {
+		return p, nil
+	}
+	roots := []string{os.Getenv("GDPATH")}
+	if home, err := os.UserHomeDir(); err == nil {
+		roots = append(roots, filepath.Join(home, "gd"))
+	}
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		for _, name := range []string{"aapt2", "aapt"} {
+			candidate := filepath.Join(root, "bin", name)
+			if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+				return candidate, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("android play: aapt2 not on PATH and not under $GDPATH/bin (run `gdnext toolchain install`)")
 }
 
 // androidLauncherActivity asks the package manager to resolve the
