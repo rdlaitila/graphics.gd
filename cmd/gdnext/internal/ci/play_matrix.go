@@ -218,13 +218,27 @@ func playMatrixLess(a, b playMatrixRow) bool {
 
 // runnerFor maps a product.PlayHost to its GHA runner label.
 // Returns ok=false when no runner is registered for the host.
+//
+// Build hosts come from the `gha` table in build_matrix.go (which is
+// also the CI build set); play-only hosts live in playOnlyRunners
+// below so adding e.g. an arm64 linux play target doesn't force the
+// build matrix to spawn an arm64 build cell.
 func runnerFor(host product.PlayHost) (string, bool) {
 	for _, g := range gha {
 		if g.Host.GOOS == host.GOOS && g.Host.GOARCH == host.GOARCH {
 			return g.Runner, true
 		}
 	}
+	if label, ok := playOnlyRunners[product.Tuple(host.GOOS, host.GOARCH)]; ok {
+		return label, true
+	}
 	return "", false
+}
+
+// playOnlyRunners labels hosts that are valid play targets but not
+// CI build targets. Keyed by the canonical "<goos>/<goarch>" tuple.
+var playOnlyRunners = map[string]string{
+	product.Tuple(product.GOOSLinux, product.GOARCHArm64): "ubuntu-24.04-arm",
 }
 
 // ArtifactName is the canonical upload/download name for a build

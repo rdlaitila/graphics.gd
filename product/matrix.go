@@ -97,9 +97,25 @@ var GOOSAliasLinkMode = map[string]LinkMode{
 	GOOSMusl: LibGodot,
 }
 
-// HostMatrix is the canonical list of platforms that can act as hosts
-// for building graphics.gd projects.
+// HostMatrix is the canonical universe of host tuples graphics.gd
+// recognises. Toolchains advertise install support against this set;
+// it intentionally includes hosts CI does not drive builds from
+// (e.g. linux/arm64 — a valid user environment and a valid play
+// host, but not a CI build host today). The narrower CI subset is
+// BuildHosts.
 var HostMatrix = []BuildHost{
+	HostLinuxAmd64,
+	HostLinuxArm64,
+	HostWindowsAmd64,
+	HostDarwinAmd64,
+	HostDarwinArm64,
+}
+
+// BuildHosts is the subset of HostMatrix the CI workflow actually
+// spawns build jobs on. Used as the default for Platform.BuildHosts;
+// a platform can narrow it further (or set its own slice) if a
+// particular target only builds on a subset.
+var BuildHosts = []BuildHost{
 	HostLinuxAmd64,
 	HostWindowsAmd64,
 	HostDarwinAmd64,
@@ -110,6 +126,10 @@ var (
 	HostLinuxAmd64 = BuildHost{
 		GOOS:   GOOSLinux,
 		GOARCH: GOARCHAmd64,
+	}
+	HostLinuxArm64 = BuildHost{
+		GOOS:   GOOSLinux,
+		GOARCH: GOARCHArm64,
 	}
 	HostWindowsAmd64 = BuildHost{
 		GOOS:   GOOSWindows,
@@ -148,6 +168,7 @@ var PlayMatrix = []PlayHost{
 	PlayLinuxAmd64Chrome,
 	PlayLinuxAmd64Firefox,
 	PlayLinuxAmd64AndroidEmu,
+	PlayLinuxArm64AndroidEmu,
 	PlayWindowsAmd64,
 	PlayDarwinArm64,
 }
@@ -210,6 +231,15 @@ var (
 		GOARCH:      GOARCHAmd64,
 		CompatLayer: "android-emu",
 	}
+	// PlayLinuxArm64AndroidEmu drives android/arm64 APKs through a
+	// matching arm64-v8a AVD on a GitHub-hosted ubuntu-24.04-arm
+	// runner. KVM is available on the arm64 host so the AVD boots
+	// natively rather than under TCG translation.
+	PlayLinuxArm64AndroidEmu = PlayHost{
+		GOOS:        GOOSLinux,
+		GOARCH:      GOARCHArm64,
+		CompatLayer: "android-emu",
+	}
 	PlayWindowsAmd64 = PlayHost{
 		GOOS:   GOOSWindows,
 		GOARCH: GOARCHAmd64,
@@ -247,7 +277,7 @@ var (
 		Kind:       Host | Target,
 		Status:     Supported | Stable,
 		LinkModes:  GDExtension | LibGodot,
-		BuildHosts: HostMatrix,
+		BuildHosts: BuildHosts,
 		PlayHosts:  []PlayHost{PlayLinuxAmd64},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
@@ -260,7 +290,7 @@ var (
 		Kind:       Target,
 		Status:     Supported,
 		LinkModes:  GDExtension,
-		BuildHosts: HostMatrix,
+		BuildHosts: BuildHosts,
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
 		Notes:      "cross-compiled from any host via zig; libgodot mode pending an arm64 artefact",
@@ -274,7 +304,7 @@ var (
 		Kind:       Host | Target,
 		Status:     Supported | Stable,
 		LinkModes:  GDExtension,
-		BuildHosts: HostMatrix,
+		BuildHosts: BuildHosts,
 		PlayHosts: []PlayHost{
 			PlayLinuxAmd64Proton,
 			//PlayLinuxAmd64Wine,
@@ -293,7 +323,7 @@ var (
 		Kind:       Target,
 		Status:     Supported,
 		LinkModes:  GDExtension,
-		BuildHosts: HostMatrix,
+		BuildHosts: BuildHosts,
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
 	}
@@ -306,7 +336,7 @@ var (
 		Kind:       Host | Target,
 		Status:     Supported | Quirky,
 		LinkModes:  GDExtension,
-		BuildHosts: HostMatrix,
+		BuildHosts: BuildHosts,
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"metal", "opengl3", "gl_compatibility"},
 		Notes:      "exports as a universal .app alongside arm64",
@@ -319,7 +349,7 @@ var (
 		Kind:       Host | Target,
 		Status:     Supported | Quirky,
 		LinkModes:  GDExtension,
-		BuildHosts: HostMatrix,
+		BuildHosts: BuildHosts,
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"metal", "opengl3", "gl_compatibility"},
 		Notes:      "produces a universal .app; lipo + codesign need a darwin host",
@@ -347,8 +377,8 @@ var (
 		Kind:       Target,
 		Status:     Supported | Stable,
 		LinkModes:  GDExtension,
-		BuildHosts: HostMatrix,
-		PlayHosts:  []PlayHost{PlayLinuxAmd64AndroidEmu},
+		BuildHosts: BuildHosts,
+		PlayHosts:  []PlayHost{PlayLinuxArm64AndroidEmu},
 		BuildTools: append(SharedToolchains, AndroidToolchains...),
 		Renderers:  []string{"vulkan", "gl_compatibility"},
 	}
@@ -359,7 +389,7 @@ var (
 		Kind:       Target,
 		Status:     Supported | Quirky,
 		LinkModes:  GDExtension,
-		BuildHosts: HostMatrix,
+		BuildHosts: BuildHosts,
 		PlayHosts:  []PlayHost{PlayLinuxAmd64AndroidEmu},
 		BuildTools: append(SharedToolchains, AndroidToolchains...),
 		Renderers:  []string{"vulkan", "gl_compatibility"},
@@ -374,7 +404,7 @@ var (
 		Kind:       Target,
 		Status:     Supported,
 		LinkModes:  GDExtension,
-		BuildHosts: HostMatrix,
+		BuildHosts: BuildHosts,
 		BuildTools: append(SharedToolchains, AndroidToolchains...),
 		Renderers:  []string{"vulkan"},
 		Notes:      "Android profile with GodotVR + OpenXR injected into the apk",
@@ -388,7 +418,7 @@ var (
 		Kind:       Target,
 		Status:     Supported,
 		LinkModes:  GDExtension,
-		BuildHosts: HostMatrix,
+		BuildHosts: BuildHosts,
 		PlayHosts:  []PlayHost{PlayLinuxAmd64Chrome, PlayLinuxAmd64Firefox},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"gl_compatibility"},

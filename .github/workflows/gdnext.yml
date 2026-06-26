@@ -37,7 +37,7 @@ on:
 # run for the same ref so we don't burn runner-minutes on stale work.
 concurrency:
   group: gdnext-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   # Pre-job: enumerate the supported build targets from product data.
@@ -180,6 +180,77 @@ jobs:
         with:
           path: ~/gd
           key: ${{ steps.tools-key.outputs.key }}
+
+  # Per-host headless test pipeline. `gdnext test` always targets the
+  # runner's own GOOS/GOARCH (the builders refuse to cross-test), so
+  # running it once per host is sufficient — the per-(target, link)
+  # build cells would just redundantly re-test the host every time.
+  # Keyed off discover-targets.runners so the test job slots match
+  # whatever the build matrix's filter-host actually surfaced.
+  gdnext-test:
+    needs: [discover-targets, gdnext-checks]
+    if: needs.discover-targets.outputs.runners != '[]'
+    name: gdnext-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.discover-targets.outputs.runners) }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+      - name: Install gdnext into PATH
+        shell: bash
+        run: |
+          go install ./cmd/gdnext
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - id: tools-key
+        shell: bash
+        run: |
+          digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
+          echo "key=${{ runner.os }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-gdnext-tools-" >> $GITHUB_OUTPUT
+          echo "tpl_key=${{ runner.os }}-gdnext-templates-${digest}" >> $GITHUB_OUTPUT
+          echo "tpl_prefix=${{ runner.os }}-gdnext-templates-" >> $GITHUB_OUTPUT
+      - name: Restore ~/gd (catalog digest)
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/gd
+          key: ${{ steps.tools-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.prefix }}
+      - name: Restore Godot export templates
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.local/share/godot/export_templates
+            ~/Library/Application Support/Godot/export_templates
+            ~/AppData/Roaming/Godot/export_templates
+          key: ${{ steps.tools-key.outputs.tpl_key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.tpl_prefix }}
+
+      - name: Stage example (canarybird)
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="${RUNNER_TEMP//\\//}/canarybird"
+          rm -rf "$tmp"
+          mkdir -p "$tmp"
+          echo "tmp=$tmp" >> $GITHUB_OUTPUT
+          gdnext ci build-stage-example --example canarybird --scratch "$tmp"
+
+      - name: Toolchain doctor
+        shell: bash
+        run: gdnext toolchain doctor --fix
+
+      - name: Headless test pipeline
+        shell: bash
+        run: gdnext ci build-test-headless --scratch "${{ steps.stage.outputs.tmp }}"
 
   # Per-target build matrix. The matrix is supplied by discover-targets
   # as a fully-expanded include: list — host × target gating lives in
@@ -326,10 +397,6 @@ jobs:
           path: ${{ steps.stage.outputs.tmp }}
           if-no-files-found: error
           retention-days: 1
-
-      - name: Headless test pipeline
-        shell: bash
-        run: gdnext ci build-test-headless --scratch "${{ steps.stage.outputs.tmp }}"
 
   # Pre-job: enumerate the (play-host, build-host, target, link) quads
   # the play matrix should drive. Only emitted for Platforms whose
@@ -589,7 +656,7 @@ jobs:
   # success / failure history is visible at a glance from the UI.
   summary:
     name: Workflow summary
-    needs: [discover-targets, gdnext-checks, gdnext-build, discover-plays, gdnext-play]
+    needs: [discover-targets, gdnext-checks, gdnext-test, gdnext-build, discover-plays, gdnext-play]
     if: always()
     runs-on: ubuntu-latest
     permissions:
