@@ -49,5 +49,10 @@ func (t *TestHeadlessActions) action(_ context.Context, cmd *cli.Command) error 
 	if st, err := os.Stat(scratch); err != nil || !st.IsDir() {
 		return fmt.Errorf("scratch dir does not exist: %s", scratch)
 	}
-	return runIn(scratch, "gdnext", "test")
+	// Pass -v so per-test names + timings reach the CI log instead
+	// of a bare PASS/FAIL. gdnext test's SkipFlagParsing means -v is
+	// a positional arg, not a gdnext flag; no `--` separator needed
+	// (a leading `--` ends up in Godot's argv and stops it parsing
+	// the converted -test.v).
+	return runIn(scratch, "gdnext", "test", "-v")
 }
