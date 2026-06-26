@@ -265,6 +265,7 @@ func resolveShots(repo, shotsDir, branch string, runIDFlag int64) []pushedShot {
 		fmt.Fprintf(os.Stderr, "shots: push to %s failed: %v\n", branch, err)
 		return errorShots(raw, fmt.Sprintf("push to %s failed: %v", branch, err))
 	}
+	fmt.Fprintf(os.Stderr, "shots: pushed %d screenshot(s) to %s for run %d\n", len(pushed), branch, runID)
 	return pushed
 }
 

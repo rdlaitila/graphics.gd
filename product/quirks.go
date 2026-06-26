@@ -56,6 +56,39 @@ var QuirkWindowsAmd64WinePlayBroken = Quirk{
 	},
 }
 
+// QuirkAndroidArm64EmuMissingOnArm64Host marks android/arm64 plays
+// under reactivecircus/android-emulator-runner on the arm64 GitHub
+// runner as broken: Google publishes the `emulator` SDK package
+// (the AVD engine binary) only as x86_64 builds, so on the arm64
+// runner `sdkmanager --install emulator` returns "Failed to find
+// package 'emulator'" and the action exits before the AVD ever
+// starts. Tracked separately from arm64 plays through cross-arch
+// translation on amd64 hosts (which is a different failure mode).
+var QuirkAndroidArm64EmuMissingOnArm64Host = Quirk{
+	Title:  "android/arm64 play: Google's `emulator` SDK package isn't published for arm64 hosts",
+	Scope:  QuirkCIPlayBroken,
+	Hosts:  []string{Tuple(GOOSLinux, GOARCHArm64)},
+	Compat: []string{"android-emu"},
+	Reason: "On the GitHub ubuntu-24.04-arm runner, reactivecircus/" +
+		"android-emulator-runner@v2 calls `sdkmanager --install " +
+		"emulator` to lay down the AVD binary, and sdkmanager " +
+		"answers `Warning: Failed to find package 'emulator'` because " +
+		"Google ships the AVD engine as an x86_64 native binary " +
+		"only. The action then bails before booting the device. No " +
+		"action-side workaround until upstream publishes an arm64 " +
+		"build of the emulator binary, or until we swap to a runner " +
+		"that ships an arm64 AVD binary out-of-band.",
+	Result: []string{
+		"the (ubuntu-24.04-arm, android/arm64, android-emu) play cell is omitted from the play matrix",
+		"the android/arm64 build itself stays green",
+		"users with arm64 dev machines (Apple Silicon, Linux/arm64 desktops) can still install the APK on a physical device or x86_64 emulator outside CI",
+	},
+	Refs: []string{
+		"https://github.com/rdlaitila/graphics.gd/actions/runs/28216544795/job/83589164073",
+		"https://issuetracker.google.com/issues/240866758",
+	},
+}
+
 // QuirkWebWasmGDExtensionPlayBroken marks js/wasm play under headless
 // chrome/firefox as broken: the engine boots and renders a frame,
 // but the stock Godot 4.7 web export template ships without

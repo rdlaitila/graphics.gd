@@ -136,9 +136,11 @@ func collectShots(dir string) []shotRow {
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "shots: cannot read --shots dir %q: %v\n", dir, err)
 		return nil
 	}
 	var out []shotRow
+	var skipped []string
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -150,10 +152,25 @@ func collectShots(dir string) []shotRow {
 		shot := filepath.Join(dir, name, "play-screenshot.png")
 		body, err := os.ReadFile(shot)
 		if err != nil || len(body) == 0 {
+			skipped = append(skipped, fmt.Sprintf("%s (%v)", shot, err))
 			continue
 		}
 		label, tail := shotLabel(name)
 		out = append(out, shotRow{Label: label, Tail: tail, PNG: body})
+	}
+	if len(out) == 0 && len(entries) > 0 {
+		// Saw artefact dirs under --shots but couldn't build any
+		// rows. Surface what we did see so a renderer regression
+		// (file moved inside the artefact, name pattern drift, ...)
+		// shows up in stderr instead of silently emitting an empty
+		// grid.
+		fmt.Fprintf(os.Stderr, "shots: --shots dir %q had %d entries but none yielded a play-screenshot.png:\n", dir, len(entries))
+		for _, e := range entries {
+			fmt.Fprintf(os.Stderr, "  - %s (dir=%v)\n", e.Name(), e.IsDir())
+		}
+		for _, s := range skipped {
+			fmt.Fprintf(os.Stderr, "  skipped: %s\n", s)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Label != out[j].Label {

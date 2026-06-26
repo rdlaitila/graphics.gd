@@ -222,15 +222,14 @@ func androidLauncherActivity(ctx context.Context, adb, pkg string) (string, erro
 	return "", fmt.Errorf("could not resolve launcher activity for %s", pkg)
 }
 
-// dumpAndroidDiagnosticLogcat prints the relevant tags to stderr so
-// CI logs reveal why the activity died when no GDNEXT_PLAY_REPORT
-// arrived. AndroidRuntime carries Java fatals, DEBUG carries native
-// crashes (tombstones), ActivityManager carries proc-start/exit,
-// godot is the engine's own tag.
+// dumpAndroidDiagnosticLogcat prints unfiltered logcat (-d) to
+// stderr when the activity failed to emit GDNEXT_PLAY_REPORT. The
+// earlier per-tag filter (godot:V AndroidRuntime:E ...) missed
+// startup messages that the engine routes through GodotActivity,
+// GodotJavaWrapper, GodotIO, or plain System.err. Cheaper to dump
+// everything and let CI's log search handle it.
 func dumpAndroidDiagnosticLogcat(adb, pkg string) {
-	tags := []string{"AndroidRuntime:E", "DEBUG:V", "ActivityManager:I", "godot:V", "Go:V", "*:F"}
-	args := append([]string{"logcat", "-d"}, tags...)
-	out, err := exec.Command(adb, args...).Output()
+	out, err := exec.Command(adb, "logcat", "-d").Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "diagnostic logcat failed: %v\n", err)
 		return

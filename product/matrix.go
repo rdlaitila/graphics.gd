@@ -381,6 +381,7 @@ var (
 		PlayHosts:  []PlayHost{PlayLinuxArm64AndroidEmu},
 		BuildTools: append(SharedToolchains, AndroidToolchains...),
 		Renderers:  []string{"vulkan", "gl_compatibility"},
+		Quirks:     []Quirk{QuirkAndroidArm64EmuMissingOnArm64Host},
 	}
 	PlatformAndroidAmd64 = Platform{
 		Title:      "Android x86_64",
