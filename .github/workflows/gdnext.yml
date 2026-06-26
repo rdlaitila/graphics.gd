@@ -97,6 +97,29 @@ jobs:
           go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
+      # Cache ~/gd by a content-aware digest of the toolchain catalog
+      # (gdnext toolchain list --format json). Same digest on every
+      # push that didn't touch the catalog → exact restore. Bump a
+      # tool version (e.g. godot 4.7 → 4.8) and only that tool's
+      # subdir is missing on restore; `gdnext toolchain doctor --fix`
+      # in the build job covers the delta. Keyed per runner.os so each
+      # host platform gets its own slot.
+      - id: tools-key
+        shell: bash
+        run: |
+          digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
+          echo "key=${{ runner.os }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-gdnext-tools-" >> $GITHUB_OUTPUT
+
+      - name: Restore ~/gd (catalog digest)
+        id: restore-tools
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/gd
+          key: ${{ steps.tools-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.prefix }}
+
       - name: Build + vet + unit tests
         shell: bash
         run: gdnext ci check-build-vet-test
@@ -148,14 +171,15 @@ jobs:
           retention-days: 30
 
       # Hand the freshly-installed ~/gd off to the build matrix via a
-      # per-SHA cache. The build job restores by the same key; the
-      # cache is automatically scoped to the run's commit, so any code
-      # change forces a clean install on the next push.
+      # content-aware cache. Skipped when the restore was an exact
+      # hit: there's nothing new to save and the action would refuse
+      # the put on a key collision anyway.
       - name: Cache ~/gd for the build matrix
+        if: steps.restore-tools.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/gd
-          key: ${{ runner.os }}-gdnext-${{ github.sha }}
+          key: ${{ steps.tools-key.outputs.key }}
 
   # Per-target build matrix. The matrix is supplied by discover-targets
   # as a fully-expanded include: list — host × target gating lives in
@@ -176,17 +200,52 @@ jobs:
         with:
           go-version: "1.26"
 
-      - name: Restore ~/gd from the checks job
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/gd
-          key: ${{ runner.os }}-gdnext-${{ github.sha }}
-
       - name: Install gdnext into PATH
         shell: bash
         run: |
           go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      # Match the cache key the checks job wrote: digest of
+      # `gdnext toolchain list --format json`, prefix fallback for
+      # version bumps so doctor --fix only fills in what's missing.
+      - id: tools-key
+        shell: bash
+        run: |
+          digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
+          echo "key=${{ runner.os }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-gdnext-tools-" >> $GITHUB_OUTPUT
+          echo "tpl_key=${{ runner.os }}-gdnext-templates-${digest}" >> $GITHUB_OUTPUT
+          echo "tpl_prefix=${{ runner.os }}-gdnext-templates-" >> $GITHUB_OUTPUT
+      - name: Restore ~/gd (catalog digest)
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/gd
+          key: ${{ steps.tools-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.prefix }}
+
+      # Godot export templates live under the platform-specific user
+      # data root (~/.local/share/godot/export_templates on linux,
+      # ~/Library/Application Support/Godot/export_templates on macos,
+      # %APPDATA%\Godot\export_templates on windows). They're ~1.3 GB
+      # extracted and fetched on demand by `setup.AssertTemplate` the
+      # first time `gdnext build` runs for a given Godot version.
+      # Cache them separately from ~/gd so the checks job (which
+      # never builds) doesn't have to warm them, and so the build
+      # cells can share whatever the first cell downloads. Same
+      # digest as ~/gd keeps them aligned with the catalog.
+      - name: Restore Godot export templates
+        id: restore-templates
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.local/share/godot/export_templates
+            ~/Library/Application Support/Godot/export_templates
+            ~/AppData/Roaming/Godot/export_templates
+          key: ${{ steps.tools-key.outputs.tpl_key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.tpl_prefix }}
 
       - name: Stage example (${{ matrix.example }})
         id: stage
@@ -227,6 +286,22 @@ jobs:
         run: |
           IFS=/ read -r goos goarch <<< "${{ matrix.target }}"
           gdnext ci build-target --goos "$goos" --goarch "$goarch" --link "${{ matrix.link }}" --scratch "${{ steps.stage.outputs.tmp }}"
+
+      # Persist templates exactly once per (runner.os, catalog
+      # digest): the first build cell to reach this step wins the
+      # save; the rest race-lose with no error (actions/cache treats
+      # primary-key collision as a no-op). `if: always()` so a failed
+      # build still uploads the templates it did pull \u2014 they're
+      # the expensive bit.
+      - name: Cache Godot export templates
+        if: always() && steps.restore-templates.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.local/share/godot/export_templates
+            ~/Library/Application Support/Godot/export_templates
+            ~/AppData/Roaming/Godot/export_templates
+          key: ${{ steps.tools-key.outputs.tpl_key }}
 
       - name: Tree ${{ matrix.target }} [${{ matrix.link || 'default' }}]
         if: always()
