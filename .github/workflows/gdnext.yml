@@ -45,7 +45,7 @@ jobs:
   # (os, target, example, experimental); the build job consumes it via
   # fromJSON. Adding a new row to product.PlatformMatrix (or flipping
   # its BuildHosts) lands in CI with zero workflow edits.
-  discover-targets:
+  discover-builds:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.list.outputs.matrix }}
@@ -72,18 +72,53 @@ jobs:
           runners=$(echo "$matrix" | jq -c '[.include[].os] | unique')
           echo "runners=$runners" >> $GITHUB_OUTPUT
 
+  # Pre-job: enumerate the (play-host, build-host, target, link) quads
+  # the play matrix should drive. Only emitted for Platforms whose
+  # PlayHosts is non-empty, so adding a play target lands here without
+  # workflow edits. Runs at the start alongside discover-builds —
+  # the matrix is pure product data, no build artefacts required.
+  discover-plays:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+      empty: ${{ steps.list.outputs.empty }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+      - id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install ./cmd/gdnext
+          matrix=$("$(go env GOPATH)/bin/gdnext" ci play-matrix --summary \
+            --filter-host "${{ inputs.filter-host }}" \
+            --filter-target "${{ inputs.filter-target }}" \
+            --filter-link "${{ inputs.filter-link }}")
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+          # Skip the gdnext-play job entirely when no rows exist
+          # (e.g. every play target was excluded). Otherwise GHA
+          # complains about an empty matrix.
+          count=$(echo "$matrix" | jq '.include | length')
+          if [ "$count" = "0" ]; then
+            echo "empty=true" >> $GITHUB_OUTPUT
+          else
+            echo "empty=false" >> $GITHUB_OUTPUT
+          fi
+
   # CLI smoke checks that don't depend on (target, example). Runs
   # once per host OS the build matrix actually uses, so
   # --filter-host=windows/amd64 skips ubuntu + macos checks instead
   # of wasting a slot each.
   gdnext-checks:
-    needs: [discover-targets]
-    if: needs.discover-targets.outputs.runners != '[]'
+    needs: [discover-builds]
+    if: needs.discover-builds.outputs.runners != '[]'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(needs.discover-targets.outputs.runners) }}
+        os: ${{ fromJSON(needs.discover-builds.outputs.runners) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -102,14 +137,16 @@ jobs:
       # push that didn't touch the catalog → exact restore. Bump a
       # tool version (e.g. godot 4.7 → 4.8) and only that tool's
       # subdir is missing on restore; `gdnext toolchain doctor --fix`
-      # in the build job covers the delta. Keyed per runner.os so each
-      # host platform gets its own slot.
+      # in the build job covers the delta. Keyed per (runner.os,
+      # runner.arch) so ubuntu-latest (X64) and ubuntu-24.04-arm
+      # (ARM64) don't share the same slot and restore the wrong
+      # native binaries.
       - id: tools-key
         shell: bash
         run: |
           digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
-          echo "key=${{ runner.os }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
-          echo "prefix=${{ runner.os }}-gdnext-tools-" >> $GITHUB_OUTPUT
+          echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
 
       - name: Restore ~/gd (catalog digest)
         id: restore-tools
@@ -185,17 +222,17 @@ jobs:
   # runner's own GOOS/GOARCH (the builders refuse to cross-test), so
   # running it once per host is sufficient — the per-(target, link)
   # build cells would just redundantly re-test the host every time.
-  # Keyed off discover-targets.runners so the test job slots match
+  # Keyed off discover-builds.runners so the test job slots match
   # whatever the build matrix's filter-host actually surfaced.
   gdnext-test:
-    needs: [discover-targets, gdnext-checks]
-    if: needs.discover-targets.outputs.runners != '[]'
+    needs: [discover-builds, gdnext-checks]
+    if: needs.discover-builds.outputs.runners != '[]'
     name: gdnext-test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(needs.discover-targets.outputs.runners) }}
+        os: ${{ fromJSON(needs.discover-builds.outputs.runners) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -211,10 +248,10 @@ jobs:
         shell: bash
         run: |
           digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
-          echo "key=${{ runner.os }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
-          echo "prefix=${{ runner.os }}-gdnext-tools-" >> $GITHUB_OUTPUT
-          echo "tpl_key=${{ runner.os }}-gdnext-templates-${digest}" >> $GITHUB_OUTPUT
-          echo "tpl_prefix=${{ runner.os }}-gdnext-templates-" >> $GITHUB_OUTPUT
+          echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
+          echo "tpl_key=${{ runner.os }}-${{ runner.arch }}-gdnext-templates-${digest}" >> $GITHUB_OUTPUT
+          echo "tpl_prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-templates-" >> $GITHUB_OUTPUT
       - name: Restore ~/gd (catalog digest)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -252,18 +289,18 @@ jobs:
         shell: bash
         run: gdnext ci build-test-headless --scratch "${{ steps.stage.outputs.tmp }}"
 
-  # Per-target build matrix. The matrix is supplied by discover-targets
+  # Per-target build matrix. The matrix is supplied by discover-builds
   # as a fully-expanded include: list — host × target gating lives in
   # product.Platform.BuildHosts, not in the workflow.
   gdnext-build:
-    needs: [discover-targets, gdnext-checks]
+    needs: [discover-builds, gdnext-checks]
     # Pin the displayed name so the matrix axes (which include long
     # artefact slugs + boolean flags) don't leak into the UI label.
     name: gdnext-build (${{ matrix.os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.allow_fail && ', allow-fail' || '' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.discover-targets.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.discover-builds.outputs.matrix) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -284,10 +321,10 @@ jobs:
         shell: bash
         run: |
           digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
-          echo "key=${{ runner.os }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
-          echo "prefix=${{ runner.os }}-gdnext-tools-" >> $GITHUB_OUTPUT
-          echo "tpl_key=${{ runner.os }}-gdnext-templates-${digest}" >> $GITHUB_OUTPUT
-          echo "tpl_prefix=${{ runner.os }}-gdnext-templates-" >> $GITHUB_OUTPUT
+          echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
+          echo "tpl_key=${{ runner.os }}-${{ runner.arch }}-gdnext-templates-${digest}" >> $GITHUB_OUTPUT
+          echo "tpl_prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-templates-" >> $GITHUB_OUTPUT
       - name: Restore ~/gd (catalog digest)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -398,48 +435,12 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Pre-job: enumerate the (play-host, build-host, target, link) quads
-  # the play matrix should drive. Only emitted for Platforms whose
-  # PlayHosts is non-empty, so adding a play target lands here without
-  # workflow edits.
-  discover-plays:
-    needs: [gdnext-build]
-    if: always()
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.list.outputs.matrix }}
-      empty: ${{ steps.list.outputs.empty }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version: "1.26"
-      - id: list
-        shell: bash
-        run: |
-          set -euo pipefail
-          go install ./cmd/gdnext
-          matrix=$("$(go env GOPATH)/bin/gdnext" ci play-matrix --summary \
-            --filter-host "${{ inputs.filter-host }}" \
-            --filter-target "${{ inputs.filter-target }}" \
-            --filter-link "${{ inputs.filter-link }}")
-          echo "matrix=$matrix" >> $GITHUB_OUTPUT
-          # Skip the gdnext-play job entirely when no rows exist
-          # (e.g. every play target was excluded). Otherwise GHA
-          # complains about an empty matrix.
-          count=$(echo "$matrix" | jq '.include | length')
-          if [ "$count" = "0" ]; then
-            echo "empty=true" >> $GITHUB_OUTPUT
-          else
-            echo "empty=false" >> $GITHUB_OUTPUT
-          fi
-
   # Per-(play-host, build-host, target, link) drive of the produced
   # binary via the canarybird play-bot. Each cell downloads its build
   # artefact, runs `gdnext ci play-cell` against it, and surfaces the
   # bot's pass/fail report.
   gdnext-play:
-    needs: [discover-plays]
+    needs: [discover-plays, gdnext-build]
     if: ${{ always() && needs.discover-plays.outputs.empty == 'false' }}
     name: gdnext-play (${{ matrix.os }}, ${{ matrix.build_os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}, ${{ matrix.compat || 'native' }}${{ matrix.allow_fail && ', allow-fail' || '' }})
     runs-on: ${{ matrix.os }}
@@ -464,6 +465,31 @@ jobs:
           name: ${{ matrix.artifact }}
           path: scratch
 
+      # android-emu needs aapt2 from the android build-tools that
+      # `gdnext toolchain install` lays down under $GDPATH/bin. Restore
+      # the same content-aware cache the checks/build/test jobs use,
+      # then `toolchain doctor --fix` heals any drift between the
+      # cached set and what the current catalog calls for.
+      - id: tools-key
+        if: matrix.compat == 'android-emu'
+        shell: bash
+        run: |
+          digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
+          echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
+      - name: Restore ~/gd (catalog digest)
+        if: matrix.compat == 'android-emu'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/gd
+          key: ${{ steps.tools-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.prefix }}
+      - name: Toolchain doctor (android tooling)
+        if: matrix.compat == 'android-emu'
+        shell: bash
+        run: gdnext toolchain doctor --fix
+
       # xvfb-run gives the engine a virtual display; wine and proton
       # (via umu-launcher) let linux runners drive windows binaries.
       # Compat-layer choice comes from the matrix. proton_tag is the
@@ -475,7 +501,7 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.local/share/Steam/compatibilitytools.d/${{ matrix.proton_tag }}
-          key: proton-${{ matrix.proton_tag }}-v1
+          key: ${{ runner.os }}-${{ runner.arch }}-proton-${{ matrix.proton_tag }}-v1
 
       - name: Restore umu runtime cache
         if: runner.os == 'Linux' && matrix.proton_tag != ''
@@ -483,7 +509,7 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.local/share/umu
-          key: umu-runtime-v1
+          key: ${{ runner.os }}-${{ runner.arch }}-umu-runtime-v1
 
       - name: Install xvfb + compat layer (${{ matrix.compat || 'native' }})
         if: runner.os == 'Linux'
@@ -576,7 +602,7 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.local/share/Steam/compatibilitytools.d/${{ matrix.proton_tag }}
-          key: proton-${{ matrix.proton_tag }}-v1
+          key: ${{ runner.os }}-${{ runner.arch }}-proton-${{ matrix.proton_tag }}-v1
 
       # android-emu cells need KVM + reactivecircus/android-emulator-runner.
       # Everything below is no-op on non-android cells via per-step `if:`.
@@ -595,13 +621,17 @@ jobs:
         with:
           api-level: 34
           # arch follows the target: android/amd64 boots x86_64 (KVM-fast),
-          # android/arm64 boots arm64-v8a (QEMU TCG, slower but actually
-          # runs the arm64 native libs the APK carries).
+          # android/arm64 boots arm64-v8a on the ubuntu-24.04-arm runner.
           arch: ${{ matrix.target == 'android/arm64' && 'arm64-v8a' || 'x86_64' }}
           target: google_apis
           force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          disable-animations: true          
+          # `-no-accel` only on arm64: GitHub's ubuntu-24.04-arm exposes
+          # /dev/kvm but the emulator's KVM init fails with EINVAL on
+          # those hosts, so fall back to TCG. arm64-on-arm64 means TCG
+          # still executes native instructions, only the hypervisor
+          # fast-path is lost.
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot ${{ matrix.target == 'android/arm64' && '-no-accel' || '' }}
+          disable-animations: true
           script: gdnext ci play-cell --scratch scratch --example "${{ matrix.example }}" --target "${{ matrix.target }}" --link "${{ matrix.link }}" --compat android-emu --build-host "${{ matrix.build_os }}"
 
       - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=${{ matrix.compat || 'native' }} (built on ${{ matrix.build_os }})
@@ -622,7 +652,7 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.local/share/umu
-          key: umu-runtime-v1
+          key: ${{ runner.os }}-${{ runner.arch }}-umu-runtime-v1
 
       - name: Show play report
         if: always()
@@ -656,7 +686,7 @@ jobs:
   # success / failure history is visible at a glance from the UI.
   summary:
     name: Workflow summary
-    needs: [discover-targets, gdnext-checks, gdnext-test, gdnext-build, discover-plays, gdnext-play]
+    needs: [discover-builds, gdnext-checks, gdnext-test, gdnext-build, discover-plays, gdnext-play]
     if: always()
     runs-on: ubuntu-latest
     permissions:
