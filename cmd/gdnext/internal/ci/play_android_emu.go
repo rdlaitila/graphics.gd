@@ -108,6 +108,12 @@ poll:
 		if err := os.WriteFile(opts.reportPath, reportBytes, 0644); err != nil {
 			return fmt.Errorf("write report %s: %w", opts.reportPath, err)
 		}
+	} else {
+		// No report arrived. Dump the relevant logcat tags so the
+		// CI log shows whether the activity launched at all, crashed
+		// in native code, or simply silently exited. The bot's own
+		// Go:* filter wouldn't surface any of that.
+		dumpAndroidDiagnosticLogcat(adb, pkg)
 	}
 	// Always capture a host-side screenshot before tearing down so
 	// the workflow summary still gets a frame even when the report
@@ -214,4 +220,20 @@ func androidLauncherActivity(ctx context.Context, adb, pkg string) (string, erro
 		}
 	}
 	return "", fmt.Errorf("could not resolve launcher activity for %s", pkg)
+}
+
+// dumpAndroidDiagnosticLogcat prints the relevant tags to stderr so
+// CI logs reveal why the activity died when no GDNEXT_PLAY_REPORT
+// arrived. AndroidRuntime carries Java fatals, DEBUG carries native
+// crashes (tombstones), ActivityManager carries proc-start/exit,
+// godot is the engine's own tag.
+func dumpAndroidDiagnosticLogcat(adb, pkg string) {
+	tags := []string{"AndroidRuntime:E", "DEBUG:V", "ActivityManager:I", "godot:V", "Go:V", "*:F"}
+	args := append([]string{"logcat", "-d"}, tags...)
+	out, err := exec.Command(adb, args...).Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "diagnostic logcat failed: %v\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\n==> diagnostic logcat for %s (no GDNEXT_PLAY_REPORT was emitted):\n%s\n", pkg, out)
 }
