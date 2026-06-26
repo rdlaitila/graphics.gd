@@ -147,6 +147,7 @@ var PlayMatrix = []PlayHost{
 	PlayLinuxAmd64Proton8,
 	PlayLinuxAmd64Chrome,
 	PlayLinuxAmd64Firefox,
+	PlayLinuxAmd64AndroidEmu,
 	PlayWindowsAmd64,
 	PlayDarwinArm64,
 }
@@ -198,6 +199,16 @@ var (
 		GOARCH:         GOARCHAmd64,
 		VirtualDisplay: "xvfb",
 		CompatLayer:    "firefox",
+	}
+	// PlayLinuxAmd64AndroidEmu drives android/* APKs through Google's
+	// stock x86_64 system image inside an AVD on the linux play host.
+	// The reactivecircus/android-emulator-runner GitHub Action provides
+	// the SDK + KVM + AVD plumbing; the play-cell dispatcher just talks
+	// to adb once the action's `script:` block runs.
+	PlayLinuxAmd64AndroidEmu = PlayHost{
+		GOOS:        GOOSLinux,
+		GOARCH:      GOARCHAmd64,
+		CompatLayer: "android-emu",
 	}
 	PlayWindowsAmd64 = PlayHost{
 		GOOS:   GOOSWindows,
@@ -337,6 +348,7 @@ var (
 		Status:     Supported | Stable,
 		LinkModes:  GDExtension,
 		BuildHosts: HostMatrix,
+		PlayHosts:  []PlayHost{PlayLinuxAmd64AndroidEmu},
 		BuildTools: append(SharedToolchains, AndroidToolchains...),
 		Renderers:  []string{"vulkan", "gl_compatibility"},
 	}
@@ -348,6 +360,7 @@ var (
 		Status:     Supported | Quirky,
 		LinkModes:  GDExtension,
 		BuildHosts: HostMatrix,
+		PlayHosts:  []PlayHost{PlayLinuxAmd64AndroidEmu},
 		BuildTools: append(SharedToolchains, AndroidToolchains...),
 		Renderers:  []string{"vulkan", "gl_compatibility"},
 		Notes:      "primarily emulator or desktop android targeted (ex: waydroid)",

@@ -83,7 +83,8 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	_ = os.Remove(screenshotPath)
 	hud := buildPlayHUD(target, mode, compat, buildHost)
 	var runErr error
-	if plat.GOOS == product.GOOSJS || compat == "chrome" || compat == "firefox" {
+	switch {
+	case plat.GOOS == product.GOOSJS || compat == "chrome" || compat == "firefox":
 		runErr = runBrowserPlay(browserPlayOpts{
 			scratch:        scratch,
 			target:         target,
@@ -95,7 +96,19 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 			hud:            hud,
 			timeout:        timeout,
 		})
-	} else {
+	case plat.GOOS == product.GOOSAndroid || compat == "android-emu":
+		runErr = runAndroidPlay(androidPlayOpts{
+			scratch:        scratch,
+			target:         target,
+			link:           mode.String(),
+			compat:         compat,
+			buildHost:      buildHost,
+			reportPath:     reportPath,
+			screenshotPath: screenshotPath,
+			hud:            hud,
+			timeout:        timeout,
+		})
+	default:
 		bin, err := releaseBinary(scratch, example, plat, mode)
 		if err != nil {
 			return err
