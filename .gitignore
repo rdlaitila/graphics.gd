@@ -2,7 +2,6 @@
 /example/.godot/
 /example/bin/hello.so
 /example/bin/hello.h
-/.vscode/settings.json
 /example/src/src
 /example/bin/example.so
 /node_modules

@@ -1,0 +1,12 @@
+{
+  "// gopls notes": [
+    "Go has no android/386 toolchain (android requires cgo, and 386 cgo isn't built in stock Go).",
+    "Forcing CGO_ENABLED=1 stops gopls from synthesising an android/386 view that immediately errors on every cgo file."
+  ],
+  "go.toolsEnvVars": {
+    "CGO_ENABLED": "1"
+  },
+  "[go]": {
+    "editor.formatOnSave": true
+  }
+}
