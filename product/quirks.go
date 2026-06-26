@@ -26,7 +26,6 @@ const (
 	QuirkBuildFlaky
 	QuirkCIBuildBroken
 	QuirkCIPlayBroken
-	QuirkCIPlayAllowFail
 )
 
 // QuirkWindowsAmd64WinePlayBroken marks windows/amd64 artefacts as
@@ -58,33 +57,36 @@ var QuirkWindowsAmd64WinePlayBroken = Quirk{
 }
 
 // QuirkWebWasmGDExtensionPlayBroken marks js/wasm play under headless
-// chrome/firefox as allow-fail: the engine boots and renders a frame
-// (so we still get a screenshot artefact for the workflow summary)
+// chrome/firefox as broken: the engine boots and renders a frame,
 // but the stock Godot 4.7 web export template ships without
 // GDExtension support, so any graphics.gd extension call hits a
 // null function pointer and the page crashes before the play-bot
-// can write its report.
+// can write its report. The matrix omits the cells outright; we
+// keep the play_browser dispatcher and the canarybird wasm shim in
+// place so the moment a GDExtension-enabled web template (or a
+// libgodot.web.wasm artefact) ships, removing this quirk re-enables
+// the cells with zero other code changes.
 var QuirkWebWasmGDExtensionPlayBroken = Quirk{
 	Title:  "js/wasm play under chrome/firefox: stock Godot 4.7 web template lacks GDExtension support",
-	Scope:  QuirkCIPlayAllowFail,
+	Scope:  QuirkCIPlayBroken,
 	Hosts:  []string{Tuple(GOOSLinux, GOARCHAmd64)},
 	Compat: []string{"chrome", "firefox"},
 	Reason: "The browser cell launches via Playwright with COEP/COOP " +
 		"headers, the wasm bundle loads, and Godot reaches the initial " +
-		"frame (chrome+SwiftShader on linux). The bundle's own log line " +
-		"reads `Build configuration: Emscripten ..., no GDExtension " +
-		"support.` \u2014 the stock Godot 4.7 web export template is " +
-		"compiled without GDExtension. Any graphics.gd runtime call that " +
-		"crosses the extension boundary resolves to a null function " +
-		"pointer and crashes the page before the play-bot can emit its " +
-		"GDNEXT_PLAY_REPORT line. Upstream's own web tests sidestep this " +
-		"by linking via libgodot (statically embedding the engine in " +
-		"library.wasm), but no libgodot.web.wasm artefact is published at " +
-		"release.graphics.gd yet, so gdnext build can't take that route.",
+		"frame. The bundle's own log line reads `Build configuration: " +
+		"Emscripten ..., no GDExtension support.` \u2014 the stock Godot " +
+		"4.7 web export template is compiled without GDExtension. Any " +
+		"graphics.gd runtime call that crosses the extension boundary " +
+		"resolves to a null function pointer and crashes the page before " +
+		"the play-bot can emit its GDNEXT_PLAY_REPORT line. Upstream's own " +
+		"web tests sidestep this by linking via libgodot (statically " +
+		"embedding the engine in library.wasm), but no libgodot.web.wasm " +
+		"artefact is published at release.graphics.gd yet, so gdnext build " +
+		"can't take that route.",
 	Result: []string{
-		"the (js/wasm, chrome) and (js/wasm, firefox) play cells run with continue-on-error",
-		"each cell still uploads a play-screenshot.png (the driver captures it after the wasm crash) for the workflow summary",
-		"the js/wasm build itself stays green; the cell turns green automatically once the upstream Godot web template ships with GDExtension support, or once a libgodot.web.wasm artefact is published and gdnext build is taught to use it",
+		"the (js/wasm, chrome) and (js/wasm, firefox) play cells are omitted from the play matrix",
+		"the js/wasm build itself stays green",
+		"cells turn green automatically once the upstream Godot web template ships with GDExtension support, or once a libgodot.web.wasm artefact is published and gdnext build is taught to use it",
 	},
 	Refs: []string{
 		"https://github.com/godotengine/godot/issues/100789",
@@ -107,8 +109,8 @@ var QuirkWindowsDarwinBuildAccessDenied = Quirk{
 		"via gsudo, per-build retry. Cross-build darwin from a linux " +
 		"or darwin host.",
 	Result: []string{
-		"darwin/* targets stay Supported|Quirky on a windows host",
-		"CI runs (windows host, darwin target) cells with continue-on-error so failures don't fail the workflow",
+		"the (windows host, darwin target) build cells are omitted from the matrix",
+		"darwin/* targets continue to build green on linux and darwin hosts",
 		"local builds on a user-owned windows host may still succeed",
 	},
 	Refs: []string{
@@ -129,8 +131,6 @@ func (t QuirkScope) String() string {
 		return "ci-build-broken"
 	case QuirkCIPlayBroken:
 		return "ci-play-broken"
-	case QuirkCIPlayAllowFail:
-		return "ci-play-allow-fail"
 	}
 	return "?"
 }
@@ -166,7 +166,10 @@ func (t Quirk) AppliesToCompat(layer string) bool {
 }
 
 // CIBlockedFor reports whether p carries a QuirkCIBuildBroken
-// matching the given build host.
+// matching the given build host. The matrix generator uses it to
+// omit the (host, target) cell entirely: build-broken means we
+// don't want CI noise from a cell we know won't work, and the
+// quirk row in the summary is the contract that explains why.
 func (t Platform) CIBlockedFor(hostGOOS, hostGOARCH string) bool {
 	for _, q := range t.Quirks {
 		if q.Scope == QuirkCIBuildBroken && q.AppliesToHost(hostGOOS, hostGOARCH) {
@@ -183,27 +186,6 @@ func (t Platform) CIBlockedFor(hostGOOS, hostGOARCH string) bool {
 func (t Platform) PlayBlockedFor(playHostGOOS, playHostGOARCH, compat string) bool {
 	for _, q := range t.Quirks {
 		if q.Scope != QuirkCIPlayBroken {
-			continue
-		}
-		if !q.AppliesToHost(playHostGOOS, playHostGOARCH) {
-			continue
-		}
-		if !q.AppliesToCompat(compat) {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
-// PlayAllowFailFor reports whether p carries a QuirkCIPlayAllowFail
-// matching the given (play host, compat layer) pair. Used by the
-// play-matrix generator to mark cells that should still run (and
-// upload artefacts like the screenshot) but not fail the workflow
-// when they don't reach the play-bot signal.
-func (t Platform) PlayAllowFailFor(playHostGOOS, playHostGOARCH, compat string) bool {
-	for _, q := range t.Quirks {
-		if q.Scope != QuirkCIPlayAllowFail {
 			continue
 		}
 		if !q.AppliesToHost(playHostGOOS, playHostGOARCH) {

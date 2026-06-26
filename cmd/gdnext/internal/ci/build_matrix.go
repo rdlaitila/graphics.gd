@@ -144,8 +144,13 @@ func buildMatrix(examples []string, filter matrixFilter) []matrixRow {
 			if !filter.allows(host.Host.Tuple(), platform.Tuple()) {
 				continue
 			}
-			allowFail := platform.Status.Has(product.Experimental) ||
-				platform.CIBlockedFor(host.Host.GOOS, host.Host.GOARCH)
+			// QuirkCIBuildBroken (e.g. windows host + darwin target)
+			// omits the cell outright; the Quirk row in the summary
+			// is the contract that explains why.
+			if platform.CIBlockedFor(host.Host.GOOS, host.Host.GOARCH) {
+				continue
+			}
+			allowFail := platform.Status.Has(product.Experimental)
 			modes := []product.LinkMode{0}
 			if platform.LinkModes != 0 {
 				modes = modes[:0]

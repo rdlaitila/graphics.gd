@@ -36,14 +36,24 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv);
 const timeoutMs = Number(args.timeout);
 
-const launchers = { chrome: playwright.chromium, firefox: playwright.firefox };
-const launcher = launchers[args.browser];
-if (!launcher) {
+// Playwright defaults chromium.launch() to the headless-shell build
+// since v1.40. We want the full chromium so a regular page renders
+// the wasm bundle the same way a desktop chrome would; pass the
+// channel explicitly. Firefox has only one build, no channel needed.
+const launchers = {
+	chrome: { launcher: playwright.chromium, options: { channel: "chromium" } },
+	firefox: { launcher: playwright.firefox, options: {} },
+};
+const entry = launchers[args.browser];
+if (!entry) {
 	console.error(`play.mjs: unknown --browser=${args.browser} (want chrome|firefox)`);
 	process.exit(2);
 }
 
-const browser = await launcher.launch({ headless: !args.headed });
+const browser = await entry.launcher.launch({
+	headless: !args.headed,
+	...entry.options,
+});
 const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
 const page = await context.newPage();
 

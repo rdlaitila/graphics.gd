@@ -137,8 +137,12 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 			if len(platform.PlayHosts) == 0 {
 				continue
 			}
-			allowFail := platform.Status.Has(product.Experimental) ||
-				platform.CIBlockedFor(buildHost.Host.GOOS, buildHost.Host.GOARCH)
+			// QuirkCIBuildBroken omits the cell on the build side; if
+			// the artefact can't be produced we have nothing to play.
+			if platform.CIBlockedFor(buildHost.Host.GOOS, buildHost.Host.GOARCH) {
+				continue
+			}
+			allowFail := platform.Status.Has(product.Experimental)
 			modes := []product.LinkMode{0}
 			if platform.LinkModes != 0 {
 				modes = modes[:0]
@@ -170,7 +174,6 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 						if platform.PlayBlockedFor(playHost.GOOS, playHost.GOARCH, playHost.CompatLayer) {
 							continue
 						}
-						rowAllowFail := allowFail || platform.PlayAllowFailFor(playHost.GOOS, playHost.GOARCH, playHost.CompatLayer)
 						out = append(out, playMatrixRow{
 							OS:        playRunner,
 							BuildOS:   buildHost.Runner,
@@ -179,7 +182,7 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 							Link:      link,
 							Compat:    playHost.CompatLayer,
 							ProtonTag: protonRelease(playHost.CompatLayer),
-							AllowFail: rowAllowFail,
+							AllowFail: allowFail,
 							Artifact:  ArtifactName(buildHost.Runner, ex, platform.Tuple(), link),
 						})
 					}

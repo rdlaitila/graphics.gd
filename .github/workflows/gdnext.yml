@@ -428,10 +428,18 @@ jobs:
               # the bundle was staged into so the script can resolve
               # it as a sibling node_modules), then `playwright
               # install --with-deps <browser>` pulls the matched
-              # browser build + apt libs.
-              echo "::group::install playwright + ${{ matrix.compat }}"
+              # browser build + apt libs. We map our matrix `compat`
+              # to Playwright's browser name explicitly: `chrome`
+              # means the bundled chromium build (not Google Chrome
+              # the channel, which would apt-install a separate
+              # google-chrome-stable).
+              case "${{ matrix.compat }}" in
+                chrome) pw_browser="chromium" ;;
+                firefox) pw_browser="firefox" ;;
+              esac
+              echo "::group::install playwright + ${pw_browser}"
               ( cd scratch && npm init -y >/dev/null && npm install --no-audit --no-fund playwright )
-              ( cd scratch && npx playwright install --with-deps "${{ matrix.compat }}" )
+              ( cd scratch && npx playwright install --with-deps "${pw_browser}" )
               echo "::endgroup::"
               ;;
           esac
