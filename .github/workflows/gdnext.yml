@@ -452,7 +452,10 @@ jobs:
         uses: reactivecircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
         with:
           api-level: 34
-          arch: x86_64
+          # arch follows the target: android/amd64 boots x86_64 (KVM-fast),
+          # android/arm64 boots arm64-v8a (QEMU TCG, slower but actually
+          # runs the arm64 native libs the APK carries).
+          arch: ${{ matrix.target == 'android/arm64' && 'arm64-v8a' || 'x86_64' }}
           target: google_apis
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot

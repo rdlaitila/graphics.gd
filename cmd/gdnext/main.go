@@ -14,12 +14,12 @@ import (
 
 	"graphics.gd/cmd/gdnext/internal/builder"
 	"graphics.gd/cmd/gdnext/internal/ci"
-	gdcli "graphics.gd/cmd/gdnext/internal/cli"
+	gcli "graphics.gd/cmd/gdnext/internal/cli"
 	"graphics.gd/cmd/gdnext/internal/setup"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 
 	"github.com/samber/do/v2"
-	"github.com/urfave/cli/v3"
+	ucli "github.com/urfave/cli/v3"
 )
 
 func main() {
@@ -28,13 +28,13 @@ func main() {
 	// `Injector do.Injector` DI field (needed by build / run / test
 	// to lazily resolve builders via setup.ForBuild).
 	do.ProvideValue(di, di)
-	gdcli.Provides(di)
+	gcli.Provides(di)
 	setup.Provides(di)
 	tooling.Provides(di)
 	builder.Provides(di)
 	ci.Provides(di)
-	root := do.MustInvoke[*gdcli.RootCommand](di)
-	args := gdcli.RewriteShortFlags(os.Args, gdcli.CollectFlagNames(root.Command))
+	root := do.MustInvoke[*gcli.RootCommand](di)
+	args := gcli.RewriteShortFlags(os.Args, gcli.CollectFlagNames(root.Command))
 	if goArgs, ok := goPassthrough(args, root.Command); ok {
 		// ---- BEGIN go-compat passthrough (delete to remove) -----------------
 		// Forward unknown subcommands like `gdnext get pkg` or `gdnext mod tidy`
@@ -60,7 +60,7 @@ func main() {
 // gdnext should forward rather than try to handle itself. Returns the
 // argv to pass to `go` (verb + remaining tokens, no program name) and
 // true when the answer is yes
-func goPassthrough(args []string, cmd *cli.Command) ([]string, bool) {
+func goPassthrough(args []string, cmd *ucli.Command) ([]string, bool) {
 	if len(args) < 2 {
 		return nil, false
 	}
@@ -104,7 +104,7 @@ func goPassthrough(args []string, cmd *cli.Command) ([]string, bool) {
 // (or one of its aliases) on the supplied root. urfave keeps the
 // canonical list on cmd.Commands and doesn't expose a Lookup-by-name;
 // the slice is tiny so a linear scan is fine.
-func isKnownCommand(cmd *cli.Command, tok string) bool {
+func isKnownCommand(cmd *ucli.Command, tok string) bool {
 	for _, c := range cmd.Commands {
 		for _, n := range c.Names() {
 			if n == tok {
@@ -118,7 +118,7 @@ func isKnownCommand(cmd *cli.Command, tok string) bool {
 // isStringFlag reports whether the named global flag carries a string
 // (or int) value — i.e. consumes the next argv token when given without
 // `=value`. Helper for goPassthrough's flag-skipping loop.
-func isStringFlag(cmd *cli.Command, name string) bool {
+func isStringFlag(cmd *ucli.Command, name string) bool {
 	for _, f := range cmd.Flags {
 		matched := false
 		for _, n := range f.Names() {
@@ -131,7 +131,7 @@ func isStringFlag(cmd *cli.Command, name string) bool {
 			continue
 		}
 		switch f.(type) {
-		case *cli.StringFlag, *cli.IntFlag:
+		case *ucli.StringFlag, *ucli.IntFlag:
 			return true
 		}
 		return false
