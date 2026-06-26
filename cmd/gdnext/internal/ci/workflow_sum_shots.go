@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"graphics.gd/product"
 )
 
 // shotRow is one cell's screenshot picked up from the downloaded
@@ -64,29 +66,23 @@ func parseScreenshotArtifactName(name string) (target, link, compat, buildRunner
 	}
 	buildRunner = parts[0] + "-" + parts[1]
 	tail := parts[2]
+	// Peel a compat suffix off if one of the known compat tokens
+	// from product.PlayMatrix matches. Longest-first to handle
+	// multi-token compats (android-emu, proton-10) before shorter
+	// ones that would otherwise prefix-match (proton).
+	for _, c := range knownCompatSuffixes() {
+		if t, ok := strings.CutSuffix(tail, "-"+c); ok {
+			compat = c
+			tail = t
+			break
+		}
+	}
 	tokens := strings.Split(tail, "-")
 	if len(tokens) < 3 {
 		return "", "", "", "", "", false
 	}
-	// Optional trailing compat token: anything that isn't a LinkMode
-	// and isn't a goarch. We don't have a closed list of compat names,
-	// but the goarch slot is always second-to-last in (goos, goarch)
-	// pairs, so peel from the right: if the last token isn't a known
-	// link mode and the previous one isn't a known goarch, treat the
-	// last as compat.
-	knownArch := map[string]bool{"amd64": true, "arm64": true, "wasm": true, "386": true}
 	knownLink := map[string]bool{"gdextension": true, "libgodot": true}
-	if !knownLink[tokens[len(tokens)-1]] && len(tokens) >= 4 && knownArch[tokens[len(tokens)-2]] {
-		// last = compat, second-to-last = goarch
-		compat = tokens[len(tokens)-1]
-		tokens = tokens[:len(tokens)-1]
-	} else if !knownLink[tokens[len(tokens)-1]] && len(tokens) >= 5 && knownLink[tokens[len(tokens)-2]] {
-		// last = compat, second-to-last = link mode
-		compat = tokens[len(tokens)-1]
-		tokens = tokens[:len(tokens)-1]
-	}
-	last := tokens[len(tokens)-1]
-	if knownLink[last] {
+	if last := tokens[len(tokens)-1]; knownLink[last] {
 		link = last
 		tokens = tokens[:len(tokens)-1]
 	}
@@ -98,6 +94,31 @@ func parseScreenshotArtifactName(name string) (target, link, compat, buildRunner
 	target = tokens[goosIdx] + "/" + tokens[archIdx]
 	return target, link, compat, buildRunner, head, true
 }
+
+// knownCompatSuffixes returns the distinct CompatLayer values from
+// product.PlayMatrix sorted by length descending, so longest match
+// wins when one compat name is a prefix of another (e.g. "proton"
+// vs "proton-10"). Cached on first call; PlayMatrix is package data
+// and doesn't change at runtime.
+func knownCompatSuffixes() []string {
+	if cachedCompatSuffixes != nil {
+		return cachedCompatSuffixes
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range product.PlayMatrix {
+		if p.CompatLayer == "" || seen[p.CompatLayer] {
+			continue
+		}
+		seen[p.CompatLayer] = true
+		out = append(out, p.CompatLayer)
+	}
+	sort.Slice(out, func(i, j int) bool { return len(out[i]) > len(out[j]) })
+	cachedCompatSuffixes = out
+	return out
+}
+
+var cachedCompatSuffixes []string
 
 // collectShots walks dir for artefact subdirectories named
 // `shot-<play-runner>-play-<build-runner>-<example>-<goos>-<goarch>[-<link>]`
