@@ -711,6 +711,10 @@ jobs:
         with:
           pattern: shot-*
           path: shots
+      - name: Tree Play Screenshots
+        shell: bash
+        run: |          
+          find shots \( -type f -o -type l \) | sort          
       - name: Render workflow summary
         env:
           GH_TOKEN: ${{ github.token }}
