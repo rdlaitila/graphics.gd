@@ -266,9 +266,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.list.outputs.matrix }}
-      matrix_android: ${{ steps.list.outputs.matrix_android }}
       empty: ${{ steps.list.outputs.empty }}
-      empty_android: ${{ steps.list.outputs.empty_android }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -279,32 +277,19 @@ jobs:
         run: |
           set -euo pipefail
           go install ./cmd/gdnext
-          full=$("$(go env GOPATH)/bin/gdnext" ci play-matrix --summary \
+          matrix=$("$(go env GOPATH)/bin/gdnext" ci play-matrix --summary \
             --filter-host "${{ inputs.filter-host }}" \
             --filter-target "${{ inputs.filter-target }}" \
             --filter-link "${{ inputs.filter-link }}")
-          # Split the matrix into the regular (process-launched) cells
-          # and the android-emu cells, which need a wholly different
-          # job shape (the reactivecircus/android-emulator-runner
-          # action wraps `gdnext ci play-cell` in its `script:` block
-          # so adb + AVD are already provisioned by the time we run).
-          matrix=$(echo "$full" | jq -c '{include: [.include[] | select(.compat != "android-emu")]}')
-          matrix_android=$(echo "$full" | jq -c '{include: [.include[] | select(.compat == "android-emu")]}')
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
-          echo "matrix_android=$matrix_android" >> $GITHUB_OUTPUT
-          # Skip each downstream job when its slice is empty so GHA
-          # doesn't complain about an empty matrix.
+          # Skip the gdnext-play job entirely when no rows exist
+          # (e.g. every play target was excluded). Otherwise GHA
+          # complains about an empty matrix.
           count=$(echo "$matrix" | jq '.include | length')
           if [ "$count" = "0" ]; then
             echo "empty=true" >> $GITHUB_OUTPUT
           else
             echo "empty=false" >> $GITHUB_OUTPUT
-          fi
-          count_android=$(echo "$matrix_android" | jq '.include | length')
-          if [ "$count_android" = "0" ]; then
-            echo "empty_android=true" >> $GITHUB_OUTPUT
-          else
-            echo "empty_android=false" >> $GITHUB_OUTPUT
           fi
 
   # Per-(play-host, build-host, target, link) drive of the produced
@@ -451,7 +436,38 @@ jobs:
           path: ~/.local/share/Steam/compatibilitytools.d/${{ matrix.proton_tag }}
           key: proton-${{ matrix.proton_tag }}-v1
 
+      # android-emu cells need KVM + reactivecircus/android-emulator-runner.
+      # Everything below is no-op on non-android cells via per-step `if:`.
+      - name: Enable KVM
+        if: matrix.compat == 'android-emu'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=android-emu (built on ${{ matrix.build_os }})
+        if: matrix.compat == 'android-emu'
+        continue-on-error: ${{ matrix.allow_fail }}
+        uses: reactivecircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: |
+            gdnext ci play-cell \
+              --scratch scratch \
+              --example "${{ matrix.example }}" \
+              --target "${{ matrix.target }}" \
+              --link "${{ matrix.link }}" \
+              --compat android-emu \
+              --build-host "${{ matrix.build_os }}"
+
       - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=${{ matrix.compat || 'native' }} (built on ${{ matrix.build_os }})
+        if: matrix.compat != 'android-emu'
         continue-on-error: ${{ matrix.allow_fail }}
         shell: bash
         run: |
@@ -497,94 +513,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  # Android emulator drive of the produced APK. Each cell consumes
-  # the same build artefact the process-launched cells do, but boots
-  # an x86_64 google_apis AVD via reactivecircus/android-emulator-runner
-  # before handing control to `gdnext ci play-cell`. The action's
-  # script: block inherits adb + the SDK environment, so the play
-  # dispatcher can install, push the HUD, launch, poll, and pull
-  # via standard adb verbs.
-  gdnext-play-android:
-    needs: [discover-plays]
-    if: ${{ always() && needs.discover-plays.outputs.empty_android == 'false' }}
-    name: gdnext-play-android (${{ matrix.build_os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.allow_fail && ', allow-fail' || '' }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.discover-plays.outputs.matrix_android) }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version: "1.26"
-      - name: Install gdnext into PATH
-        shell: bash
-        run: |
-          go install ./cmd/gdnext
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-      - name: Download play artefact (${{ matrix.artifact }})
-        uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v8.0.1
-        with:
-          name: ${{ matrix.artifact }}
-          path: scratch
-
-      # The x86_64 AVD only runs at usable speed with KVM. GitHub
-      # Linux runners are KVM-capable but /dev/kvm isn't world
-      # accessible by default; mirror upstream's go.yml setup.
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=android-emu (built on ${{ matrix.build_os }})
-        continue-on-error: ${{ matrix.allow_fail }}
-        uses: reactivecircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
-        with:
-          api-level: 34
-          arch: x86_64
-          target: google_apis
-          force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          disable-animations: true
-          script: |
-            gdnext ci play-cell \
-              --scratch scratch \
-              --example "${{ matrix.example }}" \
-              --target "${{ matrix.target }}" \
-              --link "${{ matrix.link }}" \
-              --compat android-emu \
-              --build-host "${{ matrix.build_os }}"
-
-      - name: Show play report
-        if: always()
-        shell: bash
-        run: |
-          if [ -f scratch/play-report.json ]; then
-            echo "::group::play-report.json"
-            cat scratch/play-report.json
-            echo "::endgroup::"
-          else
-            echo "no play-report.json"
-          fi
-
-      - name: Upload play screenshot
-        if: always() && hashFiles('scratch/play-screenshot.png') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: shot-${{ matrix.os }}-${{ matrix.artifact }}-android-emu
-          path: scratch/play-screenshot.png
-          if-no-files-found: warn
-          retention-days: 7
-
   # Aggregate every cell of this run plus the last 14 runs of this
   # branch into a single markdown step summary so the workflow's
   # success / failure history is visible at a glance from the UI.
   summary:
     name: Workflow summary
-    needs: [discover-targets, gdnext-checks, gdnext-build, discover-plays, gdnext-play, gdnext-play-android]
+    needs: [discover-targets, gdnext-checks, gdnext-build, discover-plays, gdnext-play]
     if: always()
     runs-on: ubuntu-latest
     permissions:
