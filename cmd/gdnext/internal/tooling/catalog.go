@@ -19,8 +19,12 @@ type Catalog struct {
 	Host                         product.BuildHost
 	Godot                        *Tool
 	Go                           *Tool
+	JDK                          *Tool
 	Zig                          *Tool
 	LLVM                         *Tool
+	AndroidBuildTools            *Tool
+	AndroidPlatformTools         *Tool
+	AndroidPlatform35            *Tool
 	AndroidDebugBridge           *Tool
 	AndroidPackageSigner         *Tool
 	AndroidAssetPackagingTool    *Tool
@@ -48,8 +52,12 @@ func NewCatalog(di do.Injector) (Catalog, error) {
 		Host:                         env.Host,
 		Godot:                        mk(product.ToolchainGodot),
 		Go:                           mk(product.ToolchainGo),
+		JDK:                          mk(product.ToolchainJDK),
 		Zig:                          mk(product.ToolchainZig),
 		LLVM:                         mk(product.ToolchainLLVM),
+		AndroidBuildTools:            mk(product.ToolchainAndroidBuildTools),
+		AndroidPlatformTools:         mk(product.ToolchainAndroidPlatformTools),
+		AndroidPlatform35:            mk(product.ToolchainAndroidPlatform35),
 		AndroidDebugBridge:           mk(product.ToolchainADB),
 		AndroidPackageSigner:         mk(product.ToolchainApkSigner),
 		AndroidAssetPackagingTool:    mk(product.ToolchainAAPT2),
@@ -69,8 +77,12 @@ func (t Catalog) Tools() []*Tool {
 	return []*Tool{
 		t.Godot,
 		t.Go,
+		t.JDK,
 		t.Zig,
 		t.LLVM,
+		t.AndroidBuildTools,
+		t.AndroidPlatformTools,
+		t.AndroidPlatform35,
 		t.AndroidDebugBridge,
 		t.AndroidPackageSigner,
 		t.AndroidAssetPackagingTool,

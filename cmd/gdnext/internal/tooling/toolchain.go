@@ -106,6 +106,20 @@ func (exe Tool) PathToCommand() string {
 	return exe.Path
 }
 
+// invocation returns the (command, args) pair to actually exec for
+// this tool. For native binaries it's just (path, args). For
+// JavaJar tools (apktool, bundletool), the catalog records the path
+// to a jar but the runtime invocation is `java -jar <path> <args>`;
+// every exec site goes through this helper so the wrapping only
+// lives in one place. Lookup is not re-run here; the caller is
+// expected to have already resolved the path.
+func (exe Tool) invocation(path string, args []string) (string, []string) {
+	if exe.JavaJar {
+		return "java", append([]string{"-jar", path}, args...)
+	}
+	return path, args
+}
+
 func (exe Tool) Exec(args ...string) error {
 	var converted []string
 	for _, arg := range args {
@@ -132,9 +146,10 @@ func (exe Tool) Exec(args ...string) error {
 	if err != nil {
 		return xray.New(err)
 	}
-	cmd := exec.Command(path, args...)
+	name, args := exe.invocation(path, args)
+	cmd := exec.Command(name, args...)
 	if debug {
-		fmt.Println(path, strings.Join(args, " "))
+		fmt.Println(name, strings.Join(args, " "))
 	}
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
@@ -162,9 +177,10 @@ func (exe Tool) Action(name string, suffix_args []string, args ...string) error 
 		return xray.New(err)
 	}
 	args = append(append([]string{name}, args...), suffix...)
-	cmd := exec.Command(path, args...)
+	cmdName, cmdArgs := exe.invocation(path, args)
+	cmd := exec.Command(cmdName, cmdArgs...)
 	if debug {
-		fmt.Println(path, strings.Join(args, " "))
+		fmt.Println(cmdName, strings.Join(cmdArgs, " "))
 	}
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
@@ -177,10 +193,11 @@ func (exe Tool) Output(args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	name, args := exe.invocation(path, args)
 	if debug {
-		fmt.Println(path, strings.Join(args, " "))
+		fmt.Println(name, strings.Join(args, " "))
 	}
-	out, err := exec.Command(path, args...).Output()
+	out, err := exec.Command(name, args...).Output()
 	if err != nil {
 		return "", err
 	}
@@ -192,10 +209,11 @@ func (exe Tool) CombinedOutput(args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	name, args := exe.invocation(path, args)
 	if debug {
-		fmt.Println(path, strings.Join(args, " "))
+		fmt.Println(name, strings.Join(args, " "))
 	}
-	out, err := exec.Command(path, args...).CombinedOutput()
+	out, err := exec.Command(name, args...).CombinedOutput()
 	if debug {
 		fmt.Println(string(out))
 	}
@@ -219,6 +237,38 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	}
 	if exe.Host.GDRootPath == "" {
 		return "", fmt.Errorf("tooling.Tool.LookupPlatform: %s has no Host populated (construct via tooling.NewCatalog from a resolved BuildEnv)", exe.Slug)
+	}
+	// Materialise prerequisite bundles before resolving the binary
+	// path. Tools that live inside a multi-binary archive (apksigner
+	// and aapt2 inside android-build-tools, adb inside
+	// android-platform-tools) declare the bundle slug here so the
+	// install + extract happens once and every consumer just looks
+	// inside the resulting directory. Skipped under ModeFind so
+	// `gdnext toolchain doctor` stays read-only. The first bundle's
+	// install_dir is captured as bundleInstallDir and becomes the
+	// consumer's install_dir when the consumer hasn't set an
+	// explicit Installations entry — keeping bundle versions in one
+	// place (the bundle's Version field) instead of duplicated
+	// across every dependent. Bundles are always resolved against
+	// the host (a single physical install per machine), even when
+	// the consumer is target-keyed (android.jar fans out over
+	// android/metaquest tuples but pulls from one host bundle).
+	var bundleInstallDir string
+	bundleGOOS, bundleGOARCH := exe.Host.GOOS, exe.Host.GOARCH
+	for _, slug := range exe.RequiresBundles {
+		bundle, ok := product.FindToolchainBySlug(slug)
+		if !ok {
+			return "", fmt.Errorf("toolchain %s requires bundle %q, but no such slug is registered in product.ToolchainMatrix", exe.Slug, slug)
+		}
+		bundleTool := &Tool{Toolchain: bundle, Host: exe.Host}
+		if m != ModeFind {
+			if _, err := bundleTool.LookupPlatform(bundleGOOS, bundleGOARCH, m); err != nil {
+				return "", fmt.Errorf("toolchain %s: required bundle %s: %w", exe.Slug, slug, err)
+			}
+		}
+		if bundleInstallDir == "" {
+			bundleInstallDir = bundleTool.installDirFor(bundleGOOS, bundleGOARCH)
+		}
 	}
 	HOME := exe.Host.UserHomeRoot
 	GDPATH := exe.Host.GDRootPath
@@ -249,6 +299,18 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	}
 	if dir, ok := exe.Installations[GOOS]; ok {
 		install_dir = variables.Replace(dir)
+	} else if bundleInstallDir != "" {
+		install_dir = bundleInstallDir
+	}
+	// IsBundle: this toolchain is a directory of files (e.g. android
+	// build-tools / platform-tools). Lookup returns the install_dir
+	// itself; there is no single binary to probe for a version.
+	// Existence + non-emptiness of install_dir is the success
+	// condition. Install fetches the archive and ExtractArchive
+	// strips the upstream top-level dir so contents land directly
+	// under install_dir.
+	if exe.IsBundle {
+		return exe.lookupBundle(install_dir, GOOS, GOARCH, m, variables)
 	}
 	var name = variables.Replace(exe.Name)
 	var install_path = filepath.Join(install_dir, name)
@@ -277,7 +339,8 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 			exe.Path = install_path
 			return exe.PathToCommand(), nil
 		}
-		version, err := exec.Command(exe_path, exe.VersionFlags...).CombinedOutput()
+		probeName, probeArgs := exe.invocation(exe_path, exe.VersionFlags)
+		version, err := exec.Command(probeName, probeArgs...).CombinedOutput()
 		version = bytes.TrimSpace(version)
 		if err == nil {
 			if (exe.Version != "" && string(version) == exe.Version) || (exe.VersionPrefix != "" && strings.HasPrefix(string(version), exe.VersionPrefix)) {
@@ -311,15 +374,21 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 		// if the expected version of the tool is already installed in $PATH, then we can
 		// just use it. ModeForceInstall skips this branch so --force
 		// always downloads into GDPATH rather than adopting the user's
-		// system copy.
-		if path, err := exec.LookPath(name); err == nil {
-			version, _ := exec.Command(path, exe.VersionFlags...).CombinedOutput()
-			if (exe.Version != "" && string(version) == exe.Version) || (exe.VersionPrefix != "" && strings.HasPrefix(string(version), exe.VersionPrefix)) || (exe.Version == "" && exe.VersionPrefix == "") {
-				exe.Path = path
-				if exe.IsApp {
-					exe.IsApp = false
+		// system copy. JavaJar tools skip this entirely — the jar is
+		// the artefact, never on $PATH directly.
+		if !exe.JavaJar {
+			if path, err := exec.LookPath(name); err == nil {
+				version, _ := exec.Command(path, exe.VersionFlags...).CombinedOutput()
+				if (exe.Version != "" && string(version) == exe.Version) || (exe.VersionPrefix != "" && strings.HasPrefix(string(version), exe.VersionPrefix)) || (exe.Version == "" && exe.VersionPrefix == "") {
+					exe.Path = path
+					if exe.IsApp {
+						exe.IsApp = false
+					}
+					if err := exe.ensureBinSymlink(path, GDBin, EXT); err != nil {
+						return "", xray.New(err)
+					}
+					return exe.PathToCommand(), nil
 				}
-				return exe.PathToCommand(), nil
 			}
 		}
 	}
@@ -462,6 +531,230 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	}
 	exe.Path = install_path
 	return exe.PathToCommand(), nil
+}
+
+// installDirFor returns the resolved install_dir for this toolchain on the
+// given (GOOS, GOARCH) without performing any installation. Used by tools
+// that declare RequiresBundles so they can inherit their bundle's path
+// (versioned by the bundle's Version field) instead of duplicating it in
+// their own Installations map.
+func (exe *Tool) installDirFor(GOOS, GOARCH string) string {
+	GDPATH := exe.Host.GDRootPath
+	GDBin := exe.Host.GDBinPath
+	GDLib := exe.Host.GDLibPath
+	ARCH := exe.DownloadARCH[GOARCH]
+	if ARCH == "" {
+		ARCH = "$(MISSING)"
+	}
+	OS := strings.ReplaceAll(exe.DownloadOS[GOOS], "$(ARCH)", ARCH)
+	if OS == "" {
+		OS = "$(MISSING)"
+	}
+	MaybeUniversal := GOARCH
+	if GOOS == product.GOOSDarwin && exe.DarwinUniversal {
+		MaybeUniversal = "universal"
+	}
+	variables := strings.NewReplacer(
+		"$(VERSION)", exe.Version,
+		"$(ARCH)", ARCH,
+		"$(OS)", OS,
+		"$(GOARCH)", MaybeUniversal,
+		"$(GOOS)", GOOS,
+		"$(HOME)", exe.Host.UserHomeRoot,
+		"$(GDPATH)", GDPATH,
+	)
+	install_dir := GDBin
+	if exe.IsLibrary {
+		install_dir = GDLib
+	}
+	if dir, ok := exe.Installations[GOOS]; ok {
+		install_dir = variables.Replace(dir)
+	}
+	return install_dir
+}
+
+// ensureBinSymlink creates $(GDBin)/<name><ext> as a symlink to the
+// resolved (user-managed) tool path when the toolchain entry has
+// AddBinSymlink set. Used by tools we don't manage ourselves but that
+// downstream consumers (e.g. Godot's android exporter probing
+// $(GDPATH)/bin/java) expect to find under GDBin. No-op when
+// AddBinSymlink is false, when target already points where we want,
+// or when target equals source (would create a self-loop).
+func (exe *Tool) ensureBinSymlink(realPath, gdBin, ext string) error {
+	if !exe.AddBinSymlink || realPath == "" || gdBin == "" {
+		return nil
+	}
+	linkPath := filepath.Join(gdBin, exe.Name+ext)
+	if linkPath == realPath {
+		return nil
+	}
+	if existing, err := os.Readlink(linkPath); err == nil && existing == realPath {
+		return nil
+	}
+	if err := os.MkdirAll(gdBin, 0755); err != nil {
+		return err
+	}
+	_ = os.Remove(linkPath)
+	return os.Symlink(realPath, linkPath)
+}
+
+// lookupBundle handles the IsBundle install path: the toolchain is a
+// directory of files (android build-tools / platform-tools) and
+// "lookup" means "make sure install_dir exists and isn't empty,
+// otherwise fetch + extract the upstream archive into it." Returns
+// the install_dir as the resolved Path so callers can build
+// per-file paths inside (e.g. install_dir+"/lib/apksigner.jar"). No
+// version probe — the sidecar carries the archive hash and the
+// install_dir contents are what they are.
+func (exe *Tool) lookupBundle(install_dir, GOOS, GOARCH string, m Mode, variables *strings.Replacer) (string, error) {
+	if dirNonEmpty(install_dir) && m != ModeForceInstall {
+		exe.Path = install_dir
+		return install_dir, nil
+	}
+	if m == ModeFind || os.Getenv("GDTOOLCHAIN") == "local" {
+		return "", fmt.Errorf("bundle %q not installed at %s (required for %s) and automatic-downloads are disabled, ie. %s",
+			exe.Slug, install_dir, exe.RequiredFor, exe.DownloadHint)
+	}
+	url, ok := exe.Downloads[GOOS][GOARCH]
+	if !ok {
+		url = variables.Replace(exe.DownloadURL)
+	}
+	if url == "" || strings.Contains(url, "$(MISSING)") {
+		return "", fmt.Errorf("bundle %q has no download URL for %s/%s (required for %s), ie. %s",
+			exe.Slug, GOOS, GOARCH, exe.RequiredFor, exe.DownloadHint)
+	}
+	if err := os.MkdirAll(install_dir, 0755); err != nil {
+		return "", xray.New(err)
+	}
+	// Stage the archive next to the install dir so we can resume
+	// interrupted downloads via Range:, mirroring the single-file
+	// path above.
+	dest := install_dir + "." + bundleArchiveSuffix(url) + ".download"
+	if m == ModeForceInstall || os.Getenv("GDNEXT_SKIP_CHECKSUM") != "" {
+		_ = os.Remove(dest)
+	}
+	if err := downloadResumable(url, dest, exe.Name, exe.Version); err != nil {
+		return "", xray.New(err)
+	}
+	dlSize, dlHash, err := sha256File(dest)
+	if err != nil {
+		return "", xray.New(err)
+	}
+	downloadHash := "sha256:" + dlHash
+	sidecarPath := sidecarPathFor(exe.Host, exe.Slug, GOOS, GOARCH)
+	if err := verifyChecksum(downloadHash, exe.KnownChecksums, sidecarPath); err != nil {
+		return "", xray.New(fmt.Errorf("checksum verification failed for %s (downloaded from %s, kept at %s): %w", exe.Slug, url, dest, err))
+	}
+	if err := writeSidecar(sidecarPath, downloadHash, dlSize); err != nil {
+		return "", xray.New(err)
+	}
+	if err := ExtractArchive(dest, install_dir, archiveType(url), "", true); err != nil {
+		return "", xray.New(err)
+	}
+	if err := os.Remove(dest); err != nil {
+		return "", xray.New(err)
+	}
+	exe.Path = install_dir
+	return install_dir, nil
+}
+
+// dirNonEmpty reports whether path is a directory with at least one
+// entry. Bundle lookup uses this as the "installed" sentinel since
+// there is no single binary whose existence we can probe.
+func dirNonEmpty(path string) bool {
+	entries, err := os.ReadDir(path)
+	return err == nil && len(entries) > 0
+}
+
+// archiveType maps a download URL suffix to the format identifier
+// ExtractArchive expects. Falls back to "zip" for unknown suffixes
+// since every supported bundle today is a zip; bump the table when
+// adding a tarball.
+func archiveType(url string) string {
+	switch {
+	case strings.HasSuffix(url, ".tar.gz"):
+		return "tar.gz"
+	case strings.HasSuffix(url, ".tar.xz"):
+		return "tar.xz"
+	default:
+		return "zip"
+	}
+}
+
+// bundleArchiveSuffix derives a stable filename component for the
+// staged .download. Keeps the URL's basename (less archive
+// extension) so different bundle versions don't share a download
+// slot. Falls back to "archive" when the URL parses oddly.
+func bundleArchiveSuffix(url string) string {
+	base := url
+	if i := strings.LastIndex(base, "/"); i >= 0 {
+		base = base[i+1:]
+	}
+	for _, ext := range []string{".tar.gz", ".tar.xz", ".zip"} {
+		if strings.HasSuffix(base, ext) {
+			base = strings.TrimSuffix(base, ext)
+			break
+		}
+	}
+	if base == "" {
+		return "archive"
+	}
+	return base
+}
+
+// downloadResumable copies url to dest with Range: resume support and
+// a progress bar. Extracted from the single-file branch above so the
+// bundle path can share the same retry semantics. Stays as a free
+// function (not a method) so callers needing a one-shot download
+// without all the install_dir / variables / sidecar bookkeeping can
+// reach for it directly.
+func downloadResumable(url, dest, displayName, displayVersion string) error {
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	stat, err := out.Stat()
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	if stat.Size() > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", stat.Size()))
+	}
+	req.Header.Set("User-Agent", "graphics.gd/cmd/gd")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case 200:
+	case 206:
+		if _, err := out.Seek(stat.Size(), io.SeekStart); err != nil {
+			return err
+		}
+	case 416:
+		contentRange := resp.Header.Get("Content-Range")
+		if contentRange != fmt.Sprintf("bytes */%d", stat.Size()) {
+			return fmt.Errorf("unable to resume download of %s from %s (delete %s and retry)", displayName, url, dest)
+		}
+	default:
+		return fmt.Errorf("GET %s returned HTTP %d (downloading %s)", url, resp.StatusCode, displayName)
+	}
+	if resp.StatusCode != 416 {
+		bar := progressbar.DefaultBytes(
+			resp.ContentLength,
+			fmt.Sprintf("gd: downloading %s v%s", displayName, displayVersion),
+		)
+		if _, err := io.Copy(io.MultiWriter(out, bar), resp.Body); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // sha256File streams the file at path through sha256 and returns the

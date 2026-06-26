@@ -315,17 +315,19 @@ func toolchainVarName(slug string) string {
 // in sync with product/matrix.go when adding a new catalog entry that
 // breaks the default rule.
 var toolchainVarOverrides = map[string]string{
-	"llvm":            "LLVM",
-	"adb":             "ADB",
-	"aapt2":           "AAPT2",
-	"upx":             "UPX",
-	"vpk":             "VPK",
-	"ldd":             "LDD",
-	"apksigner":       "ApkSigner",
-	"apktool":         "ApkTool",
-	"bundletool":      "BundleTool",
-	"libgodot":        "LibGodot",
-	"libgodot-editor": "LibGodotEditor",
+	"llvm":               "LLVM",
+	"android-adb":        "ADB",
+	"android-aapt2":      "AAPT2",
+	"android-jdk":        "JDK",
+	"android-jar":        "AndroidJar",
+	"android-apksigner":  "ApkSigner",
+	"android-apktool":    "ApkTool",
+	"android-bundletool": "BundleTool",
+	"upx":                "UPX",
+	"vpk":                "VPK",
+	"ldd":                "LDD",
+	"libgodot":           "LibGodot",
+	"libgodot-editor":    "LibGodotEditor",
 }
 
 func shortSHAs(shas []string) []string {

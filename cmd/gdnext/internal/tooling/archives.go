@@ -257,6 +257,33 @@ func extractTar(dest, targetFile, topDir string, tr *tar.Reader) error {
 			}
 			f.Close()
 
+		case tar.TypeSymlink:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directory for %s: %w", target, err)
+			}
+			_ = os.Remove(target)
+			if err := os.Symlink(header.Linkname, target); err != nil {
+				return fmt.Errorf("failed to create symlink %s -> %s: %w", target, header.Linkname, err)
+			}
+
+		case tar.TypeLink:
+			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directory for %s: %w", target, err)
+			}
+			linkTarget := header.Linkname
+			if !filepath.IsAbs(linkTarget) {
+				linkTarget = filepath.Join(dest, linkTarget)
+			}
+			_ = os.Remove(target)
+			if err := os.Link(linkTarget, target); err != nil {
+				return fmt.Errorf("failed to create hardlink %s -> %s: %w", target, linkTarget, err)
+			}
+
+		case tar.TypeXGlobalHeader, tar.TypeXHeader:
+			// pax extended-header records carry only metadata for
+			// the next entry; the tar package has already applied
+			// them to the header we just read. Nothing to extract.
+
 		default:
 			return fmt.Errorf("unsupported file type %v in tar archive: %s", header.Typeflag, header.Name)
 		}

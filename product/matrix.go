@@ -221,20 +221,11 @@ var (
 		VirtualDisplay: "xvfb",
 		CompatLayer:    "firefox",
 	}
-	// PlayLinuxAmd64AndroidEmu drives android/* APKs through Google's
-	// stock x86_64 system image inside an AVD on the linux play host.
-	// The reactivecircus/android-emulator-runner GitHub Action provides
-	// the SDK + KVM + AVD plumbing; the play-cell dispatcher just talks
-	// to adb once the action's `script:` block runs.
 	PlayLinuxAmd64AndroidEmu = PlayHost{
 		GOOS:        GOOSLinux,
 		GOARCH:      GOARCHAmd64,
 		CompatLayer: "android-emu",
 	}
-	// PlayLinuxArm64AndroidEmu drives android/arm64 APKs through a
-	// matching arm64-v8a AVD on a GitHub-hosted ubuntu-24.04-arm
-	// runner. KVM is available on the arm64 host so the AVD boots
-	// natively rather than under TCG translation.
 	PlayLinuxArm64AndroidEmu = PlayHost{
 		GOOS:        GOOSLinux,
 		GOARCH:      GOARCHArm64,
@@ -436,8 +427,12 @@ var (
 var ToolchainMatrix = []Toolchain{
 	ToolchainGodot,
 	ToolchainGo,
+	ToolchainJDK,
 	ToolchainZig,
 	ToolchainLLVM,
+	ToolchainAndroidPlatformTools,
+	ToolchainAndroidBuildTools,
+	ToolchainAndroidPlatform35,
 	ToolchainADB,
 	ToolchainApkSigner,
 	ToolchainAAPT2,
@@ -461,6 +456,10 @@ var SharedToolchains = []Toolchain{
 
 // AndroidToolchains lists the toolchains required for building Android targets.
 var AndroidToolchains = []Toolchain{
+	ToolchainJDK,
+	ToolchainAndroidPlatformTools,
+	ToolchainAndroidBuildTools,
+	ToolchainAndroidPlatform35,
 	ToolchainADB,
 	ToolchainApkSigner,
 	ToolchainAAPT2,
@@ -557,99 +556,195 @@ var (
 			"sha256:af59510bd670c4b2d190e5e6318b9ff4fc05736a1aa60874cfb05eaed8fd5d8d", // windows/amd64
 		},
 	}
+	ToolchainJDK = Toolchain{
+		Slug:           "android-jdk",
+		Name:           "jdk",
+		Version:        "21.0.5+11",
+		RequiredFor:    "running apksigner / bundletool / apktool and exporting via Godot's android pipeline",
+		AvailableHosts: HostMatrix,
+		Downloads: map[string]map[string]string{
+			"linux": {
+				"amd64": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.5%2B11/OpenJDK21U-jdk_x64_linux_hotspot_21.0.5_11.tar.gz",
+				"arm64": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.5%2B11/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.5_11.tar.gz",
+			},
+			"darwin": {
+				"amd64": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.5%2B11/OpenJDK21U-jdk_x64_mac_hotspot_21.0.5_11.tar.gz",
+				"arm64": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.5%2B11/OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.5_11.tar.gz",
+			},
+			"windows": {
+				"amd64": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.5%2B11/OpenJDK21U-jdk_x64_windows_hotspot_21.0.5_11.zip",
+			},
+		},
+		Installations: map[string]string{
+			"linux":   "$(GDPATH)/android/jdk/$(VERSION)",
+			"darwin":  "$(GDPATH)/android/jdk/$(VERSION)",
+			"windows": "$(GDPATH)/android/jdk/$(VERSION)",
+		},
+		IsBundle:     true,
+		DownloadHint: "https://adoptium.net/temurin/releases?version=21",
+		KnownChecksums: []string{
+			"sha256:3c654d98404c073b8a7e66bffb27f4ae3e7ede47d13284c132d40a83144bfd8c", // linux/amd64
+			"sha256:6482639ed9fd22aa2e704cc366848b1b3e1586d2bf1213869c43e80bca58fe5c", // linux/arm64
+			"sha256:b9b46f396ab5f3658fa5569af963896167c7f735cfec816359c04101fae38bdf", // darwin/amd64
+			"sha256:dc6db7347907d23743d13af935d3c10e8b3490acdf542115f578838227da0dab", // darwin/arm64
+			"sha256:6f09d4a3598542313cca1540106d537c7092a54e415d569f7b928160a90d3128", // windows/amd64
+		},
+	}
+	ToolchainAndroidBuildTools = Toolchain{
+		Slug:           "android-build-tools",
+		Name:           "build-tools",
+		Version:        "37.0.0",
+		RequiredFor:    "signing + packaging APKs (apksigner, aapt2, zipalign, d8)",
+		AvailableHosts: HostMatrix,
+		Downloads: map[string]map[string]string{
+			"linux": {"amd64": "https://dl.google.com/android/repository/build-tools_r37_linux.zip"},
+			"darwin": {
+				"amd64": "https://dl.google.com/android/repository/build-tools_r37_macosx.zip",
+				"arm64": "https://dl.google.com/android/repository/build-tools_r37_macosx.zip",
+			},
+			"windows": {"amd64": "https://dl.google.com/android/repository/build-tools_r37_windows.zip"},
+		},
+		Installations: map[string]string{
+			"linux":   "$(GDPATH)/android/sdk/build-tools/$(VERSION)",
+			"darwin":  "$(GDPATH)/android/sdk/build-tools/$(VERSION)",
+			"windows": "$(GDPATH)/android/sdk/build-tools/$(VERSION)",
+		},
+		IsBundle: true,
+		KnownChecksums: []string{
+			"sha256:b5b1ac529028a49f11b596b89d9b34252e0f39388ee7dbd16ae3110f1c9c5722", // darwin (universal, same archive for amd64+arm64)
+			"sha256:01af179347cbcd9c208b7f8171f7b21f6dd1d2f85bcd15e88caa51d5d7b86060", // linux/amd64
+			"sha256:68075aa319ed8a01cf1a565ed1e61a3c1a801dd49191c35851248dc293c33b1a", // windows/amd64
+		},
+	}
+	ToolchainAndroidPlatformTools = Toolchain{
+		Slug:           "android-platform-tools",
+		Name:           "platform-tools",
+		Version:        "37.0.0",
+		RequiredFor:    "talking to Android devices and emulators (adb, fastboot)",
+		AvailableHosts: HostMatrix,
+		Downloads: map[string]map[string]string{
+			"linux": {"amd64": "https://dl.google.com/android/repository/platform-tools_r37.0.0-linux.zip"},
+			"darwin": {
+				"amd64": "https://dl.google.com/android/repository/platform-tools_r37.0.0-darwin.zip",
+				"arm64": "https://dl.google.com/android/repository/platform-tools_r37.0.0-darwin.zip",
+			},
+			"windows": {"amd64": "https://dl.google.com/android/repository/platform-tools_r37.0.0-win.zip"},
+		},
+		Installations: map[string]string{
+			// Android SDK keeps only one platform-tools at a time;
+			// bumping the version replaces the bundle in place.
+			"linux":   "$(GDPATH)/android/sdk/platform-tools",
+			"darwin":  "$(GDPATH)/android/sdk/platform-tools",
+			"windows": "$(GDPATH)/android/sdk/platform-tools",
+		},
+		IsBundle: true,
+		KnownChecksums: []string{
+			"sha256:094a1395683c509fd4d48667da0d8b5ef4d42b2abfcd29f2e8149e2f989357c7", // darwin (universal)
+			"sha256:198ae156ab285fa555987219af237b31102fefe8b9d2bc274708a8d4f2865a07", // linux/amd64
+			"sha256:4fe305812db074cea32903a489d061eb4454cbc90a49e8fea677f4b7af764918", // windows/amd64
+		},
+	}
+	ToolchainAndroidPlatform35 = Toolchain{
+		Slug:           "android-platform-35",
+		Name:           "platform-35",
+		Version:        "35_r02",
+		RequiredFor:    "providing android.jar for aapt2 link --target-sdk-version 35",
+		AvailableHosts: HostMatrix,
+		Installations: map[string]string{
+			// Path matches the layout Godot's android exporter expects
+			// under android_sdk_path (platforms/android-<api>).
+			"linux":   "$(GDPATH)/android/sdk/platforms/android-35",
+			"darwin":  "$(GDPATH)/android/sdk/platforms/android-35",
+			"windows": "$(GDPATH)/android/sdk/platforms/android-35",
+		},
+		IsBundle:     true,
+		DownloadURL:  "https://dl.google.com/android/repository/platform-35_r02.zip",
+		DownloadHint: "https://dl.google.com/android/repository/platform-35_r02.zip",
+		KnownChecksums: []string{
+			"sha256:0988cacad01b38a18a47bac14a0695f246bc76c1b06c0eeb8eb0dc825ab0c8e0", // upstream (host-agnostic)
+		},
+	}
 	ToolchainADB = Toolchain{
-		Slug:            "adb",
+		Slug:            "android-adb",
 		Name:            "adb",
 		Version:         "1.0.41",
 		VersionFlags:    []string{"--version"},
 		VersionPrefix:   "Android Debug Bridge version 1.0.41",
 		RequiredFor:     "launching the project on a connected android device",
 		AvailableHosts:  HostMatrix,
-		DownloadURL:     "https://release.graphics.gd/adb.$(GOOS).$(GOARCH)$(EXT)",
-		DownloadEXT:     map[string]string{"linux": "", "windows": ".zip", "darwin": ""},
-		DarwinUniversal: true,
-		KnownChecksums: []string{
-			"sha256:3e8fb3a897103e32588f863e56fc7eaffdf16a542c4e690cc4326e4b766827a6", // linux/amd64
-			"sha256:fbd3fcf03b91e7dafa3a8cfa54823ea91a3d9e7045e7bf8a07b8822167400e5c", // windows/amd64
-		},
+		RequiresBundles: []string{ToolchainAndroidPlatformTools.Slug},
 	}
 	ToolchainApkSigner = Toolchain{
-		Slug:           "apksigner",
-		Name:           "apksigner",
-		Version:        "0.9",
-		VersionFlags:   []string{"--version"},
-		RequiredFor:    "building the .apk",
-		AvailableHosts: HostMatrix,
-		DownloadURL:    "https://release.graphics.gd/apksigner.$(GOOS).$(GOARCH)$(EXT)",
-		DownloadEXT:    map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
-		KnownChecksums: []string{
-			"sha256:3b81d734787ac083dc7aa7951bfe2aca6823590a8064dae59fe898f2b25c866a", // darwin/arm64
-			"sha256:8441bed7018d08af0d18653e9875290550ccc27f9f0f7768f12a59e28d60fbe0", // linux/amd64
-			"sha256:68bbc75644892dced984c90582b55a11052d48cb235f92bbbe8127afdfdca81d", // windows/amd64
-		},
+		Slug:            "android-apksigner",
+		Name:            "apksigner",
+		Version:         "0.9",
+		VersionFlags:    []string{"--version"},
+		RequiredFor:     "signing the .apk",
+		AvailableHosts:  HostMatrix,
+		RequiresBundles: []string{ToolchainAndroidBuildTools.Slug},
 	}
 	ToolchainAAPT2 = Toolchain{
-		Slug:            "aapt2",
+		Slug:            "android-aapt2",
 		Name:            "aapt2",
-		Version:         "2.19-android-13.0.0_r6",
+		Version:         "2.20-15087165",
 		VersionFlags:    []string{"version"},
-		VersionPrefix:   "Android Asset Packaging Tool (aapt) 2.",
-		RequiredFor:     "converting the exported .apk into an .aab",
+		VersionPrefix:   "Android Asset Packaging Tool (aapt) 2.20-15087165",
+		RequiredFor:     "packaging APK resources (manifest + assets compilation)",
 		AvailableHosts:  HostMatrix,
-		DownloadURL:     "https://release.graphics.gd/aapt2.$(GOOS).$(GOARCH)$(EXT)",
-		DownloadEXT:     map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
-		DarwinUniversal: true,
-		KnownChecksums: []string{
-			"sha256:5da28e9fb72bfd3452c56f21ddd084787e1833cdf27e99b7588bbd4aba6585ca", // darwin/arm64
-			"sha256:9dd86ae76ae12d263672c4c454f17b30e42bb9792b3e2c0ce9d68b33fd5a7d37", // linux/amd64
-			"sha256:b39c3ec3f8cba2ce36749546802a60141f879c950b308a92c759daf5cab2c843", // windows/amd64
-		},
+		RequiresBundles: []string{ToolchainAndroidBuildTools.Slug},
 	}
 	ToolchainApkTool = Toolchain{
-		Slug:           "apktool",
-		Name:           "apktool",
+		Slug:           "android-apktool",
+		Name:           "apktool.jar",
 		Version:        "2.12.1",
-		VersionFlags:   []string{"v"},
-		VersionPrefix:  "2.12.1-",
+		VersionFlags:   []string{"-version"},
+		VersionPrefix:  "2.12.1",
 		RequiredFor:    "converting the exported .apk into an .aab",
 		AvailableHosts: HostMatrix,
-		DownloadURL:    "https://release.graphics.gd/apktool.$(GOOS).$(GOARCH)$(EXT)",
-		DownloadEXT:    map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
+		JavaJar:        true,
+		Installations: map[string]string{
+			"linux":   "$(GDPATH)/android/apktool/$(VERSION)",
+			"darwin":  "$(GDPATH)/android/apktool/$(VERSION)",
+			"windows": "$(GDPATH)/android/apktool/$(VERSION)",
+		},
+		DownloadURL:  "https://github.com/iBotPeaches/Apktool/releases/download/v$(VERSION)/apktool_$(VERSION).jar",
+		DownloadHint: "https://github.com/iBotPeaches/Apktool/releases",
 		KnownChecksums: []string{
-			"sha256:121531c7ee189a3d4e8ebd54c0872c2a2e6a9709a286249449441e0004b92798", // darwin/arm64
-			"sha256:cf6c59294179c86d0778a15b0027197b5cbddfce2c95b7c8f5cb31b6d9705ebd", // linux/amd64
-			"sha256:05dcb215d6710f67386182d966da28834a6a50eecdfe3cf4ae36c4ebad88520a", // windows/amd64
+			"sha256:66cf4524a4a45a7f56567d08b2c9b6ec237bcdd78cee69fd4a59c8a0243aeafa", // upstream jar (host-agnostic)
 		},
 	}
 	ToolchainBundleTool = Toolchain{
-		Slug:           "bundletool",
-		Name:           "bundletool",
+		Slug:           "android-bundletool",
+		Name:           "bundletool.jar",
 		Version:        "1.18.3",
 		VersionFlags:   []string{"version"},
+		VersionPrefix:  "1.18.3",
 		RequiredFor:    "converting the exported .apk into an .aab",
 		AvailableHosts: HostMatrix,
-		DownloadURL:    "https://release.graphics.gd/bundletool.$(GOOS).$(GOARCH)$(EXT)",
-		DownloadEXT:    map[string]string{"linux": "", "windows": ".exe", "darwin": ""},
+		JavaJar:        true,
+		Installations: map[string]string{
+			"linux":   "$(GDPATH)/android/bundletool/$(VERSION)",
+			"darwin":  "$(GDPATH)/android/bundletool/$(VERSION)",
+			"windows": "$(GDPATH)/android/bundletool/$(VERSION)",
+		},
+		DownloadURL:  "https://github.com/google/bundletool/releases/download/$(VERSION)/bundletool-all-$(VERSION).jar",
+		DownloadHint: "https://github.com/google/bundletool/releases",
 		KnownChecksums: []string{
-			"sha256:06d101f1a5bfb7820633abc1a23ea87c35612347783ef57ec0e692a36adcc9f7", // darwin/arm64
-			"sha256:649c11f74c05f76241362a496005ab81f887c48c4b9e6226260e7f0c68183ced", // linux/amd64
-			"sha256:b02a5748270d7dd66f82982c407c11f0f264a4364fed40945c391141708e804d", // windows/amd64
+			"sha256:a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29", // upstream fat jar (host-agnostic)
 		},
 	}
 	ToolchainAndroidJar = Toolchain{
-		Slug:        "android.jar",
+		Slug:        "android-jar",
 		Name:        "android.jar",
-		RequiredFor: "converting the exported .apk into an .aab",
+		RequiredFor: "framework class library for aapt2 link (lives inside android-platform-35)",
 		AvailableHosts: []BuildHost{
 			{GOOS: GOOSAndroid, GOARCH: GOARCHAmd64},
 			{GOOS: GOOSAndroid, GOARCH: GOARCHArm64},
 			{GOOS: GOOSMetaQuest, GOARCH: GOARCHArm64},
 		},
-		DownloadURL: "https://release.graphics.gd/android.jar",
-		IsLibrary:   true,
-		KnownChecksums: []string{
-			"sha256:1ef3b7ae9e0dd44d01958e798a75593e8ed1a948e309932b30a691312867249f", // android/* (single artefact, fanned out)
-		},
+		IsLibrary:       true,
+		RequiresBundles: []string{ToolchainAndroidPlatform35.Slug},
+		DownloadHint:    "https://dl.google.com/android/repository/platform-35_r02.zip",
 	}
 	ToolchainUPX = Toolchain{
 		Slug:          "upx",
@@ -682,17 +777,14 @@ var (
 		// the user explicitly wants self-updating windows bundles.
 	}
 	ToolchainLibGodot = Toolchain{
-		Slug:        "libgodot",
-		Name:        "libgodot.$(OS).$(GOARCH).$(EXT)",
-		RequiredFor: "libgodot static-link mode",
-		// IsLibrary AvailableHosts = target tuples with a published
-		// upstream artefact. Only linux/amd64 ships today.
+		Slug:           "libgodot",
+		Name:           "libgodot.$(OS).$(GOARCH).$(EXT)",
+		RequiredFor:    "libgodot static-link mode",
 		AvailableHosts: []BuildHost{HostLinuxAmd64},
 		DownloadURL:    "https://release.graphics.gd/libgodot.$(OS).$(GOARCH).$(EXT)",
-		// linux -> musl in DownloadOS until a glibc-static variant lands.
-		DownloadOS:  map[string]string{"linux": "musl", "musl": "musl", "windows": "windows", "darwin": "darwin"},
-		DownloadEXT: map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
-		IsLibrary:   true,
+		DownloadOS:     map[string]string{"linux": "musl", "musl": "musl", "windows": "windows", "darwin": "darwin"},
+		DownloadEXT:    map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
+		IsLibrary:      true,
 		KnownChecksums: []string{
 			"sha256:3c85abc4b2711dd08a97cb1d58ea3d9833ea98709e62c9ab3264b6c535efbe4c", // linux/amd64
 		},
