@@ -604,10 +604,12 @@ jobs:
           path: ~/.local/share/Steam/compatibilitytools.d/${{ matrix.proton_tag }}
           key: ${{ runner.os }}-${{ runner.arch }}-proton-${{ matrix.proton_tag }}-v1
 
-      # android-emu cells need KVM + reactivecircus/android-emulator-runner.
-      # Everything below is no-op on non-android cells via per-step `if:`.
+      # android-emu cells need the emulator-runner. x86_64 guests use
+      # KVM on the host (relaxed via the udev rule below); arm64 guests
+      # fall back to TCG because the ubuntu-24.04-arm runner's /dev/kvm
+      # rejects open() with EINVAL.
       - name: Enable KVM
-        if: matrix.compat == 'android-emu'
+        if: matrix.compat == 'android-emu' && matrix.target != 'android/arm64'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
