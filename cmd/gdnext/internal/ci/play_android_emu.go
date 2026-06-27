@@ -38,16 +38,20 @@ const androidReportPrefix = "GDNEXT_PLAY_REPORT:"
 // both readable on any device without permissions, which is what
 // the upstream android test harness already relies on.
 func runAndroidPlay(opts androidPlayOpts) error {
-	if opts.compat != "android-emu" {
-		return fmt.Errorf("android play: --compat must be android-emu, got %q", opts.compat)
+	if opts.compat != "android-emu" && opts.compat != "waydroid" {
+		return fmt.Errorf("android play: --compat must be android-emu or waydroid, got %q", opts.compat)
 	}
 	apk, err := androidAPKPath(opts.scratch, opts.target)
 	if err != nil {
 		return err
 	}
-	adb, err := exec.LookPath("adb")
+	adbBin, err := exec.LookPath("adb")
 	if err != nil {
 		return fmt.Errorf("android play: adb not on PATH: %w", err)
+	}
+	dev, err := selectAdbDevice(adbBin, opts.compat)
+	if err != nil {
+		return err
 	}
 	aapt, err := findAapt()
 	if err != nil {
@@ -57,27 +61,27 @@ func runAndroidPlay(opts androidPlayOpts) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("==> play %s [%s] compat=%s build-host=%s via adb on package=%s apk=%s\n",
-		opts.target, opts.link, opts.compat, buildHostOrLocal(opts.buildHost), pkg, apk)
+	fmt.Printf("==> play %s [%s] compat=%s build-host=%s via adb %son package=%s apk=%s\n",
+		opts.target, opts.link, opts.compat, buildHostOrLocal(opts.buildHost), dev.label(), pkg, apk)
 	ctx, cancel := contextWithTimeout(opts.timeout)
 	defer cancel()
 
-	if out, err := exec.Command(adb, "uninstall", pkg).CombinedOutput(); err != nil {
+	if out, err := dev.cmd("uninstall", pkg).CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "adb uninstall %s (ignored): %v\n%s", pkg, err, out)
 	}
-	if out, err := exec.Command(adb, "install", "-r", "-g", apk).CombinedOutput(); err != nil {
+	if out, err := dev.cmd("install", "-r", "-g", apk).CombinedOutput(); err != nil {
 		return fmt.Errorf("adb install %s: %w\n%s", apk, err, out)
 	}
-	defer func() { _ = exec.Command(adb, "uninstall", pkg).Run() }()
-	activity, err := androidLauncherActivity(ctx, adb, pkg)
+	defer func() { _ = dev.cmd("uninstall", pkg).Run() }()
+	activity, err := androidLauncherActivity(ctx, dev, pkg)
 	if err != nil {
 		return err
 	}
-	_ = exec.Command(adb, "shell", "am", "force-stop", pkg).Run()
+	_ = dev.cmd("shell", "am", "force-stop", pkg).Run()
 	// Clear the logcat buffer so previous runs can't leak a stale
 	// GDNEXT_PLAY_REPORT line into this read.
-	_ = exec.Command(adb, "logcat", "-c").Run()
-	if out, err := exec.Command(adb, "shell", "am", "start", "-n", activity).CombinedOutput(); err != nil {
+	_ = dev.cmd("logcat", "-c").Run()
+	if out, err := dev.cmd("shell", "am", "start", "-n", activity).CombinedOutput(); err != nil {
 		return fmt.Errorf("am start %s: %w\n%s", activity, err, out)
 	}
 	// Poll logcat for the play-bot's tagged report. -d dumps the
@@ -91,7 +95,7 @@ func runAndroidPlay(opts androidPlayOpts) error {
 	var reportBytes []byte
 poll:
 	for time.Now().Before(deadline) || opts.timeout == 0 {
-		out, _ := exec.Command(adb, "logcat", "-d", "-s", "Go:*").Output()
+		out, _ := dev.cmd("logcat", "-d", "-s", "Go:*").Output()
 		if b64 := scanReportLine(string(out)); b64 != "" {
 			if dec, err := base64.StdEncoding.DecodeString(b64); err == nil {
 				reportBytes = dec
@@ -113,15 +117,15 @@ poll:
 		// CI log shows whether the activity launched at all, crashed
 		// in native code, or simply silently exited. The bot's own
 		// Go:* filter wouldn't surface any of that.
-		dumpAndroidDiagnosticLogcat(adb, pkg)
+		dumpAndroidDiagnosticLogcat(dev, pkg)
 	}
 	// Always capture a host-side screenshot before tearing down so
 	// the workflow summary still gets a frame even when the report
 	// never arrived. `screencap -p` writes a PNG to stdout.
-	if out, err := exec.Command(adb, "exec-out", "screencap", "-p").Output(); err == nil && len(out) > 0 {
+	if out, err := dev.cmd("exec-out", "screencap", "-p").Output(); err == nil && len(out) > 0 {
 		_ = os.WriteFile(opts.screenshotPath, out, 0644)
 	}
-	_ = exec.Command(adb, "shell", "am", "force-stop", pkg).Run()
+	_ = dev.cmd("shell", "am", "force-stop", pkg).Run()
 	return nil
 }
 
@@ -202,10 +206,10 @@ func findAapt() (string, error) {
 // androidLauncherActivity asks the package manager to resolve the
 // LAUNCHER intent for pkg, retrying briefly because right after
 // install the activity may not be registered yet.
-func androidLauncherActivity(ctx context.Context, adb, pkg string) (string, error) {
+func androidLauncherActivity(ctx context.Context, dev adbDevice, pkg string) (string, error) {
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		out, _ := exec.Command(adb, "shell", "cmd", "package", "resolve-activity", "--brief",
+		out, _ := dev.cmd("shell", "cmd", "package", "resolve-activity", "--brief",
 			"-c", "android.intent.category.LAUNCHER", pkg).Output()
 		for _, ln := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			ln = strings.TrimSpace(ln)
@@ -227,8 +231,8 @@ func androidLauncherActivity(ctx context.Context, adb, pkg string) (string, erro
 // to emit GDNEXT_PLAY_REPORT. Full unfiltered dumps drowned the CI
 // log; this keeps the signal (engine traces, crashes) and drops
 // kernel/init/system_server chatter.
-func dumpAndroidDiagnosticLogcat(adb, pkg string) {
-	out, err := exec.Command(adb, "logcat", "-d").Output()
+func dumpAndroidDiagnosticLogcat(dev adbDevice, pkg string) {
+	out, err := dev.cmd("logcat", "-d").Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "diagnostic logcat failed: %v\n", err)
 		return
@@ -259,4 +263,57 @@ func androidLogcatLineRelevant(line string) bool {
 		return true
 	}
 	return false
+}
+
+// adbDevice is a thin wrapper around `adb` that pins every
+// invocation to a specific serial when one is set. android-emu
+// leaves the serial blank and trusts that the runner exposes a
+// single device; waydroid sets it to the Waydroid
+// container's network endpoint after an `adb connect`.
+type adbDevice struct {
+	bin    string
+	serial string
+}
+
+// cmd builds an *exec.Cmd that runs `adb [-s serial] args...`.
+func (d adbDevice) cmd(args ...string) *exec.Cmd {
+	if d.serial == "" {
+		return exec.Command(d.bin, args...)
+	}
+	return exec.Command(d.bin, append([]string{"-s", d.serial}, args...)...)
+}
+
+// label returns a short fragment to splice into log lines that
+// identifies which device adb is targeting (or empty for the
+// implicit-default device).
+func (d adbDevice) label() string {
+	if d.serial == "" {
+		return ""
+	}
+	return "[" + d.serial + "] "
+}
+
+// selectAdbDevice resolves the adb target for a play compat layer.
+// android-emu: empty serial, relies on the implicit single device
+// the emulator-runner action exposes. waydroid: connects
+// to the Waydroid container endpoint (defaults to 127.0.0.1:5555;
+// override via GDNEXT_WAYDROID_ADB).
+func selectAdbDevice(adb, compat string) (adbDevice, error) {
+	switch compat {
+	case "android-emu":
+		return adbDevice{bin: adb}, nil
+	case "waydroid":
+		addr := os.Getenv("GDNEXT_WAYDROID_ADB")
+		if addr == "" {
+			addr = "127.0.0.1:5555"
+		}
+		if out, err := exec.Command(adb, "connect", addr).CombinedOutput(); err != nil {
+			return adbDevice{}, fmt.Errorf("adb connect %s: %w\n%s", addr, err, out)
+		} else {
+			fmt.Fprintf(os.Stderr, "adb connect %s: %s", addr, out)
+		}
+		return adbDevice{bin: adb, serial: addr}, nil
+	default:
+		return adbDevice{}, fmt.Errorf("android play: unsupported compat %q", compat)
+	}
 }

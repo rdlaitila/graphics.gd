@@ -126,6 +126,52 @@ var QuirkWebWasmGDExtensionPlayBroken = Quirk{
 	},
 }
 
+// QuirkAndroidAmd64EmuShaderUniformsCap marks android/amd64 plays
+// under android-emu as broken: the AVD's SwiftShader GLES driver
+// advertises GL_MAX_FRAGMENT_UNIFORM_VECTORS at the spec floor
+// (256), but Godot 4.7's SceneShaderGLES3 compiles a variant that
+// needs ~261 fragment uniform vectors. The activity launches, the
+// engine reaches first frame, then the shader link fails and the
+// scene renderer never comes up — `_start_success == false` fires
+// from cleanup and the play-bot never gets to run. Real devices
+// and Waydroid (host Mesa) expose 1024+, so the same APK runs fine
+// off-CI. The proposed long-term path is the new waydroid
+// play host; until that lands the cell is omitted from the play
+// matrix.
+var QuirkAndroidAmd64EmuShaderUniformsCap = Quirk{
+	Title:  "android/amd64 play under android-emu: SwiftShader caps fragment uniforms below Godot 4.7's SceneShaderGLES3 requirement",
+	Scope:  QuirkCIPlayBroken,
+	Hosts:  []string{Tuple(GOOSLinux, GOARCHAmd64)},
+	Compat: []string{"android-emu"},
+	Reason: "The reactivecircus/android-emulator-runner AVD runs " +
+		"with `-gpu swiftshader_indirect`. SwiftShader implements " +
+		"the GLES3 spec at the floor — GL_MAX_FRAGMENT_UNIFORM_VECTORS " +
+		"reports 256 (the minimum the spec requires drivers to " +
+		"advertise). Godot 4.7's SceneShaderGLES3 compiles a " +
+		"specialization variant whose fragment shader declares ~261 " +
+		"uniform vectors, so the GL program-link step fails with " +
+		"`Fragment shader active uniforms exceed GL_MAX_FRAGMENT_" +
+		"UNIFORM_VECTORS (261)`. The Godot activity then bails " +
+		"during scene-renderer bring-up (`_start_success == false` " +
+		"at main/main.cpp cleanup) before the play-bot's main loop " +
+		"runs. Confirmed not a graphics.gd / GDExtension issue: the " +
+		"same APK boots and reports `success=true` on Waydroid " +
+		"(host Mesa, 4096+ fragment uniforms) and on physical " +
+		"devices. No emulator-side workaround: `-gpu host` requires " +
+		"a real X server (unavailable on the runner) and `-gpu auto` " +
+		"falls back to swiftshader.",
+	Result: []string{
+		"the (linux/amd64 play host, android/amd64 target, android-emu) play cell is omitted from the play matrix",
+		"the android/amd64 build itself stays green",
+		"play coverage for android/amd64 moves to compat=waydroid",
+	},
+	Refs: []string{
+		"https://github.com/rdlaitila/graphics.gd/actions/runs/28276986664/job/83785858474",
+		"https://github.com/godotengine/godot/blob/master/drivers/gles3/shader_gles3.cpp",
+		"https://registry.khronos.org/OpenGL-Refpages/es3.0/html/glGet.xhtml",
+	},
+}
+
 // allow-fail when built from a windows host; user builds on a local
 // windows host may still succeed.
 var QuirkWindowsDarwinBuildAccessDenied = Quirk{

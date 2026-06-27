@@ -103,7 +103,7 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 			hud:            hud,
 			timeout:        timeout,
 		})
-	case plat.GOOS == product.GOOSAndroid || compat == "android-emu":
+	case plat.GOOS == product.GOOSAndroid || compat == "android-emu" || compat == "waydroid":
 		runErr = runAndroidPlay(androidPlayOpts{
 			scratch:        scratch,
 			target:         target,

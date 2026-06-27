@@ -465,20 +465,20 @@ jobs:
           name: ${{ matrix.artifact }}
           path: scratch
 
-      # android-emu needs aapt2 from the android build-tools that
-      # `gdnext toolchain install` lays down under $GDPATH/bin. Restore
+      # android-emu + waydroid both need aapt2 from the android build-tools
+      # that `gdnext toolchain install` lays down under $GDPATH/bin. Restore
       # the same content-aware cache the checks/build/test jobs use,
       # then `toolchain doctor --fix` heals any drift between the
       # cached set and what the current catalog calls for.
       - id: tools-key
-        if: matrix.compat == 'android-emu'
+        if: matrix.compat == 'android-emu' || matrix.compat == 'waydroid'
         shell: bash
         run: |
           digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
           echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
           echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
       - name: Restore ~/gd (catalog digest)
-        if: matrix.compat == 'android-emu'
+        if: matrix.compat == 'android-emu' || matrix.compat == 'waydroid'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/gd
@@ -486,7 +486,7 @@ jobs:
           restore-keys: |
             ${{ steps.tools-key.outputs.prefix }}
       - name: Toolchain doctor (android tooling)
-        if: matrix.compat == 'android-emu'
+        if: matrix.compat == 'android-emu' || matrix.compat == 'waydroid'
         shell: bash
         run: gdnext toolchain doctor --fix
 
@@ -596,6 +596,53 @@ jobs:
               echo "::endgroup::"
               ;;
           esac
+
+      # Waydroid bring-up. Containerised Android-on-Linux: no AVD, no
+      # SwiftShader (Mesa drives GL via the host kernel), so this
+      # path sidesteps the SceneShaderGLES3 uniform-cap that
+      # disables android/amd64 under android-emu. binder_linux is
+      # the kernel module that backs Android's IPC; linux-azure
+      # ships it in linux-modules-extra-$(uname -r). adb is exposed
+      # on the container's LXC bridge IP; we expose it to the host
+      # adb client via GDNEXT_WAYDROID_ADB (read by selectAdbDevice
+      # in cmd/gdnext/internal/ci/play_android_emu.go).
+      - name: Set up Waydroid
+        if: matrix.compat == 'waydroid'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends \
+            waydroid \
+            "linux-modules-extra-$(uname -r)" \
+            python3-gbinder
+          sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
+          # No GAPPS — strips ~600MB and we don't need Play services
+          # to run a packaged APK. `-f` forces re-init if a stale
+          # state from a cache hit is around.
+          sudo waydroid init -f
+          sudo systemctl enable --now waydroid-container
+          # Session has to run as a normal user; daemon owns the
+          # container. nohup detaches from the CI shell so the
+          # next step doesn't block on it.
+          nohup waydroid session start > /tmp/waydroid-session.log 2>&1 &
+          # Wait for Session=RUNNING (boot inside the container).
+          for i in $(seq 1 60); do
+            status=$(waydroid status 2>/dev/null || true)
+            if echo "$status" | grep -q 'Session:.*RUNNING'; then
+              echo "$status"
+              break
+            fi
+            sleep 5
+          done
+          waydroid prop set persist.waydroid.adb_tcp true || true
+          # Container IP on the LXC bridge. `waydroid status` prints
+          # it once the container is up; fall back to the documented
+          # default if parsing fails.
+          ip=$(waydroid status 2>/dev/null | awk '/IP address/{print $3; exit}')
+          ip=${ip:-192.168.240.112}
+          adb connect "${ip}:5555"
+          adb devices
+          echo "GDNEXT_WAYDROID_ADB=${ip}:5555" >> "$GITHUB_ENV"
 
       - name: Save Proton (${{ matrix.proton_tag }})
         if: runner.os == 'Linux' && matrix.proton_tag != '' && steps.restore-proton.outputs.cache-hit != 'true'

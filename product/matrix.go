@@ -168,6 +168,7 @@ var PlayMatrix = []PlayHost{
 	PlayLinuxAmd64Chrome,
 	PlayLinuxAmd64Firefox,
 	PlayLinuxAmd64AndroidEmu,
+	PlayLinuxAmd64Waydroid,
 	PlayLinuxArm64AndroidEmu,
 	PlayWindowsAmd64,
 	PlayDarwinArm64,
@@ -225,6 +226,11 @@ var (
 		GOOS:        GOOSLinux,
 		GOARCH:      GOARCHAmd64,
 		CompatLayer: "android-emu",
+	}
+	PlayLinuxAmd64Waydroid = PlayHost{
+		GOOS:        GOOSLinux,
+		GOARCH:      GOARCHAmd64,
+		CompatLayer: "waydroid",
 	}
 	PlayLinuxArm64AndroidEmu = PlayHost{
 		GOOS:        GOOSLinux,
@@ -382,9 +388,10 @@ var (
 		Status:     Supported | Quirky,
 		LinkModes:  GDExtension,
 		BuildHosts: BuildHosts,
-		PlayHosts:  []PlayHost{PlayLinuxAmd64AndroidEmu},
+		PlayHosts:  []PlayHost{PlayLinuxAmd64AndroidEmu, PlayLinuxAmd64Waydroid},
 		BuildTools: append(SharedToolchains, AndroidToolchains...),
 		Renderers:  []string{"vulkan", "gl_compatibility"},
+		Quirks:     []Quirk{QuirkAndroidAmd64EmuShaderUniformsCap},
 		Notes:      "primarily emulator or desktop android targeted (ex: waydroid)",
 	}
 	// --- Meta Quest (Android variant with OpenXR loader) ---------------
