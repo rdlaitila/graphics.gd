@@ -22,15 +22,16 @@ import (
 // GDNEXT_PLAY is set. Combined with the game's seeded RNG and a
 // pinned 60 fps cap, the run is deterministic across hosts.
 type playBot struct {
-	game     *CanaryBird
-	elapsed  Float.X
-	schedule []Float.X
-	next     int
-	pressed  bool
-	holdEnd  Float.X
-	flaps    int
-	exited   bool
-	hudCols  []product.PlayHUDColumn
+	game          *CanaryBird
+	elapsed       Float.X
+	schedule      []Float.X
+	next          int
+	pressed       bool
+	holdEnd       Float.X
+	flaps         int
+	exited        bool
+	hudCols       []product.PlayHUDColumn
+	quitCountdown Float.X
 }
 
 // playSchedule is the flap timeline in game-seconds from statePlaying.
@@ -48,6 +49,15 @@ func newPlayBot(game *CanaryBird) *playBot {
 
 func (t *playBot) tick(delta Float.X) {
 	if t.exited {
+		if t.quitCountdown > 0 {
+			t.quitCountdown -= delta
+			if t.quitCountdown <= 0 {
+				t.quitCountdown = 0
+				if tree, ok := Object.As[SceneTree.Instance](Engine.GetMainLoop()); ok {
+					tree.Quit()
+				}
+			}
+		}
 		return
 	}
 	t.elapsed += delta
@@ -100,9 +110,8 @@ func (t *playBot) finish(crashed bool) {
 	}
 	writePlayReport(data)
 	writePlayScreenshotFromViewport()
-	if tree, ok := Object.As[SceneTree.Instance](Engine.GetMainLoop()); ok {
-		tree.Quit()
-	}
+	// hold open ~0.5s so the engine drains pending FileAccess writes before teardown.
+	t.quitCountdown = 0.5
 }
 
 // mountDebugOverlay renders a one-row table along the bottom of the

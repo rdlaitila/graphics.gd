@@ -875,6 +875,9 @@ jobs:
           else
             echo "no play-report.json"
           fi
+          echo "::group::play-report probe files"
+          ls -la scratch/play-report.json* 2>/dev/null || echo "no probe files"
+          echo "::endgroup::"
 
       - name: Upload play screenshot
         if: steps.artefact-check.outputs.present == 'true' && always() && hashFiles(env.SHOT_PATH) != ''

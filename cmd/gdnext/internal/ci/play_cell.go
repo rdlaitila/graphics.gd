@@ -1,9 +1,13 @@
 package ci
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,6 +92,7 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		return err
 	}
 	_ = os.Remove(screenshotPath)
+	var capturedOutput []byte
 	hud := buildPlayHUD(target, mode, compat, buildHost)
 	var runErr error
 	switch {
@@ -139,9 +144,11 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 			product.EnvPlayHUD+"="+hud,
 		)
 		c.Env = append(c.Env, protonEnv(compat)...)
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
+		var captured bytes.Buffer
+		c.Stdout = io.MultiWriter(os.Stdout, &captured)
+		c.Stderr = io.MultiWriter(os.Stderr, &captured)
 		runErr = c.Run()
+		capturedOutput = captured.Bytes()
 	}
 	if runErr != nil {
 		// engine exit is best-effort: bot quits via SceneTree which exits 0 even on player crash; the report is the source of truth.
@@ -151,6 +158,14 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		fmt.Printf("==> screenshot: %s (%d bytes)\n", screenshotPath, st.Size())
 	}
 	report, err := readReport(reportPath)
+	if err != nil && len(capturedOutput) > 0 {
+		if rescued, ok := rescueReportFromStdout(capturedOutput); ok {
+			if werr := os.WriteFile(reportPath, rescued, 0644); werr == nil {
+				fmt.Fprintf(os.Stderr, "==> recovered play report from stdout b64 fallback (%d bytes)\n", len(rescued))
+				report, err = readReport(reportPath)
+			}
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("play report unreadable at %s: %w (engine exit: %v)", reportPath, err, runErr)
 	}
@@ -324,6 +339,31 @@ func readReport(path string) (product.PlayReport, error) {
 		return r, err
 	}
 	return r, nil
+}
+
+// rescueReportFromStdout scans captured engine output for the
+// GDNEXT_PLAY_REPORT_B64: marker emitted by examples/canarybird/playenv.go
+// when the canonical filesystem write didn't land (libgodot/proton).
+// Returns the most recent decoded payload.
+func rescueReportFromStdout(b []byte) ([]byte, bool) {
+	const marker = "GDNEXT_PLAY_REPORT_B64:"
+	sc := bufio.NewScanner(bytes.NewReader(b))
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var last string
+	for sc.Scan() {
+		line := sc.Text()
+		if i := strings.Index(line, marker); i >= 0 {
+			last = strings.TrimSpace(line[i+len(marker):])
+		}
+	}
+	if last == "" {
+		return nil, false
+	}
+	data, err := base64.StdEncoding.DecodeString(last)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
 }
 
 func parseTuple(s string) (target, bool) {

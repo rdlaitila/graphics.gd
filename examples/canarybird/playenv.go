@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 
@@ -13,33 +14,25 @@ import (
 	"graphics.gd/variant/Object"
 )
 
-// playRequested reports whether the play-bot should attach. Native
-// builds gate on $GDNEXT_PLAY; the WASM build (see play_env_js.go)
-// reads the same flag from the URL query string.
+// playRequested reports whether the play-bot should attach.
 func playRequested() bool { return os.Getenv(product.EnvPlay) != "" }
 
-// playEnv returns the value the driver passed for name. Native builds
-// just pass through os.Getenv; the WASM build (see play_env_js.go)
-// hydrates the same names from URL query params.
+// playEnv returns the value the driver passed for name.
 func playEnv(name string) string { return os.Getenv(name) }
 
-// writePlayReport persists the marshalled report via Godot's
-// FileAccess. Go's io subsystem mis-behaves under libgodot's hosted
-// runtime on some platforms (writes to the driver-named path either
-// fail silently or hit half-mapped fd tables); routing through Godot
-// avoids that path entirely.
+// writePlayReport writes the marshalled report to the canonical path
+// and to every probe-suffixed path, logging each writer's outcome so
+// CI can pick a permanent transport per platform.
 func writePlayReport(data []byte) {
 	path := os.Getenv(product.EnvPlayReport)
 	if path == "" {
 		return
 	}
-	storeBytes(path, data, "play report")
+	probeWrite(path, data, "report", true)
 }
 
 // writePlayScreenshotFromViewport snapshots the root viewport and
-// writes the PNG to $GDNEXT_PLAY_SCREENSHOT. WASM builds are a no-op
-// (see play_env_js.go) because the Playwright driver takes the
-// screenshot host-side via page.screenshot().
+// writes the PNG to $GDNEXT_PLAY_SCREENSHOT.
 func writePlayScreenshotFromViewport() {
 	path := os.Getenv(product.EnvPlayScreenshot)
 	if path == "" {
@@ -50,18 +43,86 @@ func writePlayScreenshotFromViewport() {
 		panic("play screenshot requested but engine main loop is not a SceneTree")
 	}
 	png := tree.Root().AsViewport().GetTexture().AsTexture2D().GetImage().SavePngToBuffer()
-	storeBytes(path, png, "play screenshot")
+	probeWrite(path, png, "screenshot", false)
 }
 
-// storeBytes writes data to path via FileAccess. Path may be a Godot
-// resource URI (user://, res://) or a host filesystem path. The
-// FileAccess instance is RefCounted and closes when the local
-// reference falls out of scope; Flush forces the write to land
-// before that.
-func storeBytes(path string, data []byte, what string) {
-	f := FileAccess.Open(path, FileAccess.Write)
+// probeWrite is a diagnostic: every writer variant runs to
+// <canonical>.probe-<name>, each result lands on stdout AND in the
+// engine log, then the canonical path is written with the cheapest
+// option that worked. emitBase64 also dumps the payload to stdout
+// (report only) as a last-resort transport for the driver.
+func probeWrite(canonical string, data []byte, what string, emitBase64 bool) {
+	type probe struct {
+		name string
+		fn   func(string, []byte) error
+	}
+	probes := []probe{
+		{"go-writefile", writeGoFile},
+		{"go-osync", writeGoOSync},
+		{"fa-buffer", writeFABuffer},
+		{"fa-string", writeFAString},
+	}
+	for _, p := range probes {
+		out := canonical + ".probe-" + p.name
+		line := probeReport(what, p.name, out, p.fn(out, data))
+		Engine.Print(line)
+		fmt.Println(line)
+	}
+	if emitBase64 {
+		fmt.Println("GDNEXT_PLAY_REPORT_B64:" + base64.StdEncoding.EncodeToString(data))
+	}
+	if err := writeGoFile(canonical, data); err != nil {
+		if err2 := writeFABuffer(canonical, data); err2 != nil {
+			fmt.Fprintf(os.Stderr, "canonical %s write failed via both go (%v) and FileAccess (%v)\n", what, err, err2)
+		}
+	}
+}
+
+func probeReport(what, name, path string, werr error) string {
+	if werr != nil {
+		return fmt.Sprintf("GDNEXT_PROBE %s %s: ERR %v", what, name, werr)
+	}
+	st, sterr := os.Stat(path)
+	if sterr != nil {
+		return fmt.Sprintf("GDNEXT_PROBE %s %s: wrote_ok stat_err=%v", what, name, sterr)
+	}
+	return fmt.Sprintf("GDNEXT_PROBE %s %s: ok %dB at %s", what, name, st.Size(), path)
+}
+
+func writeGoFile(p string, data []byte) error { return os.WriteFile(p, data, 0644) }
+
+func writeGoOSync(p string, data []byte) error {
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_SYNC, 0644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func writeFABuffer(p string, data []byte) error {
+	f := FileAccess.Open(p, FileAccess.Write)
+	if openErr := FileAccess.GetOpenError(); openErr != nil {
+		return openErr
+	}
 	if !f.StoreBuffer(data) {
-		panic(fmt.Errorf("write %s to %s: FileAccess.StoreBuffer returned false (open error: %v)", what, path, FileAccess.GetOpenError()))
+		return fmt.Errorf("FileAccess.StoreBuffer returned false")
 	}
 	f.Flush()
+	return f.Close()
+}
+
+func writeFAString(p string, data []byte) error {
+	f := FileAccess.Open(p, FileAccess.Write)
+	if openErr := FileAccess.GetOpenError(); openErr != nil {
+		return openErr
+	}
+	if !f.StoreString(string(data)) {
+		return fmt.Errorf("FileAccess.StoreString returned false")
+	}
+	f.Flush()
+	return f.Close()
 }
