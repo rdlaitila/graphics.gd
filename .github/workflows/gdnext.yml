@@ -601,40 +601,65 @@ jobs:
               # Repo + package per https://docs.waydro.id/usage/install-on-desktops
               # (Ubuntu/Debian). The OBS bootstrap script also drops a
               # systemd unit (waydroid-container) that owns the
-              # binder/lxc container half. `waydroid session start`
-              # needs a Wayland compositor; CI has none, so we run
-              # the container-only half — adb works without a session.
-              sudo apt-get install -y --no-install-recommends curl ca-certificates
+              # binder/lxc container half. The session bridges the
+              # container to a Wayland compositor and is what actually
+              # triggers Android's init — without it the container
+              # service stays idle. CI has no display, so we run
+              # weston with the headless backend purely to provide a
+              # Wayland socket; nothing draws to it.
+              sudo apt-get install -y --no-install-recommends curl ca-certificates weston
               curl -s https://repo.waydro.id | sudo bash
               sudo apt-get install -y --no-install-recommends waydroid "linux-modules-extra-$(uname -r)"
               sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
               sudo waydroid init
               sudo systemctl enable --now waydroid-container
-              : > /tmp/waydroid-container.log
-              sudo nohup waydroid container start >> /tmp/waydroid-container.log 2>&1 &
-              container_pid=$!
-              tail -F /tmp/waydroid-container.log 2>/dev/null &
-              tail_pid=$!
+              export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-$UID}"
+              mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+              : > /tmp/weston.log
+              nohup weston --backend=headless-backend.so --socket=wayland-0 >> /tmp/weston.log 2>&1 &
+              weston_pid=$!
+              tail -F /tmp/weston.log 2>/dev/null &
+              weston_tail=$!
+              for i in $(seq 1 30); do
+                if [ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then
+                  break
+                fi
+                if ! kill -0 "$weston_pid" 2>/dev/null; then
+                  kill "$weston_tail" 2>/dev/null || true
+                  echo "weston exited before creating socket"
+                  exit 1
+                fi
+                sleep 1
+              done
+              export WAYLAND_DISPLAY=wayland-0
+              : > /tmp/waydroid-session.log
+              nohup waydroid session start >> /tmp/waydroid-session.log 2>&1 &
+              session_pid=$!
+              tail -F /tmp/waydroid-session.log 2>/dev/null &
+              session_tail=$!
               ready=0
               for i in $(seq 1 60); do
-                if sudo lxc-info -n waydroid -s 2>/dev/null | grep -q 'State:.*RUNNING'; then
+                status=$(waydroid status 2>/dev/null || true)
+                if echo "$status" | grep -q 'Session:.*RUNNING'; then
+                  echo "$status"
                   ready=1
                   break
                 fi
-                if ! kill -0 "$container_pid" 2>/dev/null; then
-                  echo "waydroid container start exited before RUNNING"
+                if ! kill -0 "$session_pid" 2>/dev/null; then
+                  echo "waydroid session start exited before RUNNING"
                   break
                 fi
                 sleep 5
               done
-              kill "$tail_pid" 2>/dev/null || true
+              kill "$session_tail" "$weston_tail" 2>/dev/null || true
               if [ "$ready" != "1" ]; then
+                echo "::group::weston.log"; cat /tmp/weston.log || true; echo "::endgroup::"
                 echo "::group::waydroid status"; waydroid status || true; echo "::endgroup::"
                 echo "::group::waydroid-container.service"; sudo journalctl -u waydroid-container --no-pager -n 200 || true; echo "::endgroup::"
                 exit 1
               fi
-              sudo waydroid prop set persist.waydroid.adb_tcp true || true
-              ip=$(sudo waydroid status 2>/dev/null | awk '/IP address/{print $3; exit}')
+              waydroid prop set persist.waydroid.adb_tcp true || true
+              ip=$(waydroid status 2>/dev/null | awk '/IP address/{print $3; exit}')
               ip=${ip:-192.168.240.112}
               adb connect "${ip}:5555"
               adb devices
