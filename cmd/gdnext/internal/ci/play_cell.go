@@ -49,6 +49,7 @@ func NewPlayCellCommand(di do.Injector) (*PlayCellCommand, error) {
 			&cli.StringFlag{Name: "build-host", Usage: "GHA runner label that produced the artefact (informational; surfaced on the HUD)"},
 			&cli.StringFlag{Name: "screenshot", Required: true, Usage: "absolute path the play-bot writes the screenshot to"},
 			&cli.DurationFlag{Name: "timeout", Value: 90 * time.Second, Usage: "hard kill after this much wall-clock time"},
+			&cli.BoolFlag{Name: "no-xvfb", Usage: "skip the xvfb-run wrapper even on headless hosts (binary must bring its own display, or use --headless)"},
 		},
 		Action: shared.BindAction(t.Injector, (*PlayCellActions).action),
 	}
@@ -71,6 +72,7 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	compat := cmd.String("compat")
 	buildHost := cmd.String("build-host")
 	timeout := cmd.Duration("timeout")
+	noXvfb := cmd.Bool("no-xvfb")
 	plat, ok := parseTuple(target)
 	if !ok {
 		return fmt.Errorf("invalid --target %q (want goos/goarch)", target)
@@ -129,7 +131,7 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		if err := os.Chmod(bin, 0755); err != nil {
 			return fmt.Errorf("chmod +x %s: %w", bin, err)
 		}
-		argv, err := launchCommand(bin, plat, mode, compat)
+		argv, err := launchCommand(bin, plat, mode, compat, noXvfb)
 		if err != nil {
 			return err
 		}
@@ -222,19 +224,26 @@ func releaseBinary(scratch, example string, plat target, mode product.LinkMode) 
 // keep working. Proton variants are routed through umu-run, with the
 // concrete GE-Proton tag resolved by protonRelease(); the caller is
 // expected to set PROTONPATH in the child env (see protonEnv()).
-func launchCommand(bin string, plat target, mode product.LinkMode, compat string) ([]string, error) {
+// noXvfb forces the xvfb-run wrapper off even on headless hosts; the
+// caller is then responsible for providing a display (or passing
+// --headless to the engine via some other path).
+func launchCommand(bin string, plat target, mode product.LinkMode, compat string, noXvfb bool) ([]string, error) {
+	xvfb := withXvfb
+	if noXvfb {
+		xvfb = func(argv ...string) []string { return argv }
+	}
 	hostGOOS := runtime.GOOS
 	switch compat {
 	case "", "native":
 		switch {
 		case hostGOOS == product.GOOSLinux && plat.GOOS == product.GOOSLinux:
-			return withXvfb(bin), nil
+			return xvfb(bin), nil
 		case hostGOOS == product.GOOSLinux && plat.GOOS == product.GOOSWindows:
 			wine, err := exec.LookPath("wine")
 			if err != nil {
 				return nil, fmt.Errorf("linux→windows play needs wine on PATH (or --compat=wine|proton): %w", err)
 			}
-			return withXvfb(wine, bin), nil
+			return xvfb(wine, bin), nil
 		case hostGOOS == product.GOOSWindows && plat.GOOS == product.GOOSWindows:
 			return []string{bin}, nil
 		case hostGOOS == product.GOOSDarwin && plat.GOOS == product.GOOSDarwin:
@@ -245,13 +254,13 @@ func launchCommand(bin string, plat target, mode product.LinkMode, compat string
 		if err != nil {
 			return nil, fmt.Errorf("compat=wine: wine not on PATH: %w", err)
 		}
-		return withXvfb(wine, bin), nil
+		return xvfb(wine, bin), nil
 	case "proton", "proton-8", "proton-9", "proton-10":
 		umu, err := exec.LookPath("umu-run")
 		if err != nil {
 			return nil, fmt.Errorf("compat=%s: umu-run not on PATH (apt install umu-launcher or pip install umu-launcher): %w", compat, err)
 		}
-		return withXvfb(umu, bin), nil
+		return xvfb(umu, bin), nil
 	default:
 		return nil, fmt.Errorf("unknown --compat %q", compat)
 	}

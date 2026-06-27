@@ -15,24 +15,49 @@ import (
 	"graphics.gd/variant/Object"
 )
 
+// startupEnv snapshots os.Environ at package-init time so we can
+// fall back to it when something between exec and finish() (libgodot
+// init, Godot's OS layer) unsetenv's our entries from the live env.
+var startupEnv = os.Environ()
+
+func init() {
+	for _, kv := range startupEnv {
+		if strings.HasPrefix(kv, "GDNEXT_") {
+			fmt.Println("GDNEXT_DBG_INIT " + kv)
+		}
+	}
+}
+
 // playRequested reports whether the play-bot should attach.
 func playRequested() bool { return playEnv(product.EnvPlay) != "" }
 
-// playEnv returns the value the driver passed for name. Strips a
-// surrounding pair of double-quote bytes if present (driver wraps
-// values that way as a workaround for env-loss seen on libgodot
-// and proton paths).
+// playEnv reads name from the live env, falling back to the
+// startup-time snapshot. Strips one matching pair of surrounding
+// double-quote bytes from the value (driver wraps values that way
+// as a workaround for the env-loss the libgodot path exhibits).
 func playEnv(name string) string {
-	v := os.Getenv(name)
+	if v := os.Getenv(name); v != "" {
+		return stripQuotes(v)
+	}
+	prefix := name + "="
+	for _, kv := range startupEnv {
+		if strings.HasPrefix(kv, prefix) {
+			return stripQuotes(kv[len(prefix):])
+		}
+	}
+	return ""
+}
+
+func stripQuotes(v string) string {
 	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
 		return v[1 : len(v)-1]
 	}
 	return v
 }
 
-// dumpGDNextEnv emits every GDNEXT_-prefixed entry in os.Environ so
-// the CI log shows whether the report var is missing, empty, or
-// shadowed by an earlier duplicate.
+// dumpGDNextEnv emits every GDNEXT_-prefixed entry in the live env
+// AND in the startup snapshot so the CI log shows which one (or
+// neither) is missing the report path.
 func dumpGDNextEnv(where string) {
 	for i, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "GDNEXT_") {
@@ -45,7 +70,22 @@ func dumpGDNextEnv(where string) {
 			name = kv[:eq]
 			val = kv[eq+1:]
 		}
-		line := fmt.Sprintf("GDNEXT_DBG_ENV %s [%d] %s=%q (raw_len=%d)", where, i, name, val, len(kv))
+		line := fmt.Sprintf("GDNEXT_DBG_ENV %s live [%d] %s=%q (raw_len=%d)", where, i, name, val, len(kv))
+		Engine.Print(line)
+		fmt.Println(line)
+	}
+	for i, kv := range startupEnv {
+		if !strings.HasPrefix(kv, "GDNEXT_") {
+			continue
+		}
+		eq := strings.IndexByte(kv, '=')
+		name := kv
+		val := ""
+		if eq >= 0 {
+			name = kv[:eq]
+			val = kv[eq+1:]
+		}
+		line := fmt.Sprintf("GDNEXT_DBG_ENV %s snap [%d] %s=%q (raw_len=%d)", where, i, name, val, len(kv))
 		Engine.Print(line)
 		fmt.Println(line)
 	}
