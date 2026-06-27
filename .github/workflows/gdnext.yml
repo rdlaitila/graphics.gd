@@ -607,7 +607,7 @@ jobs:
               # service stays idle. CI has no display, so we run
               # weston with the headless backend purely to provide a
               # Wayland socket; nothing draws to it.
-              sudo apt-get install -y --no-install-recommends curl ca-certificates weston
+              sudo apt-get install -y --no-install-recommends curl ca-certificates weston pulseaudio
               curl -s https://repo.waydro.id | sudo bash
               sudo apt-get install -y --no-install-recommends waydroid "linux-modules-extra-$(uname -r)"
               # Same AppArmor / userns relax we apply for proton's bwrap.
@@ -622,6 +622,14 @@ jobs:
               sudo systemctl enable --now waydroid-container
               export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-$UID}"
               mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+              # PulseAudio: the session writes a host→container bind
+              # mount for /run/user/$UID/pulse/native and LXC refuses
+              # to start the container if that path doesn't exist.
+              pulseaudio --start --exit-idle-time=-1
+              for i in $(seq 1 15); do
+                [ -S "$XDG_RUNTIME_DIR/pulse/native" ] && break
+                sleep 1
+              done
               : > /tmp/weston.log
               nohup weston --backend=headless-backend.so --socket=wayland-0 >> /tmp/weston.log 2>&1 &
               weston_pid=$!
