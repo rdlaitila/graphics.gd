@@ -601,31 +601,28 @@ jobs:
               # Repo + package per https://docs.waydro.id/usage/install-on-desktops
               # (Ubuntu/Debian). The OBS bootstrap script also drops a
               # systemd unit (waydroid-container) that owns the
-              # binder/lxc container half; the user-side session is
-              # started below.
+              # binder/lxc container half. `waydroid session start`
+              # needs a Wayland compositor; CI has none, so we run
+              # the container-only half — adb works without a session.
               sudo apt-get install -y --no-install-recommends curl ca-certificates
               curl -s https://repo.waydro.id | sudo bash
               sudo apt-get install -y --no-install-recommends waydroid "linux-modules-extra-$(uname -r)"
               sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
               sudo waydroid init
               sudo systemctl enable --now waydroid-container
-              : > /tmp/waydroid-session.log
-              nohup waydroid session start >> /tmp/waydroid-session.log 2>&1 &
-              session_pid=$!
-              # Mirror the session log live so the CI step shows the
-              # boot trace in real time. tail dies when the step exits.
-              tail -F /tmp/waydroid-session.log 2>/dev/null &
+              : > /tmp/waydroid-container.log
+              sudo nohup waydroid container start >> /tmp/waydroid-container.log 2>&1 &
+              container_pid=$!
+              tail -F /tmp/waydroid-container.log 2>/dev/null &
               tail_pid=$!
               ready=0
               for i in $(seq 1 60); do
-                status=$(waydroid status 2>/dev/null || true)
-                if echo "$status" | grep -q 'Session:.*RUNNING'; then
-                  echo "$status"
+                if sudo lxc-info -n waydroid -s 2>/dev/null | grep -q 'State:.*RUNNING'; then
                   ready=1
                   break
                 fi
-                if ! kill -0 "$session_pid" 2>/dev/null; then
-                  echo "waydroid session start exited before RUNNING"
+                if ! kill -0 "$container_pid" 2>/dev/null; then
+                  echo "waydroid container start exited before RUNNING"
                   break
                 fi
                 sleep 5
@@ -636,8 +633,8 @@ jobs:
                 echo "::group::waydroid-container.service"; sudo journalctl -u waydroid-container --no-pager -n 200 || true; echo "::endgroup::"
                 exit 1
               fi
-              waydroid prop set persist.waydroid.adb_tcp true || true
-              ip=$(waydroid status 2>/dev/null | awk '/IP address/{print $3; exit}')
+              sudo waydroid prop set persist.waydroid.adb_tcp true || true
+              ip=$(sudo waydroid status 2>/dev/null | awk '/IP address/{print $3; exit}')
               ip=${ip:-192.168.240.112}
               adb connect "${ip}:5555"
               adb devices
