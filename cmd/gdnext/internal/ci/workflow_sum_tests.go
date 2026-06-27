@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 )
 
 // testRow is one (host, link) test cell across the window.
@@ -21,13 +22,22 @@ func collectTests(asc []runWithJobs) []testRow {
 	for i, r := range asc {
 		for _, j := range r.Jobs {
 			head, axes, ok := splitJobName(j.Name)
-			if !ok || head != "gdnext-test" || len(axes) == 0 {
+			if !ok || head != "gdnext-test" || len(axes) < 2 {
 				continue
 			}
 			host := axes[0]
-			var link string
-			if len(axes) > 1 {
-				link = axes[1]
+			// Pre-rename runs (before the matrix gained a `link` axis)
+			// recorded job names as `gdnext-test (<os>)` — those land
+			// here with len(axes)==1 and skip the loop above. Cancelled
+			// runs sometimes lock in the literal `${{ matrix.os }}`
+			// template before the matrix expansion happens; filter
+			// those out so the table doesn't carry a phantom row.
+			if host == "" || strings.HasPrefix(host, "${{") {
+				continue
+			}
+			link := axes[1]
+			if link == "" {
+				continue
 			}
 			k := testKey{host: host, link: link}
 			row, exists := rows[k]

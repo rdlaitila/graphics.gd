@@ -711,8 +711,8 @@ func renderMarkdown(w io.Writer, s summary) error {
 	renderLegendMarkdown(w)
 	renderTOCMarkdown(w, s)
 	renderChecksMarkdown(w, s.Checks)
-	renderBuildsMarkdown(w, s.Builds)
 	renderTestsMarkdown(w, s.Tests)
+	renderBuildsMarkdown(w, s.Builds)
 	renderQuirksMarkdown(w)
 	renderPlaysMarkdown(w, s.Plays)
 	renderShotsMarkdown(w, s.Shots)
@@ -742,7 +742,7 @@ func renderCountsMarkdown(w io.Writer, s summary) {
 }
 
 func renderTOCMarkdown(w io.Writer, s summary) {
-	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Tests](#tests) · [Known quirks](#known-quirks) · [Plays](#plays) · [Latest run failures](#latest-run-failures) · [Commits](#commits) · [Toolchains](#toolchains)")
+	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Tests](#tests) · [Builds](#builds) · [Known quirks](#known-quirks) · [Plays](#plays) · [Latest run failures](#latest-run-failures) · [Commits](#commits) · [Toolchains](#toolchains)")
 	fmt.Fprintln(w)
 }
 
