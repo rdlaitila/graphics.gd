@@ -33,7 +33,6 @@ type WorkflowSummaryActions struct{}
 // --- GitHub API DTOs -------------------------------------------------
 // Raw shapes returned by `gh api`. Network-only — domain code reads
 // from the typed model below, not these.
-
 type ghRun struct {
 	ID           int64     `json:"id"`
 	Number       int       `json:"run_number"`
@@ -121,7 +120,6 @@ type summaryCounts struct {
 }
 
 // failureRow definition lives in workflow_sum_failures.go.
-
 type runMeta struct {
 	Number     int
 	CreatedAt  time.Time

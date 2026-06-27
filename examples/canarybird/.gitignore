@@ -27,3 +27,4 @@
 /graphics/*.wasm
 /graphics/*.xcframework
 /graphics/musl_*.editor
+/scratch/

@@ -2,7 +2,6 @@ package ci
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,8 +29,6 @@ type androidPlayOpts struct {
 	hud            string
 	timeout        time.Duration
 }
-
-var androidReportPrefix = product.EnvPlayReport + ":"
 
 // runAndroidPlay installs the staged APK on the connected emulator,
 // launches the activity, polls logcat for the play-bot's tagged
@@ -75,16 +72,22 @@ func runAndroidPlay(opts androidPlayOpts) error {
 		return fmt.Errorf("adb install %s: %w\n%s", apk, err, out)
 	}
 	defer func() { _ = dev.cmd("uninstall", pkg).Run() }()
-	// Stage the driver envelope under /data/local/tmp/ before launch.
-	// Android's activity boot strips host env vars, so playenv_android.go
-	// reads /data/local/tmp/gdnext-play.json instead of $GDNEXT_*.
-	deviceReport := "/data/local/tmp/gdnext-play-report.json"
-	deviceScreenshot := "/data/local/tmp/gdnext-play-screenshot.png"
+	// Stage the driver envelope under the app's external-files dir
+	// before launch. Android's activity boot strips host env vars,
+	// so playenv_android.go reads gdnext-play.json instead of
+	// $GDNEXT_*. /sdcard/Android/data/<pkg>/files/ is the one path
+	// adb can push/pull from AND the app uid can read+write to: the
+	// external-files dir is shell:ext_data_rw 660 with the app uid
+	// in the supplementary group. /data/local/tmp blocks app reads,
+	// /data/data/<pkg>/files blocks adb reads, /sdcard hits it
+	// from both sides.
+	deviceDir := "/sdcard/Android/data/" + pkg + "/files"
+	devicePlayJSON := deviceDir + "/gdnext-play.json"
+	deviceReport := deviceDir + "/gdnext-play-report.json"
+	deviceScreenshot := deviceDir + "/gdnext-play-screenshot.png"
 	envelope := map[string]string{
-		product.EnvPlay:           "1",
-		product.EnvPlayReport:     deviceReport,
-		product.EnvPlayScreenshot: deviceScreenshot,
-		product.EnvPlayHUD:        opts.hud,
+		product.EnvPlay:    "1",
+		product.EnvPlayHUD: opts.hud,
 	}
 	envelopeBytes, _ := json.Marshal(envelope)
 	envelopePath := filepath.Join(os.TempDir(), "gdnext-play.json")
@@ -92,13 +95,13 @@ func runAndroidPlay(opts androidPlayOpts) error {
 		return fmt.Errorf("write driver envelope %s: %w", envelopePath, err)
 	}
 	defer os.Remove(envelopePath)
-	if out, err := dev.cmd("push", envelopePath, "/data/local/tmp/gdnext-play.json").CombinedOutput(); err != nil {
+	_ = dev.cmd("shell", "mkdir", "-p", deviceDir).Run()
+	_ = dev.cmd("shell", "rm", "-f", deviceReport, deviceScreenshot).Run()
+	if out, err := dev.cmd("push", envelopePath, devicePlayJSON).CombinedOutput(); err != nil {
 		return fmt.Errorf("adb push envelope: %w\n%s", err, out)
 	}
-	_ = dev.cmd("shell", "chmod", "644", "/data/local/tmp/gdnext-play.json").Run()
-	_ = dev.cmd("shell", "rm", "-f", deviceReport, deviceScreenshot).Run()
 	defer func() {
-		_ = dev.cmd("shell", "rm", "-f", "/data/local/tmp/gdnext-play.json", deviceReport, deviceScreenshot).Run()
+		_ = dev.cmd("shell", "rm", "-f", devicePlayJSON, deviceReport, deviceScreenshot).Run()
 	}()
 	activity, err := androidLauncherActivity(ctx, dev, pkg)
 	if err != nil {
@@ -109,10 +112,10 @@ func runAndroidPlay(opts androidPlayOpts) error {
 	if out, err := dev.cmd("shell", "am", "start", "-n", activity).CombinedOutput(); err != nil {
 		return fmt.Errorf("am start %s: %w\n%s", activity, err, out)
 	}
-	// Poll for the on-device report file the bot writes. We keep the
-	// logcat tail running in parallel only for legacy/back-compat
-	// (older bot builds still emit the base64 line); the file wins
-	// whenever it appears.
+	// Poll for the report file the bot writes to its external-files
+	// dir. We can't use logcat: liblog truncates per-message payloads
+	// well below a full HUD-bearing report, so a chunked text-stream
+	// transport gets lossy fast.
 	deadline := time.Now()
 	if opts.timeout > 0 {
 		deadline = time.Now().Add(opts.timeout)
@@ -120,16 +123,15 @@ func runAndroidPlay(opts androidPlayOpts) error {
 	var reportBytes []byte
 poll:
 	for time.Now().Before(deadline) || opts.timeout == 0 {
-		if out, err := dev.cmd("exec-out", "cat", deviceReport).Output(); err == nil && len(out) > 0 {
-			reportBytes = out
-			break
-		}
-		if out, _ := dev.cmd("logcat", "-d", "-s", "Go:*").Output(); len(out) > 0 {
-			if b64 := scanReportLine(string(out)); b64 != "" {
-				if dec, err := base64.StdEncoding.DecodeString(b64); err == nil {
-					reportBytes = dec
-					break
-				}
+		// `adb exec-out cat` returns "cat: <path>: No such file or
+		// directory" on stderr-as-stdout when the file isn't there yet,
+		// and exits 1; both make `Output()` return non-empty bytes
+		// _and_ a non-nil err. Probe with `ls` first and only `cat`
+		// when the file exists.
+		if probe, _ := dev.cmd("shell", "ls", deviceReport).Output(); strings.Contains(string(probe), deviceReport) {
+			if out, err := dev.cmd("exec-out", "cat", deviceReport).Output(); err == nil && len(out) > 0 {
+				reportBytes = out
+				break
 			}
 		}
 		select {
@@ -147,30 +149,23 @@ poll:
 	// so the run log carries the engine trace whether or not the bot
 	// succeeded. Useful for reviewing warnings on a green run.
 	dumpAndroidDiagnosticLogcat(dev, pkg)
-	// Screenshot: prefer the in-engine PNG the bot wrote, fall back to
-	// `screencap` so the workflow summary still gets a frame on crashes.
-	if out, err := dev.cmd("exec-out", "cat", deviceScreenshot).Output(); err == nil && len(out) > 0 {
-		_ = os.WriteFile(opts.screenshotPath, out, 0644)
-	} else if out, err := dev.cmd("exec-out", "screencap", "-p").Output(); err == nil && len(out) > 0 {
-		_ = os.WriteFile(opts.screenshotPath, out, 0644)
+	// Screenshot: prefer the in-engine PNG the bot wrote (closer to
+	// the bot's last-frame intent), fall back to host-side `screencap`
+	// when the bot didn't run or crashed before snapshotting.
+	wrote := false
+	if probe, _ := dev.cmd("shell", "ls", deviceScreenshot).Output(); strings.Contains(string(probe), deviceScreenshot) {
+		if out, err := dev.cmd("exec-out", "cat", deviceScreenshot).Output(); err == nil && len(out) > 0 {
+			_ = os.WriteFile(opts.screenshotPath, out, 0644)
+			wrote = true
+		}
+	}
+	if !wrote {
+		if out, err := dev.cmd("exec-out", "screencap", "-p").Output(); err == nil && len(out) > 0 {
+			_ = os.WriteFile(opts.screenshotPath, out, 0644)
+		}
 	}
 	_ = dev.cmd("shell", "am", "force-stop", pkg).Run()
 	return nil
-}
-
-// scanReportLine walks `adb logcat` output and returns the base64
-// payload of the most recent GDNEXT_PLAY_REPORT line. The logcat
-// "raw" format isn't always available across SDK versions, so we
-// tolerate any prefix and just search each line for the marker.
-func scanReportLine(logcatOut string) string {
-	for _, line := range strings.Split(logcatOut, "\n") {
-		idx := strings.Index(line, androidReportPrefix)
-		if idx < 0 {
-			continue
-		}
-		return strings.TrimSpace(line[idx+len(androidReportPrefix):])
-	}
-	return ""
 }
 
 // androidAPKPath resolves the playable APK written by `gdnext build`
@@ -203,10 +198,9 @@ func androidPackageName(aapt, apk string) (string, error) {
 }
 
 // findAapt resolves an aapt2 (or aapt) binary the dispatcher can
-// call. The reactivecircus emulator action only puts platform-tools
-// on PATH (adb); build-tools aren't exposed shell-side, so we also
-// look under gdnext's managed install root ($GDPATH/bin, default
-// ~/gd/bin) where `gdnext toolchain install` drops aapt2.
+// call. Prefers anything on $PATH; falls back to `gdnext toolchain
+// path android-aapt2`, the canonical lookup for tools laid down by
+// `gdnext toolchain install` (under $GDPATH/android/sdk/build-tools).
 func findAapt() (string, error) {
 	if p, err := exec.LookPath("aapt2"); err == nil {
 		return p, nil
@@ -214,22 +208,20 @@ func findAapt() (string, error) {
 	if p, err := exec.LookPath("aapt"); err == nil {
 		return p, nil
 	}
-	roots := []string{os.Getenv(product.EnvGDPath)}
-	if home, err := os.UserHomeDir(); err == nil {
-		roots = append(roots, filepath.Join(home, "gd"))
-	}
-	for _, root := range roots {
-		if root == "" {
+	for _, slug := range []string{"android-aapt2", "android-aapt"} {
+		out, err := exec.Command("gdnext", "toolchain", "path", slug).Output()
+		if err != nil {
 			continue
 		}
-		for _, name := range []string{"aapt2", "aapt"} {
-			candidate := filepath.Join(root, "bin", name)
-			if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
-				return candidate, nil
-			}
+		p := strings.TrimSpace(string(out))
+		if p == "" {
+			continue
+		}
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p, nil
 		}
 	}
-	return "", fmt.Errorf("android play: aapt2 not on PATH and not under $GDPATH/bin (run `gdnext toolchain install`)")
+	return "", fmt.Errorf("android play: aapt2 not on PATH and `gdnext toolchain path android-aapt2` returned nothing (run `gdnext toolchain install`)")
 }
 
 // androidLauncherActivity asks the package manager to resolve the
