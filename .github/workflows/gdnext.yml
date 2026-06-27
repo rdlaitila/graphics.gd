@@ -875,9 +875,6 @@ jobs:
           else
             echo "no play-report.json"
           fi
-          echo "::group::play-report probe files"
-          ls -la scratch/play-report.json* 2>/dev/null || echo "no probe files"
-          echo "::endgroup::"
 
       - name: Upload play screenshot
         if: steps.artefact-check.outputs.present == 'true' && always() && hashFiles(env.SHOT_PATH) != ''
@@ -917,8 +914,9 @@ jobs:
           merge-multiple: true
       - name: Tree Play Screenshots
         shell: bash
-        run: |          
-          find shots \( -type f -o -type l \) | sort          
+        run: |
+          mkdir -p shots
+          find shots \( -type f -o -type l \) | sort || true
       - name: Render workflow summary
         env:
           GH_TOKEN: ${{ github.token }}

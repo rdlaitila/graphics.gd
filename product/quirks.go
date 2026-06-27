@@ -6,14 +6,16 @@ import "sort"
 // means the quirk applies to every build host (build-scope quirks)
 // or every play host (play-scope quirks) for the Platform. Empty
 // Compat (play-scope only) means every compat layer on those hosts.
+// Empty LinkModes (play-scope only) means every link mode.
 type Quirk struct {
-	Title  string     `json:"title"            xml:"title,attr"             yaml:"title"`
-	Scope  QuirkScope `json:"scope"            xml:"scope,attr"             yaml:"scope"`
-	Hosts  []string   `json:"hosts,omitempty"  xml:"hosts>host,omitempty"  yaml:"hosts,omitempty"`
-	Compat []string   `json:"compat,omitempty" xml:"compat>layer,omitempty" yaml:"compat,omitempty"`
-	Reason string     `json:"reason"           xml:"reason"                 yaml:"reason"`
-	Result []string   `json:"result,omitempty" xml:"result>item,omitempty" yaml:"result,omitempty"`
-	Refs   []string   `json:"refs,omitempty"   xml:"refs>ref,omitempty"    yaml:"refs,omitempty"`
+	Title     string     `json:"title"                xml:"title,attr"                 yaml:"title"`
+	Scope     QuirkScope `json:"scope"                xml:"scope,attr"                 yaml:"scope"`
+	Hosts     []string   `json:"hosts,omitempty"      xml:"hosts>host,omitempty"      yaml:"hosts,omitempty"`
+	Compat    []string   `json:"compat,omitempty"     xml:"compat>layer,omitempty"    yaml:"compat,omitempty"`
+	LinkModes []LinkMode `json:"link_modes,omitempty" xml:"link_modes>mode,omitempty" yaml:"link_modes,omitempty"`
+	Reason    string     `json:"reason"               xml:"reason"                    yaml:"reason"`
+	Result    []string   `json:"result,omitempty"     xml:"result>item,omitempty"     yaml:"result,omitempty"`
+	Refs      []string   `json:"refs,omitempty"       xml:"refs>ref,omitempty"        yaml:"refs,omitempty"`
 }
 
 // QuirkScope is the operational consequence of a Quirk on a Platform row.
@@ -173,6 +175,49 @@ var QuirkAndroidAmd64EmuShaderUniformsCap = Quirk{
 	},
 }
 
+// QuirkLinuxAmd64LibGodotPlayEnvLoss marks libgodot-linked plays on
+// linux/amd64 as broken: the libgodot bootstrap calls unsetenv() on
+// the GDNEXT_PLAY_RESULT entry between execve and the Go user-package
+// init, so the example never sees the report path and the driver's
+// readReport(reportPath) fails. The other GDNEXT_PLAY_* entries
+// (PLAY, SCREENSHOT, HUD) survive — confirmed by emitting
+// os.Environ() snapshots from package init and from finish(); only
+// the *_RESULT name is consistently dropped, regardless of c.Env
+// position, surrounding quotes, or the value itself. Suspected
+// upstream in libgodot's OS_Unix / dlopen helper init path.
+// The cell stays omitted until the libgodot init is fixed upstream
+// or the example is taught to read the report path via a non-env
+// channel (e.g. a stdin envelope like the android driver uses).
+var QuirkLinuxAmd64LibGodotPlayEnvLoss = Quirk{
+	Title:     "linux/amd64 libgodot play: GDNEXT_PLAY_RESULT is unsetenv'd by libgodot init before the example reads it",
+	Scope:     QuirkCIPlayBroken,
+	Hosts:     []string{Tuple(GOOSLinux, GOARCHAmd64)},
+	LinkModes: []LinkMode{LibGodot},
+	Reason: "Driver injects GDNEXT_PLAY_RESULT into c.Env alongside " +
+		"PLAY, SCREENSHOT, and HUD (verified by logging every " +
+		"GDNEXT_-prefixed c.Env entry pre-exec). In the child process, " +
+		"os.Environ() at Go user-package init time shows PLAY, " +
+		"SCREENSHOT, and HUD survived but RESULT is gone — not empty, " +
+		"absent from the environ block entirely. Tested workarounds " +
+		"that did NOT recover the entry: renaming the var (REPORT \u2192 " +
+		"RESULT), changing the value (1 \u2192 'active' \u2192 example name), " +
+		"reordering c.Env so RESULT is no longer adjacent to PLAY, " +
+		"wrapping the value in literal '\"' bytes, removing the " +
+		"xvfb-run shell wrapper. The other three vars round-trip in " +
+		"every combination. Suspected libgodot bootstrap path " +
+		"(OS_Unix init or the dlopen helper) calls unsetenv on the " +
+		"name; cause not yet pinned upstream.",
+	Result: []string{
+		"the (linux/amd64 play host, linux/amd64 target, libgodot link) play cell is omitted from the play matrix",
+		"the libgodot build itself stays green (assertDistributable verifies releases/linux/amd64/<example> exists)",
+		"gdextension-mode play on linux/amd64 is unaffected and continues to cover the example",
+		"cell turns green once libgodot stops dropping the env entry, or the example is taught to read the report path via a non-env channel",
+	},
+	Refs: []string{
+		"https://github.com/rdlaitila/graphics.gd/actions/runs/28296813097",
+	},
+}
+
 // allow-fail when built from a windows host; user builds on a local
 // windows host may still succeed.
 var QuirkWindowsDarwinBuildAccessDenied = Quirk{
@@ -245,6 +290,20 @@ func (t Quirk) AppliesToCompat(layer string) bool {
 	return false
 }
 
+// AppliesToLinkMode reports whether t's LinkModes list matches mode.
+// Empty LinkModes means every mode.
+func (t Quirk) AppliesToLinkMode(mode LinkMode) bool {
+	if len(t.LinkModes) == 0 {
+		return true
+	}
+	for _, m := range t.LinkModes {
+		if m == mode {
+			return true
+		}
+	}
+	return false
+}
+
 // CIBlockedFor reports whether p carries a QuirkCIBuildBroken
 // matching the given build host. The matrix generator uses it to
 // omit the (host, target) cell entirely: build-broken means we
@@ -260,10 +319,10 @@ func (t Platform) CIBlockedFor(hostGOOS, hostGOARCH string) bool {
 }
 
 // PlayBlockedFor reports whether p carries a QuirkCIPlayBroken
-// matching the given (play host, compat layer) pair. Used by the
-// play-matrix generator to omit cells we already know don't reach
-// the play-bot signal.
-func (t Platform) PlayBlockedFor(playHostGOOS, playHostGOARCH, compat string) bool {
+// matching the given (play host, compat layer, link mode) triple.
+// Used by the play-matrix generator to omit cells we already know
+// don't reach the play-bot signal.
+func (t Platform) PlayBlockedFor(playHostGOOS, playHostGOARCH, compat string, mode LinkMode) bool {
 	for _, q := range t.Quirks {
 		if q.Scope != QuirkCIPlayBroken {
 			continue
@@ -272,6 +331,9 @@ func (t Platform) PlayBlockedFor(playHostGOOS, playHostGOARCH, compat string) bo
 			continue
 		}
 		if !q.AppliesToCompat(compat) {
+			continue
+		}
+		if !q.AppliesToLinkMode(mode) {
 			continue
 		}
 		return true

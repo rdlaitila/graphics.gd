@@ -357,6 +357,7 @@ var (
 		PlayHosts:  []PlayHost{PlayLinuxAmd64},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
+		Quirks:     []Quirk{QuirkLinuxAmd64LibGodotPlayEnvLoss},
 		Notes:      "libgodot mode (--link=libgodot or GOOS=musl alias) currently fetches the .musl. artefact",
 	}
 	PlatformLinuxArm64 = Platform{
