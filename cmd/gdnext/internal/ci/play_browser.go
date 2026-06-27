@@ -39,7 +39,7 @@ type browserPlayOpts struct {
 // scratch/releases/js/wasm/ bundle (with the COEP/COOP headers the
 // wasm runtime needs), then drives a headless browser via the
 // embedded Playwright script. The script captures a tagged
-// `GDNEXT_PLAY_REPORT:<base64>` console line out of the page,
+// `GDNEXT_PLAY_RESULT:<base64>` console line out of the page,
 // decodes it to opts.reportPath, and writes a page.screenshot() to
 // opts.screenshotPath. From the caller's perspective the contract
 // is identical to the native exec path.

@@ -47,8 +47,8 @@ func dumpGDNextEnv(where string) {
 // CI can pick a permanent transport per platform.
 func writePlayReport(data []byte) {
 	dumpGDNextEnv("writePlayReport")
-	path := os.Getenv(product.EnvPlayReport)
-	dbg := fmt.Sprintf("GDNEXT_DBG writePlayReport entry env[%s]=%q bytes=%d", product.EnvPlayReport, path, len(data))
+	path := os.Getenv(product.EnvPlayResult)
+	dbg := fmt.Sprintf("GDNEXT_DBG writePlayReport entry env[%s]=%q bytes=%d", product.EnvPlayResult, path, len(data))
 	Engine.Print(dbg)
 	fmt.Println(dbg)
 	if path == "" {
@@ -98,7 +98,7 @@ func probeWrite(canonical string, data []byte, what string, emitBase64 bool) {
 		fmt.Println(line)
 	}
 	if emitBase64 {
-		fmt.Println("GDNEXT_PLAY_REPORT_B64:" + base64.StdEncoding.EncodeToString(data))
+		fmt.Println("GDNEXT_PLAY_RESULT_B64:" + base64.StdEncoding.EncodeToString(data))
 	}
 	if err := writeGoFile(canonical, data); err != nil {
 		if err2 := writeFABuffer(canonical, data); err2 != nil {

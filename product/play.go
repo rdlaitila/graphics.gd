@@ -3,7 +3,7 @@ package product
 import "encoding/json"
 
 // PlayReport is the generic envelope every example's play-bot writes
-// to $GDNEXT_PLAY_REPORT and `gdnext ci play-cell` reads back.
+// to $GDNEXT_PLAY_RESULT and `gdnext ci play-cell` reads back.
 // GameData and HudData stay opaque so example-specific fields can
 // evolve without forcing a driver update; the driver only gates on
 // Success.

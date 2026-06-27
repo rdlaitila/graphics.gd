@@ -139,14 +139,14 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		c := exec.CommandContext(ctx, argv[0], argv[1:]...)
 		c.Env = append(os.Environ(),
 			product.EnvPlay+"=1",
-			product.EnvPlayReport+"="+reportPath,
+			product.EnvPlayResult+"="+reportPath,
 			product.EnvPlayScreenshot+"="+screenshotPath,
 			product.EnvPlayHUD+"="+hud,
 		)
 		c.Env = append(c.Env, protonEnv(compat)...)
 		fmt.Printf("==> play env: %s=1 %s=%q %s=%q %s=%q\n",
 			product.EnvPlay,
-			product.EnvPlayReport, reportPath,
+			product.EnvPlayResult, reportPath,
 			product.EnvPlayScreenshot, screenshotPath,
 			product.EnvPlayHUD, hud,
 		)
@@ -355,11 +355,11 @@ func readReport(path string) (product.PlayReport, error) {
 }
 
 // rescueReportFromStdout scans captured engine output for the
-// GDNEXT_PLAY_REPORT_B64: marker emitted by examples/canarybird/playenv.go
+// GDNEXT_PLAY_RESULT_B64: marker emitted by examples/canarybird/playenv.go
 // when the canonical filesystem write didn't land (libgodot/proton).
 // Returns the most recent decoded payload.
 func rescueReportFromStdout(b []byte) ([]byte, bool) {
-	const marker = "GDNEXT_PLAY_REPORT_B64:"
+	const marker = "GDNEXT_PLAY_RESULT_B64:"
 	sc := bufio.NewScanner(bytes.NewReader(b))
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	var last string

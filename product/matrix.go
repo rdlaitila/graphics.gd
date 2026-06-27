@@ -94,7 +94,7 @@ var EnvMatrix = []string{
 	EnvGraphicsGDRoot,
 	EnvRunningInsideGodot,
 	EnvPlay,
-	EnvPlayReport,
+	EnvPlayResult,
 	EnvPlayScreenshot,
 	EnvPlayHUD,
 	EnvPlayHeaded,
@@ -134,7 +134,7 @@ var (
 	// Runtime contract with the example / play-bot ---------------------
 	EnvRunningInsideGodot = "RUNNING_INSIDE_GODOT"
 	EnvPlay               = "GDNEXT_PLAY"
-	EnvPlayReport         = "GDNEXT_PLAY_REPORT"
+	EnvPlayResult         = "GDNEXT_PLAY_RESULT"
 	EnvPlayScreenshot     = "GDNEXT_PLAY_SCREENSHOT"
 	EnvPlayHUD            = "GDNEXT_PLAY_HUD"
 	EnvPlayHeaded         = "GDNEXT_PLAY_HEADED"

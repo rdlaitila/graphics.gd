@@ -111,7 +111,7 @@ var QuirkWebWasmGDExtensionPlayBroken = Quirk{
 		"4.7 web export template is compiled without GDExtension. Any " +
 		"graphics.gd runtime call that crosses the extension boundary " +
 		"resolves to a null function pointer and crashes the page before " +
-		"the play-bot can emit its GDNEXT_PLAY_REPORT line. Upstream's own " +
+		"the play-bot can emit its GDNEXT_PLAY_RESULT line. Upstream's own " +
 		"web tests sidestep this by linking via libgodot (statically " +
 		"embedding the engine in library.wasm), but no libgodot.web.wasm " +
 		"artefact is published at release.graphics.gd yet, so gdnext build " +
