@@ -291,7 +291,14 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 		MaybeUniversal = "universal"
 	}
 	var variables = strings.NewReplacer(
-		"$(VERSION)", exe.Version, "$(ARCH)", ARCH, "$(OS)", OS, "$(GOARCH)", MaybeUniversal, "$(GOOS)", GOOS, "$(HOME)", HOME, "$(GDPATH)", GDPATH, "$(EXT)", EXT,
+		"$(VERSION)", exe.Version,
+		"$(ARCH)", ARCH,
+		"$(OS)", OS,
+		"$(GOARCH)", MaybeUniversal,
+		"$(GOOS)", GOOS,
+		"$(HOME)", HOME,
+		"$(GDPATH)", GDPATH,
+		"$(EXT)", EXT,
 	)
 	var install_dir = GDBin
 	if exe.IsLibrary {
