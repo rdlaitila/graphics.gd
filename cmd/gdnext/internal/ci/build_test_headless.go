@@ -30,6 +30,7 @@ func NewTestHeadlessCommand(di do.Injector) (*TestHeadlessCommand, error) {
 		Usage: "run `gdnext test` against the staged example",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "scratch", Usage: "staged example directory to test in", Required: true},
+			&cli.StringFlag{Name: "link", Usage: "link mode (gdextension|libgodot); empty = builder default"},
 		},
 		Action: shared.BindAction(t.Injector, (*TestHeadlessActions).action),
 	}
@@ -54,5 +55,10 @@ func (t *TestHeadlessActions) action(_ context.Context, cmd *cli.Command) error 
 	// a positional arg, not a gdnext flag; no `--` separator needed
 	// (a leading `--` ends up in Godot's argv and stops it parsing
 	// the converted -test.v).
-	return runIn(scratch, "gdnext", "test", "-v")
+	args := []string{}
+	if link := cmd.String("link"); link != "" {
+		args = append(args, "--link", link)
+	}
+	args = append(args, "test", "-v")
+	return runIn(scratch, "gdnext", args...)
 }

@@ -109,6 +109,7 @@ type summary struct {
 	Window       []runMeta
 	Checks       []checkRow
 	Builds       []buildRow
+	Tests        []testRow
 	Plays        []playRow
 	Shots        []pushedShot
 	Toolchains   []toolchainRow
@@ -575,6 +576,7 @@ func collect(window []runWithJobs, branch string) summary {
 	}
 	s.Checks = collectChecks(asc)
 	s.Builds = collectBuilds(asc)
+	s.Tests = collectTests(asc)
 	s.Plays = collectPlays(asc)
 	return s
 }
@@ -710,6 +712,7 @@ func renderMarkdown(w io.Writer, s summary) error {
 	renderTOCMarkdown(w, s)
 	renderChecksMarkdown(w, s.Checks)
 	renderBuildsMarkdown(w, s.Builds)
+	renderTestsMarkdown(w, s.Tests)
 	renderQuirksMarkdown(w)
 	renderPlaysMarkdown(w, s.Plays)
 	renderShotsMarkdown(w, s.Shots)
@@ -739,7 +742,7 @@ func renderCountsMarkdown(w io.Writer, s summary) {
 }
 
 func renderTOCMarkdown(w io.Writer, s summary) {
-	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Known quirks](#known-quirks) · [Plays](#plays) · [Latest run failures](#latest-run-failures) · [Commits](#commits) · [Toolchains](#toolchains)")
+	fmt.Fprintln(w, "**Contents:** [Checks](#checks) · [Builds](#builds) · [Tests](#tests) · [Known quirks](#known-quirks) · [Plays](#plays) · [Latest run failures](#latest-run-failures) · [Commits](#commits) · [Toolchains](#toolchains)")
 	fmt.Fprintln(w)
 }
 
