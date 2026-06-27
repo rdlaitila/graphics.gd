@@ -244,6 +244,39 @@ var QuirkWindowsDarwinBuildAccessDenied = Quirk{
 	},
 }
 
+// QuirkIOSArm64TemplateLinkUndefined marks ios/arm64 builds as
+// broken: the prebuilt libgodot.ios.release.xcframework served from
+// release.graphics.gd references hundreds of symbols our bundled
+// .tbd stubs and the template itself don't provide, so ld64.lld
+// aborts the final Mach-O link.
+var QuirkIOSArm64TemplateLinkUndefined = Quirk{
+	Title: "ios/arm64 build: prebuilt libgodot template fails to link with ld64.lld",
+	Scope: QuirkCIBuildBroken,
+	Reason: "The iOS export bundles libgodot.ios.release.xcframework + " +
+		"MoltenVK.xcframework and hands them to ld64.lld with " +
+		"-syslibroot /dev/null and our minimal bundled .tbd stubs. " +
+		"The 4.7 template references symbols our stubs do not " +
+		"advertise (Metal counter set markers, NSError keys, " +
+		"NSProcessInfo notification names, CADynamicRange*, " +
+		"UISceneConfiguration, libc++ aligned new/delete, " +
+		"std::to_string(long)), and \u2014 more fundamentally \u2014 " +
+		"references SDL functions (_SDL_IsIPad, _SDL_IsAppleTV) " +
+		"that should be defined inside libgodot.a itself but are " +
+		"absent, suggesting the prebuilt template was compiled " +
+		"without the SDL platform sources. ___kCFBooleanTrue also " +
+		"reports as undefined even though our stub advertises it, " +
+		"implying a name-mangling mismatch between MoltenVK's " +
+		"Objective-C++ bridge and the stub format. Stub expansion " +
+		"alone cannot resolve the SDL gap.",
+	Result: []string{
+		"the ios/arm64 build cell is omitted from the build matrix",
+		"local builds will hit the same ld64.lld error until the " +
+			"prebuilt libgodot.ios.release.xcframework is rebuilt " +
+			"with SDL sources included and our bundled .tbd stubs " +
+			"are regenerated from Apple's real iOS SDK tbds",
+	},
+}
+
 func (t QuirkScope) String() string {
 	switch t {
 	case QuirkInformational:

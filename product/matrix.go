@@ -439,12 +439,13 @@ var (
 		GOARCH:     GOARCHArm64,
 		Aliases:    []string{GOOSIPhone},
 		Kind:       Target,
-		Status:     Supported,
+		Status:     Supported | Quirky,
 		LinkModes:  GDExtension,
 		BuildHosts: []BuildHost{HostDarwinAmd64, HostDarwinArm64, HostLinuxAmd64},
 		BuildTools: append(SharedToolchains, []Toolchain{ToolchainLLVM}...),
 		Renderers:  []string{"metal", "gl_compatibility"},
-		Notes:      "requires llvm; signing needs a macOS host + Apple cert",
+		Notes:      "requires llvm; signing needs a macOS host + Apple cert; current libgodot.ios template fails to link (see quirk)",
+		Quirks:     []Quirk{QuirkIOSArm64TemplateLinkUndefined},
 	}
 	// --- Android --------------------------------------------------------
 	PlatformAndroidArm64 = Platform{
