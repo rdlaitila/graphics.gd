@@ -610,6 +610,13 @@ jobs:
               sudo apt-get install -y --no-install-recommends curl ca-certificates weston
               curl -s https://repo.waydro.id | sudo bash
               sudo apt-get install -y --no-install-recommends waydroid "linux-modules-extra-$(uname -r)"
+              # Same AppArmor / userns relax we apply for proton's bwrap.
+              # Ubuntu 24.04 blocks unprivileged user namespaces and
+              # restricts AppArmor profile transitions, both of which
+              # waydroid's LXC `lxc.apparmor.profile = unconfined`
+              # request runs into.
+              sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+              sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
               sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
               sudo waydroid init
               sudo systemctl enable --now waydroid-container
@@ -656,6 +663,12 @@ jobs:
                 echo "::group::weston.log"; cat /tmp/weston.log || true; echo "::endgroup::"
                 echo "::group::waydroid status"; waydroid status || true; echo "::endgroup::"
                 echo "::group::waydroid-container.service"; sudo journalctl -u waydroid-container --no-pager -n 200 || true; echo "::endgroup::"
+                echo "::group::lxc-checkconfig"; sudo lxc-checkconfig 2>&1 || true; echo "::endgroup::"
+                echo "::group::lxc-info waydroid"; sudo lxc-info -n waydroid 2>&1 || true; echo "::endgroup::"
+                echo "::group::lxc container config"; sudo cat /var/lib/waydroid/lxc/waydroid/config 2>/dev/null || true; echo "::endgroup::"
+                echo "::group::lxc log"; sudo find /var/lib/waydroid /var/log -maxdepth 4 -name 'waydroid*.log' -o -name 'lxc*.log' 2>/dev/null | xargs -r -I{} sh -c 'echo "--- {} ---"; sudo cat "{}"'; echo "::endgroup::"
+                echo "::group::apparmor status"; sudo aa-status 2>&1 | head -40 || true; echo "::endgroup::"
+                echo "::group::cgroup layout"; mount | grep -E 'cgroup|bpf'; echo; stat -fc '%T' /sys/fs/cgroup; echo "::endgroup::"
                 exit 1
               fi
               waydroid prop set persist.waydroid.adb_tcp true || true
