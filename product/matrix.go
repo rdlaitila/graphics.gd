@@ -485,7 +485,7 @@ var (
 		BuildHosts: BuildHosts,
 		BuildTools: append(SharedToolchains, AndroidToolchains...),
 		Renderers:  []string{"vulkan"},
-		Notes:      "Android profile with GodotVR + OpenXR injected into the apk",
+		Notes:      "Android profile with GodotVR + OpenXR injected into the apk; play requires arm64 hardware or arm-on-amd64 translation (libndk/houdini)",
 	}
 	// --- Web (WebAssembly + WebGL) -------------------------------------
 	PlatformWebWasm = Platform{
