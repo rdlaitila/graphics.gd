@@ -307,13 +307,13 @@ func protonEnv(compat string) []string {
 		"GAMEID=0",
 		"PROTONPATH=" + pp,
 		// GE-Proton11+ ships Xalia, an accessibility helper that
-		// initializes SDL3 before launching the game. SDL3 prefers
-		// wayland, fails to find a socket on CI, and crashes Xalia
-		// (System.ApplicationException: No displays available)
-		// without falling back to X11 — which kills the whole launch
-		// before godot even starts. Force the X11 backend so SDL3
-		// uses our Xvfb display directly.
-		"SDL_VIDEODRIVER=x11",
+		// initializes SDL3 before launching the game and crashes
+		// on headless CI with 'No displays available'. Xalia is
+		// launched via dbus by pressure-vessel's command-launcher
+		// service which drops our SDL_VIDEODRIVER env on the way
+		// in, so the only reliable disable is the proton-level
+		// knob. We don't need accessibility hooks in CI.
+		"PROTON_DISABLE_XALIA=1",
 	}
 }
 
