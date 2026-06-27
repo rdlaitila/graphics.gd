@@ -90,6 +90,8 @@ func (t *playBot) press() {
 
 func (t *playBot) finish(crashed bool) {
 	t.exited = true
+	Engine.Print(fmt.Sprintf("GDNEXT_DBG finish entry crashed=%v score=%d flaps=%d elapsed=%.2f", crashed, t.game.score, t.flaps, t.elapsed))
+	fmt.Printf("GDNEXT_DBG finish entry crashed=%v score=%d flaps=%d elapsed=%.2f\n", crashed, t.game.score, t.flaps, t.elapsed)
 	gameData := map[string]any{
 		"score":   t.game.score,
 		"flaps":   t.flaps,
@@ -108,8 +110,14 @@ func (t *playBot) finish(crashed bool) {
 	if err != nil {
 		panic(fmt.Errorf("marshal play report: %w", err))
 	}
+	Engine.Print(fmt.Sprintf("GDNEXT_DBG finish marshaled report bytes=%d", len(data)))
+	fmt.Printf("GDNEXT_DBG finish marshaled report bytes=%d\n", len(data))
 	writePlayReport(data)
+	Engine.Print("GDNEXT_DBG finish report returned")
+	fmt.Println("GDNEXT_DBG finish report returned")
 	writePlayScreenshotFromViewport()
+	Engine.Print("GDNEXT_DBG finish screenshot returned")
+	fmt.Println("GDNEXT_DBG finish screenshot returned")
 	// hold open ~0.5s so the engine drains pending FileAccess writes before teardown.
 	t.quitCountdown = 0.5
 }

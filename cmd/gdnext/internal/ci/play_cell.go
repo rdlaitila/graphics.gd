@@ -144,6 +144,12 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 			product.EnvPlayHUD+"="+hud,
 		)
 		c.Env = append(c.Env, protonEnv(compat)...)
+		fmt.Printf("==> play env: %s=1 %s=%q %s=%q %s=%q\n",
+			product.EnvPlay,
+			product.EnvPlayReport, reportPath,
+			product.EnvPlayScreenshot, screenshotPath,
+			product.EnvPlayHUD, hud,
+		)
 		var captured bytes.Buffer
 		c.Stdout = io.MultiWriter(os.Stdout, &captured)
 		c.Stderr = io.MultiWriter(os.Stderr, &captured)

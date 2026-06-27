@@ -25,6 +25,9 @@ func playEnv(name string) string { return os.Getenv(name) }
 // CI can pick a permanent transport per platform.
 func writePlayReport(data []byte) {
 	path := os.Getenv(product.EnvPlayReport)
+	dbg := fmt.Sprintf("GDNEXT_DBG writePlayReport entry env[%s]=%q bytes=%d", product.EnvPlayReport, path, len(data))
+	Engine.Print(dbg)
+	fmt.Println(dbg)
 	if path == "" {
 		return
 	}
@@ -35,6 +38,9 @@ func writePlayReport(data []byte) {
 // writes the PNG to $GDNEXT_PLAY_SCREENSHOT.
 func writePlayScreenshotFromViewport() {
 	path := os.Getenv(product.EnvPlayScreenshot)
+	dbg := fmt.Sprintf("GDNEXT_DBG writePlayScreenshot entry env[%s]=%q", product.EnvPlayScreenshot, path)
+	Engine.Print(dbg)
+	fmt.Println(dbg)
 	if path == "" {
 		return
 	}
