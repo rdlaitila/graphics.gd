@@ -150,6 +150,13 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 			product.EnvPlayScreenshot, screenshotPath,
 			product.EnvPlayHUD, hud,
 		)
+		// dump every GDNEXT_-prefixed entry going into the child
+		// process so duplicate / shadowed names are visible.
+		for i, kv := range c.Env {
+			if strings.HasPrefix(kv, "GDNEXT_") {
+				fmt.Printf("==> c.Env[%d] %s\n", i, kv)
+			}
+		}
 		var captured bytes.Buffer
 		c.Stdout = io.MultiWriter(os.Stdout, &captured)
 		c.Stderr = io.MultiWriter(os.Stderr, &captured)

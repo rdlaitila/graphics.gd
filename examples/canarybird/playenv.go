@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"strings"
 
 	"graphics.gd/classdb/Engine"
 	"graphics.gd/classdb/FileAccess"
@@ -20,10 +21,32 @@ func playRequested() bool { return os.Getenv(product.EnvPlay) != "" }
 // playEnv returns the value the driver passed for name.
 func playEnv(name string) string { return os.Getenv(name) }
 
+// dumpGDNextEnv emits every GDNEXT_-prefixed entry in os.Environ so
+// the CI log shows whether the report var is missing, empty, or
+// shadowed by an earlier duplicate.
+func dumpGDNextEnv(where string) {
+	for i, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GDNEXT_") {
+			continue
+		}
+		eq := strings.IndexByte(kv, '=')
+		name := kv
+		val := ""
+		if eq >= 0 {
+			name = kv[:eq]
+			val = kv[eq+1:]
+		}
+		line := fmt.Sprintf("GDNEXT_DBG_ENV %s [%d] %s=%q (raw_len=%d)", where, i, name, val, len(kv))
+		Engine.Print(line)
+		fmt.Println(line)
+	}
+}
+
 // writePlayReport writes the marshalled report to the canonical path
 // and to every probe-suffixed path, logging each writer's outcome so
 // CI can pick a permanent transport per platform.
 func writePlayReport(data []byte) {
+	dumpGDNextEnv("writePlayReport")
 	path := os.Getenv(product.EnvPlayReport)
 	dbg := fmt.Sprintf("GDNEXT_DBG writePlayReport entry env[%s]=%q bytes=%d", product.EnvPlayReport, path, len(data))
 	Engine.Print(dbg)
