@@ -2,19 +2,9 @@ name: gdnext
 
 on:
   push:
-    branches: ["release", "staging", "gdnext", "gdnext-cli"]
-    paths:
-      - "cmd/gdnext/**"
-      - "examples/**"
-      - "product/**"
-      - ".github/workflows/gdnext.yml"
+    branches: ["release", "staging", "gdnext"]    
   pull_request:
-    branches: ["release"]
-    paths:
-      - "cmd/gdnext/**"
-      - "examples/**"
-      - "product/**"
-      - ".github/workflows/gdnext.yml"
+    branches: ["release"]    
   workflow_dispatch:
     inputs:
       filter-host:

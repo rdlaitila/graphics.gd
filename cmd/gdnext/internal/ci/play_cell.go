@@ -306,6 +306,14 @@ func protonEnv(compat string) []string {
 	return []string{
 		"GAMEID=0",
 		"PROTONPATH=" + pp,
+		// GE-Proton11+ ships Xalia, an accessibility helper that
+		// initializes SDL3 before launching the game. SDL3 prefers
+		// wayland, fails to find a socket on CI, and crashes Xalia
+		// (System.ApplicationException: No displays available)
+		// without falling back to X11 — which kills the whole launch
+		// before godot even starts. Force the X11 backend so SDL3
+		// uses our Xvfb display directly.
+		"SDL_VIDEODRIVER=x11",
 	}
 }
 
