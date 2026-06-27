@@ -16,9 +16,13 @@ import (
 )
 
 func main() {
+	dumpEnv("main entry")
+	debugf("==> canarybird main: registering CanaryBird and entering scene tree")
 	classdb.Register[CanaryBird]()
 	startup.LoadingScene()
 	game := new(CanaryBird)
 	SceneTree.Add(game.AsNode())
+	debugf("==> canarybird main: scene tree populated, handing off to startup.Scene()")
 	startup.Scene()
+	debugf("==> canarybird main: startup.Scene() returned, exiting")
 }

@@ -79,8 +79,10 @@ func (g *CanaryBird) Ready() {
 	g.buildScene()
 	g.buildHUD()
 	g.reset()
+	debugf("==> canarybird ready: high_score=%d play_requested=%v", g.highScore, playRequested())
 	if playRequested() {
 		g.bot = newPlayBot(g)
+		debugf("==> canarybird ready: play-bot attached")
 	}
 }
 
@@ -247,6 +249,7 @@ func (g *CanaryBird) gameOver() {
 		g.highScore = g.score
 		saveHighScore(g.highScore)
 	}
+	debugf("==> canarybird game-over: score=%d high_score=%d", g.score, g.highScore)
 	g.statusLabel.SetText("Game over! Best: " + itoa(g.highScore))
 	g.retryButton.AsCanvasItem().SetVisible(true)
 }
