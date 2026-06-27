@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"graphics.gd/classdb/Engine"
+	"graphics.gd/classdb/FileAccess"
 	"graphics.gd/classdb/SceneTree"
 	"graphics.gd/product"
 	"graphics.gd/variant/Object"
@@ -65,9 +66,7 @@ func writePlayReport(data []byte) {
 	if externalFilesDir == "" {
 		return
 	}
-	if err := os.WriteFile(filepath.Join(externalFilesDir, "gdnext-play-report.json"), data, 0644); err != nil {
-		panic(fmt.Errorf("write play report: %w", err))
-	}
+	storeBytes(filepath.Join(externalFilesDir, "gdnext-play-report.json"), data, "play report")
 }
 
 // writePlayScreenshotFromViewport captures the engine viewport and
@@ -81,7 +80,18 @@ func writePlayScreenshotFromViewport() {
 		panic("play screenshot requested but engine main loop is not a SceneTree")
 	}
 	png := tree.Root().AsViewport().GetTexture().AsTexture2D().GetImage().SavePngToBuffer()
-	if err := os.WriteFile(filepath.Join(externalFilesDir, "gdnext-play-screenshot.png"), png, 0644); err != nil {
-		panic(fmt.Errorf("write play screenshot: %w", err))
+	storeBytes(filepath.Join(externalFilesDir, "gdnext-play-screenshot.png"), png, "play screenshot")
+}
+
+// storeBytes writes data to path via FileAccess. Go's io subsystem
+// mis-behaves under libgodot's hosted runtime on some platforms;
+// routing through Godot avoids that path entirely. The FileAccess
+// instance is RefCounted and closes when the local reference falls
+// out of scope; Flush forces the write to land before that.
+func storeBytes(path string, data []byte, what string) {
+	f := FileAccess.Open(path, FileAccess.Write)
+	if !f.StoreBuffer(data) {
+		panic(fmt.Errorf("write %s to %s: FileAccess.StoreBuffer returned false (open error: %v)", what, path, FileAccess.GetOpenError()))
 	}
+	f.Flush()
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"graphics.gd/classdb/Engine"
+	"graphics.gd/classdb/FileAccess"
 	"graphics.gd/classdb/SceneTree"
 	"graphics.gd/product"
 	"graphics.gd/variant/Object"
@@ -22,18 +23,17 @@ func playRequested() bool { return os.Getenv(product.EnvPlay) != "" }
 // hydrates the same names from URL query params.
 func playEnv(name string) string { return os.Getenv(name) }
 
-// writePlayReport persists the marshalled report. Native builds write
-// to the path the driver named in $GDNEXT_PLAY_REPORT; the WASM build
-// (see play_env_js.go) prints a `GDNEXT_PLAY_REPORT:<base64>` line on
-// the JS console where Playwright captures it.
+// writePlayReport persists the marshalled report via Godot's
+// FileAccess. Go's io subsystem mis-behaves under libgodot's hosted
+// runtime on some platforms (writes to the driver-named path either
+// fail silently or hit half-mapped fd tables); routing through Godot
+// avoids that path entirely.
 func writePlayReport(data []byte) {
 	path := os.Getenv(product.EnvPlayReport)
 	if path == "" {
 		return
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		panic(fmt.Errorf("write play report %s: %w", path, err))
-	}
+	storeBytes(path, data, "play report")
 }
 
 // writePlayScreenshotFromViewport snapshots the root viewport and
@@ -50,7 +50,18 @@ func writePlayScreenshotFromViewport() {
 		panic("play screenshot requested but engine main loop is not a SceneTree")
 	}
 	png := tree.Root().AsViewport().GetTexture().AsTexture2D().GetImage().SavePngToBuffer()
-	if err := os.WriteFile(path, png, 0644); err != nil {
-		panic(fmt.Errorf("write play screenshot %s: %w", path, err))
+	storeBytes(path, png, "play screenshot")
+}
+
+// storeBytes writes data to path via FileAccess. Path may be a Godot
+// resource URI (user://, res://) or a host filesystem path. The
+// FileAccess instance is RefCounted and closes when the local
+// reference falls out of scope; Flush forces the write to land
+// before that.
+func storeBytes(path string, data []byte, what string) {
+	f := FileAccess.Open(path, FileAccess.Write)
+	if !f.StoreBuffer(data) {
+		panic(fmt.Errorf("write %s to %s: FileAccess.StoreBuffer returned false (open error: %v)", what, path, FileAccess.GetOpenError()))
 	}
+	f.Flush()
 }
