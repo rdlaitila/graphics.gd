@@ -17,7 +17,7 @@ import (
 // resulting BuildEnv is registered as a value so consumers can declare
 // `product.BuildEnv` fields without juggling pointers.
 func NewBuildEnv(di do.Injector) (product.BuildEnv, error) {
-	buildEnv, err := product.FindBuildEnv(os.Getenv("GOOS"), os.Getenv("GOARCH"), os.Getenv("GOLINK"))
+	buildEnv, err := product.FindBuildEnv(os.Getenv(product.EnvGOOS), os.Getenv(product.EnvGOARCH), os.Getenv(product.EnvGOLink))
 	if err != nil {
 		return buildEnv, xray.New(err)
 	}
@@ -25,18 +25,18 @@ func NewBuildEnv(di do.Injector) (product.BuildEnv, error) {
 	// alias the user passed in (e.g. macos -> darwin, web -> js).
 	// Skipping the no-op write keeps "was this user-set?" introspection
 	// honest for any downstream tool that cares.
-	if os.Getenv("GOOS") != buildEnv.Target.GOOS {
-		if err := os.Setenv("GOOS", buildEnv.Target.GOOS); err != nil {
+	if os.Getenv(product.EnvGOOS) != buildEnv.Target.GOOS {
+		if err := os.Setenv(product.EnvGOOS, buildEnv.Target.GOOS); err != nil {
 			return buildEnv, xray.New(err)
 		}
 	}
-	if os.Getenv("GOARCH") != buildEnv.Target.GOARCH {
-		if err := os.Setenv("GOARCH", buildEnv.Target.GOARCH); err != nil {
+	if os.Getenv(product.EnvGOARCH) != buildEnv.Target.GOARCH {
+		if err := os.Setenv(product.EnvGOARCH, buildEnv.Target.GOARCH); err != nil {
 			return buildEnv, xray.New(err)
 		}
 	}
-	if linkStr := buildEnv.Target.LinkMode.String(); os.Getenv("GOLINK") != linkStr {
-		if err := os.Setenv("GOLINK", linkStr); err != nil {
+	if linkStr := buildEnv.Target.LinkMode.String(); os.Getenv(product.EnvGOLink) != linkStr {
+		if err := os.Setenv(product.EnvGOLink, linkStr); err != nil {
 			return buildEnv, xray.New(err)
 		}
 	}
@@ -50,7 +50,7 @@ func NewBuildEnv(di do.Injector) (product.BuildEnv, error) {
 		return buildEnv, xray.New(err)
 	}
 	buildEnv.Host.UserAppdataRoot = appdata
-	root := os.Getenv("GDPATH")
+	root := os.Getenv(product.EnvGDPath)
 	if root == "" {
 		root = filepath.Join(home, "gd")
 	}
@@ -61,8 +61,8 @@ func NewBuildEnv(di do.Injector) (product.BuildEnv, error) {
 	// spawned subprocesses that still read it see the value the typed
 	// BuildEnv carries. New code should consume BuildEnv.Host.GD*Path
 	// instead.
-	if os.Getenv("GDPATH") != root {
-		if err := os.Setenv("GDPATH", root); err != nil {
+	if os.Getenv(product.EnvGDPath) != root {
+		if err := os.Setenv(product.EnvGDPath, root); err != nil {
 			return buildEnv, xray.New(err)
 		}
 	}
@@ -104,12 +104,12 @@ func homeDir() (string, error) {
 func appdataRoot(goos, home string) (string, error) {
 	switch goos {
 	case product.GOOSLinux:
-		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		if xdg := os.Getenv(product.EnvXDGDataHome); xdg != "" {
 			return xdg, nil
 		}
 		return filepath.Join(home, ".local", "share"), nil
 	case product.GOOSWindows:
-		if appdata := os.Getenv("APPDATA"); appdata != "" {
+		if appdata := os.Getenv(product.EnvAppData); appdata != "" {
 			return appdata, nil
 		}
 		return filepath.Join(home, "AppData", "Roaming"), nil

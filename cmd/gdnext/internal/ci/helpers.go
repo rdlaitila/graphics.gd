@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"graphics.gd/product"
 )
 
 // announce prints a copy-pasteable banner for the command about to run.
@@ -162,10 +164,10 @@ func graphicsGDRoot(explicit string) (string, error) {
 	if explicit != "" {
 		return filepath.Abs(explicit)
 	}
-	if v := os.Getenv("GRAPHICS_GD_ROOT"); v != "" {
+	if v := os.Getenv(product.EnvGraphicsGDRoot); v != "" {
 		return filepath.Abs(v)
 	}
-	if v := os.Getenv("GITHUB_WORKSPACE"); v != "" {
+	if v := os.Getenv(product.EnvGitHubWorkspace); v != "" {
 		return filepath.Abs(v)
 	}
 	cwd, err := os.Getwd()

@@ -253,7 +253,7 @@ func resolveShots(repo, shotsDir, branch string, runIDFlag int64) []pushedShot {
 	}
 	runID := runIDFlag
 	if runID == 0 {
-		if v := os.Getenv("GITHUB_RUN_ID"); v != "" {
+		if v := os.Getenv(product.EnvGitHubRunID); v != "" {
 			fmt.Sscanf(v, "%d", &runID)
 		}
 	}

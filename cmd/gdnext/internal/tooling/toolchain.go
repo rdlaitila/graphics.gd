@@ -19,7 +19,7 @@ import (
 	"runtime.link/api/xray"
 )
 
-var debug = os.Getenv("DEBUG_CMD") != ""
+var debug = os.Getenv(product.EnvDebugCmd) != ""
 
 // Mode controls how Lookup and LookupPlatform resolve a missing toolchain.
 // Passing it explicitly at the callsite keeps the behaviour local instead
@@ -342,7 +342,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 		if exe.IsApp && runtime.GOOS == product.GOOSDarwin {
 			exe_path = filepath.Join(install_path, "Contents", "MacOS", name)
 		}
-		if exe.Name == "godot" && os.Getenv("RUNNING_INSIDE_GODOT") != "" {
+		if exe.Name == "godot" && os.Getenv(product.EnvRunningInsideGodot) != "" {
 			exe.Path = install_path
 			return exe.PathToCommand(), nil
 		}
@@ -366,7 +366,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	// some users (ie. NixOS) don't want things to be automatically installed, they
 	// can set their toolchain to local and download/install everything themselves.
 	// Mode==Find produces the same effect explicitly at the call site.
-	if m == ModeFind || os.Getenv("GDTOOLCHAIN") == "local" {
+	if m == ModeFind || os.Getenv(product.EnvGDToolchain) == "local" {
 		path, err := exec.LookPath(name)
 		if err != nil {
 			return "", fmt.Errorf(
@@ -420,7 +420,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	// caller asked for --force or --skip-checksum they're explicitly
 	// asking for a fresh fetch — a stale .download here would trigger
 	// HTTP 416 on the next Range: request. Drop it so we start clean.
-	if m == ModeForceInstall || os.Getenv("GDNEXT_SKIP_CHECKSUM") != "" {
+	if m == ModeForceInstall || os.Getenv(product.EnvSkipChecksum) != "" {
 		_ = os.Remove(dest)
 	}
 	if err := func() error {
@@ -618,7 +618,7 @@ func (exe *Tool) lookupBundle(install_dir, GOOS, GOARCH string, m Mode, variable
 		exe.Path = install_dir
 		return install_dir, nil
 	}
-	if m == ModeFind || os.Getenv("GDTOOLCHAIN") == "local" {
+	if m == ModeFind || os.Getenv(product.EnvGDToolchain) == "local" {
 		return "", fmt.Errorf("bundle %q not installed at %s (required for %s) and automatic-downloads are disabled, ie. %s",
 			exe.Slug, install_dir, exe.RequiredFor, exe.DownloadHint)
 	}
@@ -637,7 +637,7 @@ func (exe *Tool) lookupBundle(install_dir, GOOS, GOARCH string, m Mode, variable
 	// interrupted downloads via Range:, mirroring the single-file
 	// path above.
 	dest := install_dir + "." + bundleArchiveSuffix(url) + ".download"
-	if m == ModeForceInstall || os.Getenv("GDNEXT_SKIP_CHECKSUM") != "" {
+	if m == ModeForceInstall || os.Getenv(product.EnvSkipChecksum) != "" {
 		_ = os.Remove(dest)
 	}
 	if err := downloadResumable(url, dest, exe.Name, exe.Version); err != nil {
@@ -804,7 +804,7 @@ func sha256File(path string) (int64, string, error) {
 // and no sidecar" case. Implicit trust on a fresh tool is a feature,
 // not a default — the user has to opt in once via --skip-checksum.
 func verifyChecksum(got string, catalogKnown []string, sidecarPath string) error {
-	if os.Getenv("GDNEXT_SKIP_CHECKSUM") != "" {
+	if os.Getenv(product.EnvSkipChecksum) != "" {
 		return nil
 	}
 	for _, want := range catalogKnown {

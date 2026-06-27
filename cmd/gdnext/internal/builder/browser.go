@@ -50,7 +50,7 @@ func (t *Browser) Build(args ...string) error {
 	if err := t.AssertExportTemplate(); err != nil {
 		return xray.New(err)
 	}
-	if err := os.Setenv("GOARCH", product.GOARCHWasm); err != nil {
+	if err := os.Setenv(product.EnvGOARCH, product.GOARCHWasm); err != nil {
 		return xray.New(err)
 	}
 	if t.testing {
@@ -70,7 +70,7 @@ func (t *Browser) Run(args ...string) error {
 	if err := t.ToolCatalog.Godot.Exec("--headless", "--export-release", "Web"); err != nil {
 		return xray.New(err)
 	}
-	PORT := os.Getenv("PORT")
+	PORT := os.Getenv(product.EnvPort)
 	if PORT == "" {
 		PORT = "8080"
 	}

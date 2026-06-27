@@ -55,7 +55,7 @@ func (t *DiagnosticVerbsActions) action(_ context.Context, _ *cli.Command) error
 			return fmt.Errorf("`gdnext toolchain list` missing entry: %s", t.Slug)
 		}
 	}
-	gdpath := os.Getenv("GDPATH")
+	gdpath := os.Getenv(product.EnvGDPath)
 	if gdpath == "" {
 		if home, err := os.UserHomeDir(); err == nil {
 			gdpath = filepath.Join(home, "gd")

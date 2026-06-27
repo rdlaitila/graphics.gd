@@ -61,9 +61,9 @@ func (t *Musl) Build(args ...string) (err error) {
 	env := t.BuildEnv
 	tools := t.ToolCatalog
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
-	goos := os.Getenv("GOOS")
-	os.Setenv("GOOS", product.GOOSLinux)
-	defer os.Setenv("GOOS", goos)
+	goos := os.Getenv(product.EnvGOOS)
+	os.Setenv(product.EnvGOOS, product.GOOSLinux)
+	defer os.Setenv(product.EnvGOOS, goos)
 	if built_musl {
 		return nil
 	}
@@ -117,12 +117,12 @@ func (t *Musl) Build(args ...string) (err error) {
 	switch GOARCH {
 	case product.GOARCHAmd64:
 		target = "x86_64-linux-musl"
-		if err := os.Setenv("CC", zig+" cc -target x86_64-linux-musl -static"); err != nil {
+		if err := os.Setenv(product.EnvCC, zig+" cc -target x86_64-linux-musl -static"); err != nil {
 			return xray.New(err)
 		}
 	case product.GOARCHArm64:
 		target = "aarch64-linux-musl"
-		if err := os.Setenv("CC", zig+" cc -target aarch64-linux-musl -static"); err != nil {
+		if err := os.Setenv(product.EnvCC, zig+" cc -target aarch64-linux-musl -static"); err != nil {
 			return xray.New(err)
 		}
 	default:
@@ -217,9 +217,9 @@ func (t *Musl) Test(args ...string) error {
 		built_musl = true
 	}()
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
-	goos := os.Getenv("GOOS")
-	os.Setenv("GOOS", product.GOOSLinux)
-	defer os.Setenv("GOOS", goos)
+	goos := os.Getenv(product.EnvGOOS)
+	os.Setenv(product.EnvGOOS, product.GOOSLinux)
+	defer os.Setenv(product.EnvGOOS, goos)
 	GOARCH := env.Target.GOARCH
 	if env.Host.GOOS != product.GOOSLinux || env.Host.GOARCH != GOARCH {
 		return fmt.Errorf("gd test: cannot run linux/%v tests on %s", GOARCH, env.Host.Tuple())
@@ -247,12 +247,12 @@ func (t *Musl) Test(args ...string) error {
 	switch GOARCH {
 	case product.GOARCHAmd64:
 		target = "x86_64-linux-musl"
-		if err := os.Setenv("CC", zig+" cc -target x86_64-linux-musl"); err != nil {
+		if err := os.Setenv(product.EnvCC, zig+" cc -target x86_64-linux-musl"); err != nil {
 			return xray.New(err)
 		}
 	case product.GOARCHArm64:
 		target = "aarch64-linux-musl"
-		if err := os.Setenv("CC", zig+" cc -target aarch64-linux-musl"); err != nil {
+		if err := os.Setenv(product.EnvCC, zig+" cc -target aarch64-linux-musl"); err != nil {
 			return xray.New(err)
 		}
 	default:

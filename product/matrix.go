@@ -61,6 +61,85 @@ var (
 	GOARCHWasm  = "wasm"
 )
 
+// EnvMatrix is the canonical, ordered list of every environment
+// variable gdnext reads from or writes to. Standard go/toolchain
+// vars come first, then CI runner vars, then gdnext-owned vars,
+// then example/runtime-driven vars.
+var EnvMatrix = []string{
+	EnvGOOS,
+	EnvGOARCH,
+	EnvGOLink,
+	EnvGODebug,
+	EnvCC,
+	EnvCGOEnabled,
+	EnvHome,
+	EnvAppData,
+	EnvDisplay,
+	EnvXDGDataHome,
+	EnvSSLKeyLogFile,
+	EnvDebugCmd,
+	EnvPort,
+	EnvRunnerOS,
+	EnvGitHubRefName,
+	EnvGitHubRunID,
+	EnvGitHubSHA,
+	EnvGitHubWorkspace,
+	EnvGDPath,
+	EnvGDToolchain,
+	EnvVerbose,
+	EnvAABSign,
+	EnvSkipChecksum,
+	EnvAndroidPreset,
+	EnvWaydroidADB,
+	EnvGraphicsGDRoot,
+	EnvRunningInsideGodot,
+	EnvPlay,
+	EnvPlayReport,
+	EnvPlayScreenshot,
+	EnvPlayHUD,
+	EnvPlayHeaded,
+}
+
+var (
+	// Go / cgo toolchain ------------------------------------------------
+	EnvGOOS       = "GOOS"
+	EnvGOARCH     = "GOARCH"
+	EnvGOLink     = "GOLINK"
+	EnvGODebug    = "GODEBUG"
+	EnvCC         = "CC"
+	EnvCGOEnabled = "CGO_ENABLED"
+	// Host shell + per-user paths --------------------------------------
+	EnvHome          = "HOME"
+	EnvAppData       = "APPDATA"
+	EnvDisplay       = "DISPLAY"
+	EnvXDGDataHome   = "XDG_DATA_HOME"
+	EnvSSLKeyLogFile = "SSLKEYLOGFILE"
+	// CI runner --------------------------------------------------------
+	EnvDebugCmd        = "DEBUG_CMD"
+	EnvPort            = "PORT"
+	EnvRunnerOS        = "RUNNER_OS"
+	EnvGitHubRefName   = "GITHUB_REF_NAME"
+	EnvGitHubRunID     = "GITHUB_RUN_ID"
+	EnvGitHubSHA       = "GITHUB_SHA"
+	EnvGitHubWorkspace = "GITHUB_WORKSPACE"
+	// gdnext + product -------------------------------------------------
+	EnvGDPath         = "GDPATH"
+	EnvGDToolchain    = "GDTOOLCHAIN"
+	EnvVerbose        = "GD_VERBOSE"
+	EnvAABSign        = "GDNEXT_AAB_SIGN"
+	EnvSkipChecksum   = "GDNEXT_SKIP_CHECKSUM"
+	EnvAndroidPreset  = "GD_ANDROID_PRESET"
+	EnvWaydroidADB    = "GDNEXT_WAYDROID_ADB"
+	EnvGraphicsGDRoot = "GRAPHICS_GD_ROOT"
+	// Runtime contract with the example / play-bot ---------------------
+	EnvRunningInsideGodot = "RUNNING_INSIDE_GODOT"
+	EnvPlay               = "GDNEXT_PLAY"
+	EnvPlayReport         = "GDNEXT_PLAY_REPORT"
+	EnvPlayScreenshot     = "GDNEXT_PLAY_SCREENSHOT"
+	EnvPlayHUD            = "GDNEXT_PLAY_HUD"
+	EnvPlayHeaded         = "GDNEXT_PLAY_HEADED"
+)
+
 // GOOSArchDefaults maps each GOOS to its default GOARCH, used when the target
 // architecture is not explicitly set.
 var GOOSArchDefaults = map[string]string{

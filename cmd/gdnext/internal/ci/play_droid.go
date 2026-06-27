@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"graphics.gd/product"
 )
 
 // androidPlayOpts mirrors browserPlayOpts but for the android-emu
@@ -28,7 +30,7 @@ type androidPlayOpts struct {
 	timeout        time.Duration
 }
 
-const androidReportPrefix = "GDNEXT_PLAY_REPORT:"
+var androidReportPrefix = product.EnvPlayReport + ":"
 
 // runAndroidPlay installs the staged APK on the connected emulator,
 // launches the activity, polls logcat for the play-bot's tagged
@@ -185,7 +187,7 @@ func findAapt() (string, error) {
 	if p, err := exec.LookPath("aapt"); err == nil {
 		return p, nil
 	}
-	roots := []string{os.Getenv("GDPATH")}
+	roots := []string{os.Getenv(product.EnvGDPath)}
 	if home, err := os.UserHomeDir(); err == nil {
 		roots = append(roots, filepath.Join(home, "gd"))
 	}
@@ -303,7 +305,7 @@ func selectAdbDevice(adb, compat string) (adbDevice, error) {
 	case "android-emu":
 		return adbDevice{bin: adb}, nil
 	case "waydroid":
-		addr := os.Getenv("GDNEXT_WAYDROID_ADB")
+		addr := os.Getenv(product.EnvWaydroidADB)
 		if addr == "" {
 			addr = "127.0.0.1:5555"
 		}

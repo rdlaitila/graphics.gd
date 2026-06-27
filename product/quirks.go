@@ -138,6 +138,7 @@ var QuirkWebWasmGDExtensionPlayBroken = Quirk{
 // off-CI. The proposed long-term path is the new waydroid
 // play host; until that lands the cell is omitted from the play
 // matrix.
+// https://github.com/godotengine/godot/issues/109550
 var QuirkAndroidAmd64EmuShaderUniformsCap = Quirk{
 	Title:  "android/amd64 play under android-emu: SwiftShader caps fragment uniforms below Godot 4.7's SceneShaderGLES3 requirement",
 	Scope:  QuirkCIPlayBroken,

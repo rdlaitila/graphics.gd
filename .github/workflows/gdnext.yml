@@ -694,6 +694,22 @@ jobs:
                 case "$ip" in 192.168.*) break;; *) ip=""; sleep 2;; esac
               done
               echo "container IP: ${ip:-<unresolved>}"
+              # Pre-authorise the host's adb key inside the container
+              # so the first `adb connect` doesn't land on a prompt
+              # that nobody is around to tap. `waydroid shell` uses
+              # the LXC console (no adb auth needed), so it's the
+              # right hammer for seeding /data/misc/adb/adb_keys
+              # before adbd starts handing out auth challenges.
+              mkdir -p "$HOME/.android"
+              if [ ! -f "$HOME/.android/adbkey.pub" ]; then
+                adb keygen "$HOME/.android/adbkey"
+              fi
+              adb start-server >/dev/null 2>&1 || true
+              pubkey=$(cat "$HOME/.android/adbkey.pub")
+              sudo waydroid shell -- sh -c "mkdir -p /data/misc/adb && echo '$pubkey' > /data/misc/adb/adb_keys && chmod 640 /data/misc/adb/adb_keys && chown shell:shell /data/misc/adb/adb_keys" || true
+              sudo waydroid shell -- setprop ctl.restart adbd || true
+              # Give adbd a moment to come back up under the new key.
+              sleep 2
               # adb endpoints to try in order: direct container IP,
               # then 127.0.0.1:5555 (adbd inside the container may
               # be exposed via Waydroid's port forward).

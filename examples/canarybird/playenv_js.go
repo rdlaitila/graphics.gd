@@ -46,7 +46,7 @@ func playEnv(name string) string {
 // fmt.Println of the tagged base64 is enough — no JavaScriptBridge
 // dependency.
 func writePlayReport(data []byte) {
-	fmt.Println("GDNEXT_PLAY_REPORT:" + base64.StdEncoding.EncodeToString(data))
+	fmt.Println(product.EnvPlayReport + ":" + base64.StdEncoding.EncodeToString(data))
 }
 
 // writePlayScreenshotFromViewport is a no-op in WASM; the Playwright

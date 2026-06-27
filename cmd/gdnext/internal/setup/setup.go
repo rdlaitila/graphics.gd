@@ -60,7 +60,7 @@ func ForBuild(di do.Injector, testing bool, extraArgs []string) (builder.Builder
 			// only affects which builder builder.For picks below; the
 			// builder reads its own DI-injected env (which is unchanged)
 			// for everything else.
-			if os.Getenv("GOLINK") == "" {
+			if os.Getenv(product.EnvGOLink) == "" {
 				env.Target.LinkMode |= product.LibGodot
 			}
 		} else if err != nil {
@@ -72,25 +72,25 @@ func ForBuild(di do.Injector, testing bool, extraArgs []string) (builder.Builder
 		return nil, xray.New(err)
 	}
 	if env.Target.GOOS != product.GOOSJS {
-		if err := os.Setenv("CGO_ENABLED", "1"); err != nil {
+		if err := os.Setenv(product.EnvCGOEnabled, "1"); err != nil {
 			return nil, xray.New(err)
 		}
 	}
-	if env.Target.GOOS == product.GOOSWindows && os.Getenv("CC") == "" {
+	if env.Target.GOOS == product.GOOSWindows && os.Getenv(product.EnvCC) == "" {
 		zig, err := tools.Zig.Lookup()
 		if err != nil {
 			return nil, xray.New(err)
 		}
-		if err := os.Setenv("CC", zig+" cc"); err != nil {
+		if err := os.Setenv(product.EnvCC, zig+" cc"); err != nil {
 			return nil, xray.New(err)
 		}
-	} else if zig, _ := exec.LookPath("zig"); zig != "" && os.Getenv("CC") == "" {
+	} else if zig, _ := exec.LookPath("zig"); zig != "" && os.Getenv(product.EnvCC) == "" {
 		if env.Host.GOOS == product.GOOSDarwin {
-			if err := os.Setenv("CC", "clang"); err != nil {
+			if err := os.Setenv(product.EnvCC, "clang"); err != nil {
 				return nil, xray.New(err)
 			}
 		} else {
-			if err := os.Setenv("CC", "zig cc"); err != nil {
+			if err := os.Setenv(product.EnvCC, "zig cc"); err != nil {
 				return nil, xray.New(err)
 			}
 		}
@@ -108,9 +108,9 @@ func ForBuild(di do.Injector, testing bool, extraArgs []string) (builder.Builder
 
 func muslBuildClosure(di do.Injector) func() error {
 	return func() error {
-		GOARCH := os.Getenv("GOARCH")
-		os.Setenv("GOARCH", runtime.GOARCH)
-		defer os.Setenv("GOARCH", GOARCH)
+		GOARCH := os.Getenv(product.EnvGOARCH)
+		os.Setenv(product.EnvGOARCH, runtime.GOARCH)
+		defer os.Setenv(product.EnvGOARCH, GOARCH)
 		current, err := os.Getwd()
 		if err != nil {
 			return xray.New(err)

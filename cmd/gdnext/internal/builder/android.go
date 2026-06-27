@@ -150,10 +150,10 @@ func (t *Android) Build(args ...string) error {
 		}
 		switch GOARCH {
 		case product.GOARCHArm64:
-			if err := os.Setenv("CC", zig+" cc -target aarch64-linux-android -nostdlib -I"+ANDROID_SDK+"/usr/include -L"+ANDROID_SDK+"/usr/lib"); err != nil {
+			if err := os.Setenv(product.EnvCC, zig+" cc -target aarch64-linux-android -nostdlib -I"+ANDROID_SDK+"/usr/include -L"+ANDROID_SDK+"/usr/lib"); err != nil {
 				return xray.New(err)
 			}
-			if err := os.Setenv("GOARCH", product.GOARCHArm64); err != nil {
+			if err := os.Setenv(product.EnvGOARCH, product.GOARCHArm64); err != nil {
 				return xray.New(err)
 			}
 		case product.GOARCHAmd64:
@@ -170,10 +170,10 @@ func (t *Android) Build(args ...string) error {
 				"-Wl,-soname,liblog.so", "-o", liblog, liblogSrc).Run(); err != nil {
 				return xray.New(fmt.Errorf("build liblog stub for amd64: %w", err))
 			}
-			if err := os.Setenv("CC", zig+" cc -target x86_64-linux-android -nostdlib -I"+ANDROID_SDK+"/usr/include -L"+ANDROID_SDK+"/usr/lib"); err != nil {
+			if err := os.Setenv(product.EnvCC, zig+" cc -target x86_64-linux-android -nostdlib -I"+ANDROID_SDK+"/usr/include -L"+ANDROID_SDK+"/usr/lib"); err != nil {
 				return xray.New(err)
 			}
-			if err := os.Setenv("GOARCH", product.GOARCHAmd64); err != nil {
+			if err := os.Setenv(product.EnvGOARCH, product.GOARCHAmd64); err != nil {
 				return xray.New(err)
 			}
 		default:
@@ -517,7 +517,7 @@ func (t *Android) BuildMain(_ ...string) error {
 	// every non-Play-Console install: adb, waydroid, sideload) don't
 	// block on a passphrase prompt nobody asked for. Opt in by
 	// setting GDNEXT_AAB_SIGN=1 — and only then require a TTY.
-	if os.Getenv("GDNEXT_AAB_SIGN") == "" {
+	if os.Getenv(product.EnvAABSign) == "" {
 		return nil
 	}
 	if !term.IsTerminal(int(syscall.Stdin)) {
@@ -604,7 +604,7 @@ func pickAndroidPreset(GOARCH string) (name, exportPath string, err error) {
 	if err != nil {
 		return "", "", xray.New(err)
 	}
-	if want := os.Getenv("GD_ANDROID_PRESET"); want != "" {
+	if want := os.Getenv(product.EnvAndroidPreset); want != "" {
 		for _, p := range presets {
 			if p.name == want {
 				return p.name, p.exportPath, nil

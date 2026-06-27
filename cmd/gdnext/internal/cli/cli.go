@@ -126,7 +126,7 @@ func (t *RootActions) launchEditor(_ context.Context, cmd *cli.Command) error {
 	if err := os.Chdir(project.GraphicsDirectory); err != nil {
 		return xray.New(err)
 	}
-	if cmd.Bool("inside-godot") || os.Getenv("RUNNING_INSIDE_GODOT") != "" {
+	if cmd.Bool("inside-godot") || os.Getenv(product.EnvRunningInsideGodot) != "" {
 		return nil
 	}
 	return t.ToolCatalog.Godot.Exec("-e")

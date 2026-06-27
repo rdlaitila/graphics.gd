@@ -21,13 +21,3 @@ type PlayHUDColumn struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
-
-// Env var names exchanged between `gdnext ci play-cell` and an
-// example's play-bot. Centralised so both sides reference the same
-// strings.
-const (
-	EnvPlay           = "GDNEXT_PLAY"
-	EnvPlayReport     = "GDNEXT_PLAY_REPORT"
-	EnvPlayScreenshot = "GDNEXT_PLAY_SCREENSHOT"
-	EnvPlayHUD        = "GDNEXT_PLAY_HUD"
-)

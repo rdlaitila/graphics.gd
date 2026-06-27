@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"graphics.gd/product"
 )
 
 //go:embed play_browser/play.mjs
@@ -88,7 +90,7 @@ func runBrowserPlay(opts browserPlayOpts) error {
 		"--screenshot", opts.screenshotPath,
 		"--timeout", strconv.Itoa(int(opts.timeout/time.Millisecond)),
 	)
-	if os.Getenv("GDNEXT_PLAY_HEADED") != "" {
+	if os.Getenv(product.EnvPlayHeaded) != "" {
 		c.Args = append(c.Args, "--headed")
 	}
 	c.Stdout = os.Stdout

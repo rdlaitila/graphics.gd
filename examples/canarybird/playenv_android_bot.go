@@ -5,6 +5,8 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+
+	"graphics.gd/product"
 )
 
 // On android the APK is dedicated to a single play run: build with
@@ -21,7 +23,7 @@ func playRequested() bool { return true }
 // stays empty on android cells for now — the run-time Godot Version
 // row that the playbot prepends still appears.
 func playEnv(name string) string {
-	if name == "GDNEXT_PLAY" {
+	if name == product.EnvPlay {
 		return "1"
 	}
 	return ""
@@ -34,7 +36,7 @@ func playEnv(name string) string {
 // file access (release APKs aren't debuggable and run-as is refused
 // on them; logcat is read-anywhere).
 func writePlayReport(data []byte) {
-	fmt.Println("GDNEXT_PLAY_REPORT:" + base64.StdEncoding.EncodeToString(data))
+	fmt.Println(product.EnvPlayReport + ":" + base64.StdEncoding.EncodeToString(data))
 }
 
 // writePlayScreenshotFromViewport is a no-op on android: the driver

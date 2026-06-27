@@ -9,10 +9,11 @@ import (
 
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
+	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
-	"graphics.gd/cmd/gdnext/internal/shared"
 	"github.com/urfave/cli/v3"
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"runtime.link/api/xray"
 )
 
@@ -43,7 +44,7 @@ func NewWebCommand(di do.Injector) (*WebCommand, error) {
 						Aliases: []string{"p"},
 						Value:   8080,
 						Usage:   "TCP port to listen on",
-						Sources: cli.EnvVars("PORT"),
+						Sources: cli.EnvVars(product.EnvPort),
 					},
 				},
 				Action: shared.BindAction(t.Injector, (*WebActions).serve),

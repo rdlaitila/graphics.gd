@@ -165,7 +165,7 @@ func (t *ToolchainActions) path(_ context.Context, cmd *cli.Command) error {
 // user-managed tool gets a pinned copy installed into GDPath.
 func (t *ToolchainActions) install(_ context.Context, cmd *cli.Command) error {
 	if cmd.Bool("skip-checksum") {
-		os.Setenv("GDNEXT_SKIP_CHECKSUM", "1")
+		os.Setenv(product.EnvSkipChecksum, "1")
 	}
 	force := cmd.Bool("force")
 	if cmd.NArg() == 1 {
@@ -335,7 +335,7 @@ func uninstallTool(host product.BuildHost, tool *tooling.Tool, keepSidecar bool)
 // build a target with. With --fix runs install and re-renders.
 func (t *ToolchainActions) doctor(_ context.Context, cmd *cli.Command) error {
 	if cmd.Bool("skip-checksum") {
-		os.Setenv("GDNEXT_SKIP_CHECKSUM", "1")
+		os.Setenv(product.EnvSkipChecksum, "1")
 	}
 	format := strings.ToLower(cmd.String("format"))
 	jobs := jobsForHost(t.ToolCatalog, t.BuildEnv.Host)

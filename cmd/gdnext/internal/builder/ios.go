@@ -91,10 +91,10 @@ func (t *IOS) Build(args ...string) error {
 	ZIG_INCLUDES := filepath.Join(env.Host.GDBinPath, "lib", "libc", "include", "any-macos-any")
 	switch GOARCH {
 	case product.GOARCHArm64:
-		if err := os.Setenv("CC", zig+" cc -target aarch64-ios -F "+DARWIN_SDK+"/Frameworks -L"+DARWIN_SDK+"/lib -I"+DARWIN_SDK+"/include -I"+ZIG_INCLUDES+" -Wno-nullability-completeness"); err != nil {
+		if err := os.Setenv(product.EnvCC, zig+" cc -target aarch64-ios -F "+DARWIN_SDK+"/Frameworks -L"+DARWIN_SDK+"/lib -I"+DARWIN_SDK+"/include -I"+ZIG_INCLUDES+" -Wno-nullability-completeness"); err != nil {
 			return xray.New(err)
 		}
-		if err := os.Setenv("GOARCH", product.GOARCHArm64); err != nil {
+		if err := os.Setenv(product.EnvGOARCH, product.GOARCHArm64); err != nil {
 			return xray.New(err)
 		}
 	default:

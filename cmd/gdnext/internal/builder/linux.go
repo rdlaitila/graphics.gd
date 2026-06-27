@@ -36,11 +36,11 @@ func (t *Linux) Build(args ...string) error {
 		}
 		switch t.BuildEnv.Target.GOARCH {
 		case product.GOARCHAmd64:
-			if err := os.Setenv("CC", zig+" cc -target x86_64-linux-gnu"); err != nil {
+			if err := os.Setenv(product.EnvCC, zig+" cc -target x86_64-linux-gnu"); err != nil {
 				return xray.New(err)
 			}
 		case product.GOARCHArm64:
-			if err := os.Setenv("CC", zig+" cc -target aarch64-linux-gnu"); err != nil {
+			if err := os.Setenv(product.EnvCC, zig+" cc -target aarch64-linux-gnu"); err != nil {
 				return xray.New(err)
 			}
 		default:

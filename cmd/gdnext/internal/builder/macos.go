@@ -44,7 +44,7 @@ func (t *MacOS) Build(args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
-	if err := os.Setenv("CGO_ENABLED", "1"); err != nil {
+	if err := os.Setenv(product.EnvCGOEnabled, "1"); err != nil {
 		return xray.New(err)
 	}
 	if t.BuildEnv.Host.GOOS != product.GOOSDarwin {
@@ -57,11 +57,11 @@ func (t *MacOS) Build(args ...string) error {
 		if err != nil {
 			return xray.New(err)
 		}
-		if err := os.Setenv("CC", zig+" cc -target aarch64-macos -F "+DARWIN_SDK+"/Frameworks -L"+DARWIN_SDK+"/lib -I"+DARWIN_SDK+"/include"); err != nil {
+		if err := os.Setenv(product.EnvCC, zig+" cc -target aarch64-macos -F "+DARWIN_SDK+"/Frameworks -L"+DARWIN_SDK+"/lib -I"+DARWIN_SDK+"/include"); err != nil {
 			return xray.New(err)
 		}
 	}
-	if err := os.Setenv("GOARCH", product.GOARCHArm64); err != nil {
+	if err := os.Setenv(product.EnvGOARCH, product.GOARCHArm64); err != nil {
 		return xray.New(err)
 	}
 	if err := t.ToolCatalog.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, "darwin_arm64.dylib")); err != nil {
@@ -76,11 +76,11 @@ func (t *MacOS) Build(args ...string) error {
 		if err != nil {
 			return xray.New(err)
 		}
-		if err := os.Setenv("CC", zig+" cc -target x86_64-macos -F "+DARWIN_SDK+"/Frameworks -L"+DARWIN_SDK+"/lib -I"+DARWIN_SDK+"/include"); err != nil {
+		if err := os.Setenv(product.EnvCC, zig+" cc -target x86_64-macos -F "+DARWIN_SDK+"/Frameworks -L"+DARWIN_SDK+"/lib -I"+DARWIN_SDK+"/include"); err != nil {
 			return xray.New(err)
 		}
 	}
-	if err := os.Setenv("GOARCH", product.GOARCHAmd64); err != nil {
+	if err := os.Setenv(product.EnvGOARCH, product.GOARCHAmd64); err != nil {
 		return xray.New(err)
 	}
 	if err := t.ToolCatalog.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, "darwin_amd64.dylib")); err != nil {

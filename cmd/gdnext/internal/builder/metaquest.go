@@ -63,8 +63,8 @@ func (t *MetaQuest) Build(args ...string) error {
 	t.BuildEnv.Target.GOARCH = product.GOARCHArm64
 	t.Android.BuildEnv.Target.GOOS = product.GOOSAndroid
 	t.Android.BuildEnv.Target.GOARCH = product.GOARCHArm64
-	os.Setenv("GOARCH", product.GOARCHArm64)
-	os.Setenv("GOOS", product.GOOSAndroid)
+	os.Setenv(product.EnvGOARCH, product.GOARCHArm64)
+	os.Setenv(product.EnvGOOS, product.GOOSAndroid)
 	return t.Android.Build(args...)
 }
 

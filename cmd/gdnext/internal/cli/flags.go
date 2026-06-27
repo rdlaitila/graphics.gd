@@ -26,45 +26,45 @@ func flags() []cli.Flag {
 		&cli.StringFlag{
 			Name:    "goos",
 			Usage:   "target operating system (" + strings.Join(product.PlatformGOOSes(), ", ") + ")",
-			Sources: cli.EnvVars("GOOS"),
+			Sources: cli.EnvVars(product.EnvGOOS),
 		},
 		&cli.StringFlag{
 			Name:    "goarch",
 			Usage:   "target architecture (" + strings.Join(product.PlatformGOARCHes(), ", ") + ")",
-			Sources: cli.EnvVars("GOARCH"),
+			Sources: cli.EnvVars(product.EnvGOARCH),
 		},
 		&cli.StringFlag{
 			Name:    "link",
 			Aliases: []string{"linkmode"},
 			Usage:   "linking recipe (" + strings.Join(product.LinkModeMatrix, ", ") + "); defaults per-target",
-			Sources: cli.EnvVars("GOLINK"),
+			Sources: cli.EnvVars(product.EnvGOLink),
 		},
 		&cli.StringFlag{
 			Name:    "cc",
 			Usage:   "C compiler used by cgo (auto-detected: zig cc / clang)",
-			Sources: cli.EnvVars("CC"),
+			Sources: cli.EnvVars(product.EnvCC),
 		},
 		&cli.StringFlag{
 			Name:    "cgo",
 			Usage:   "CGO_ENABLED value forwarded to the go toolchain",
-			Sources: cli.EnvVars("CGO_ENABLED"),
+			Sources: cli.EnvVars(product.EnvCGOEnabled),
 		},
 		&cli.StringFlag{
 			Name:    "gdpath",
 			Usage:   "directory used to cache downloaded toolchains (default ~/gd)",
-			Sources: cli.EnvVars("GDPATH"),
+			Sources: cli.EnvVars(product.EnvGDPath),
 		},
 		&cli.BoolFlag{
 			Name:    "inside-godot",
 			Hidden:  true,
 			Usage:   "set when gdnext is launched from inside the Godot editor",
-			Sources: cli.EnvVars("RUNNING_INSIDE_GODOT"),
+			Sources: cli.EnvVars(product.EnvRunningInsideGodot),
 		},
 		&cli.BoolFlag{
 			Name:    "verbose",
 			Aliases: []string{"V"},
 			Usage:   "print extra diagnostic output",
-			Sources: cli.EnvVars("GD_VERBOSE"),
+			Sources: cli.EnvVars(product.EnvVerbose),
 		},
 	}
 }

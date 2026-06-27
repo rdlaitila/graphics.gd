@@ -265,7 +265,7 @@ func protonEnv(compat string) []string {
 	if tag == "" {
 		return nil
 	}
-	home := os.Getenv("HOME")
+	home := os.Getenv(product.EnvHome)
 	if home == "" {
 		home = "."
 	}
@@ -294,7 +294,7 @@ func buildHostOrLocal(buildHost string) string {
 // engine can open a window. No-op when DISPLAY is set or xvfb-run
 // isn't installed.
 func withXvfb(argv ...string) []string {
-	if os.Getenv("DISPLAY") != "" {
+	if os.Getenv(product.EnvDisplay) != "" {
 		return argv
 	}
 	if _, err := exec.LookPath("xvfb-run"); err != nil {
@@ -358,10 +358,10 @@ func buildPlayHUD(target string, mode product.LinkMode, compat, buildHost string
 		{Name: "Build Host", Value: buildHostOrLocal(buildHost)},
 		{Name: "Play Host", Value: runtime.GOOS + "/" + runtime.GOARCH},
 		{Name: "Compat Mode", Value: compatOrNative(compat)},
-		{Name: "GH Runner", Value: strings.ToLower(os.Getenv("RUNNER_OS"))},
-		{Name: "GH Run ID", Value: os.Getenv("GITHUB_RUN_ID")},
-		{Name: "GIT Ref", Value: os.Getenv("GITHUB_REF_NAME")},
-		{Name: "GIT Sha", Value: shortSha(os.Getenv("GITHUB_SHA"))},
+		{Name: "GH Runner", Value: strings.ToLower(os.Getenv(product.EnvRunnerOS))},
+		{Name: "GH Run ID", Value: os.Getenv(product.EnvGitHubRunID)},
+		{Name: "GIT Ref", Value: os.Getenv(product.EnvGitHubRefName)},
+		{Name: "GIT Sha", Value: shortSha(os.Getenv(product.EnvGitHubSHA))},
 	}
 	data, err := json.Marshal(cols)
 	if err != nil {
