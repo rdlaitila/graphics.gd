@@ -1,0 +1,51 @@
+{
+  "day": "2026-06-27",
+  "run_id": 28294163905,
+  "shots": [
+    {
+      "label": "android/amd64+gdextension (waydroid)",
+      "path": "2026-06-27/28294163905/android-amd64-gdextension-waydroid.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-06-27/28294163905/android-amd64-gdextension-waydroid.png"
+    },
+    {
+      "label": "android/amd64+gdextension (waydroid)",
+      "path": "2026-06-27/28294163905/android-amd64-gdextension-waydroid.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-06-27/28294163905/android-amd64-gdextension-waydroid.png"
+    },
+    {
+      "label": "android/amd64+gdextension (waydroid)",
+      "path": "2026-06-27/28294163905/android-amd64-gdextension-waydroid.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-06-27/28294163905/android-amd64-gdextension-waydroid.png"
+    },
+    {
+      "label": "linux/amd64+gdextension",
+      "path": "2026-06-27/28294163905/linux-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-06-27/28294163905/linux-amd64-gdextension.png"
+    },
+    {
+      "label": "linux/amd64+gdextension",
+      "path": "2026-06-27/28294163905/linux-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-06-27/28294163905/linux-amd64-gdextension.png"
+    },
+    {
+      "label": "linux/amd64+gdextension",
+      "path": "2026-06-27/28294163905/linux-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-06-27/28294163905/linux-amd64-gdextension.png"
+    },
+    {
+      "label": "linux/amd64+libgodot",
+      "path": "2026-06-27/28294163905/linux-amd64-libgodot.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-06-27/28294163905/linux-amd64-libgodot.png"
+    },
+    {
+      "label": "linux/amd64+libgodot",
+      "path": "2026-06-27/28294163905/linux-amd64-libgodot.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-06-27/28294163905/linux-amd64-libgodot.png"
+    },
+    {
+      "label": "linux/amd64+libgodot",
+      "path": "2026-06-27/28294163905/linux-amd64-libgodot.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-06-27/28294163905/linux-amd64-libgodot.png"
+    }
+  ]
+}
