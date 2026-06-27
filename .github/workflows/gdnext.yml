@@ -107,6 +107,30 @@ jobs:
             echo "empty=false" >> $GITHUB_OUTPUT
           fi
 
+  # Pre-job: enumerate the (host, link) cells gdnext-test should
+  # drive. linux/amd64 supports both gdextension + libgodot, every
+  # other host platform is gdextension-only; this discovery honours
+  # each host platform's product.PlatformMatrix.LinkModes so a new
+  # link mode lands here without workflow edits.
+  discover-tests:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+      - id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install ./cmd/gdnext
+          matrix=$("$(go env GOPATH)/bin/gdnext" ci test-matrix --summary \
+            --filter-host "${{ inputs.filter-host }}" \
+            --filter-link "${{ inputs.filter-link }}")
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+
   # CLI smoke checks that don't depend on (target, example). Runs
   # once per host OS the build matrix actually uses, so
   # --filter-host=windows/amd64 skips ubuntu + macos checks instead
@@ -225,20 +249,17 @@ jobs:
   # Keyed off discover-builds.runners so the test job slots match
   # whatever the build matrix's filter-host actually surfaced.
   gdnext-test:
-    needs: [discover-builds, gdnext-checks]
+    needs: [discover-builds, discover-tests, gdnext-checks]
     if: needs.discover-builds.outputs.runners != '[]'
-    # Test cells are (host, link) — same hosts the build matrix uses,
-    # crossed with every link mode (gdextension / libgodot) because
-    # the test runtime is the same .so/.a build pipeline as a real
-    # build, and a regression in one link mode shouldn't be masked
-    # by the other passing.
+    # Cells are (host, link). discover-tests honours each host
+    # platform's product.PlatformMatrix.LinkModes so libgodot-only
+    # hosts (today: every host except linux/amd64 is gdextension-
+    # only) don't get a libgodot cell that would just fail.
     name: gdnext-test (${{ matrix.os }}, ${{ matrix.link }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        os: ${{ fromJSON(needs.discover-builds.outputs.runners) }}
-        link: [gdextension, libgodot]
+      matrix: ${{ fromJSON(needs.discover-tests.outputs.matrix) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
