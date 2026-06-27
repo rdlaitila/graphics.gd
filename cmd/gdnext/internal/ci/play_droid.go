@@ -86,7 +86,7 @@ func runAndroidPlay(opts androidPlayOpts) error {
 	deviceReport := deviceDir + "/gdnext-play-report.json"
 	deviceScreenshot := deviceDir + "/gdnext-play-screenshot.png"
 	envelope := map[string]string{
-		product.EnvPlay:    "1",
+		product.EnvPlay:    "active",
 		product.EnvPlayHUD: opts.hud,
 	}
 	envelopeBytes, _ := json.Marshal(envelope)
