@@ -641,7 +641,10 @@ jobs:
           # fast-path is lost.
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot ${{ matrix.target == 'android/arm64' && '-no-accel' || '' }}
           disable-animations: true
-          script: gdnext ci play-cell --scratch scratch --example "${{ matrix.example }}" --target "${{ matrix.target }}" --link "${{ matrix.link }}" --compat android-emu --build-host "${{ matrix.build_os }}" --screenshot "${{ env.SHOT_PATH }}"
+          script: |
+            adb shell settings put system accelerometer_rotation 0
+            adb shell settings put system user_rotation 0
+            gdnext ci play-cell --scratch scratch --example "${{ matrix.example }}" --target "${{ matrix.target }}" --link "${{ matrix.link }}" --compat android-emu --build-host "${{ matrix.build_os }}" --screenshot "${{ env.SHOT_PATH }}"
 
       - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=${{ matrix.compat || 'native' }} (built on ${{ matrix.build_os }})
         if: matrix.compat != 'android-emu'
