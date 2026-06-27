@@ -137,8 +137,12 @@ func (t *Musl) Build(args ...string) (err error) {
 	// records them in the c-archive but does not apply them when an external tool
 	// links it (zig here), so a package that statically links a C/C++ library would
 	// otherwise fail with undefined symbols. -lc++ goes last so libc++ resolves any
-	// C++ symbols those archives pull in.
-	zigArgs := []string{"cc", "-target", target, t.lib, libgo}
+	// C++ symbols those archives pull in. Wrap the user archives in
+	// --start-group/--end-group so ld scans them iteratively: macOS/Windows hosts'
+	// zig orders the user archives differently from Linux hosts, and a single pass
+	// occasionally fails to resolve `main` (defined in libgodot, referenced by
+	// musl crt1.o) when libgodot is reached before its symbols are needed.
+	zigArgs := []string{"cc", "-target", target, "-Wl,--start-group", t.lib, libgo}
 	cgoLDFLAGS, err := tools.Go.Output("list", "-tags", "musl", "-deps", "-f", "{{range .CgoLDFLAGS}}{{println .}}{{end}}", ".")
 	if err != nil {
 		return xray.New(err)
@@ -148,7 +152,7 @@ func (t *Musl) Build(args ...string) (err error) {
 			zigArgs = append(zigArgs, flag)
 		}
 	}
-	zigArgs = append(zigArgs, "-lc++", "-o", t.out)
+	zigArgs = append(zigArgs, "-Wl,--end-group", "-lc++", "-o", t.out)
 	if err := tools.Zig.Exec(zigArgs...); err != nil {
 		return xray.New(err)
 	}
