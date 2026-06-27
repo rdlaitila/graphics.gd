@@ -488,7 +488,9 @@ jobs:
       - name: Toolchain doctor (android tooling)
         if: matrix.compat == 'android-emu' || matrix.compat == 'waydroid'
         shell: bash
-        run: gdnext toolchain doctor --fix
+        run: |
+          gdnext toolchain doctor --fix
+          dirname "$(gdnext toolchain path android-adb)" >> "$GITHUB_PATH"
 
       # xvfb-run gives the engine a virtual display; wine and proton
       # (via umu-launcher) let linux runners drive windows binaries.
@@ -607,15 +609,33 @@ jobs:
               sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
               sudo waydroid init
               sudo systemctl enable --now waydroid-container
-              nohup waydroid session start > /tmp/waydroid-session.log 2>&1 &
+              : > /tmp/waydroid-session.log
+              nohup waydroid session start >> /tmp/waydroid-session.log 2>&1 &
+              session_pid=$!
+              # Mirror the session log live so the CI step shows the
+              # boot trace in real time. tail dies when the step exits.
+              tail -F /tmp/waydroid-session.log 2>/dev/null &
+              tail_pid=$!
+              ready=0
               for i in $(seq 1 60); do
                 status=$(waydroid status 2>/dev/null || true)
                 if echo "$status" | grep -q 'Session:.*RUNNING'; then
                   echo "$status"
+                  ready=1
+                  break
+                fi
+                if ! kill -0 "$session_pid" 2>/dev/null; then
+                  echo "waydroid session start exited before RUNNING"
                   break
                 fi
                 sleep 5
               done
+              kill "$tail_pid" 2>/dev/null || true
+              if [ "$ready" != "1" ]; then
+                echo "::group::waydroid status"; waydroid status || true; echo "::endgroup::"
+                echo "::group::waydroid-container.service"; sudo journalctl -u waydroid-container --no-pager -n 200 || true; echo "::endgroup::"
+                exit 1
+              fi
               waydroid prop set persist.waydroid.adb_tcp true || true
               ip=$(waydroid status 2>/dev/null | awk '/IP address/{print $3; exit}')
               ip=${ip:-192.168.240.112}
