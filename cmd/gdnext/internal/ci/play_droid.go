@@ -3,6 +3,7 @@ package ci
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -67,7 +68,6 @@ func runAndroidPlay(opts androidPlayOpts) error {
 		opts.target, opts.link, opts.compat, buildHostOrLocal(opts.buildHost), dev.label(), pkg, apk)
 	ctx, cancel := contextWithTimeout(opts.timeout)
 	defer cancel()
-
 	if out, err := dev.cmd("uninstall", pkg).CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "adb uninstall %s (ignored): %v\n%s", pkg, err, out)
 	}
@@ -75,21 +75,44 @@ func runAndroidPlay(opts androidPlayOpts) error {
 		return fmt.Errorf("adb install %s: %w\n%s", apk, err, out)
 	}
 	defer func() { _ = dev.cmd("uninstall", pkg).Run() }()
+	// Stage the driver envelope under /data/local/tmp/ before launch.
+	// Android's activity boot strips host env vars, so playenv_android.go
+	// reads /data/local/tmp/gdnext-play.json instead of $GDNEXT_*.
+	deviceReport := "/data/local/tmp/gdnext-play-report.json"
+	deviceScreenshot := "/data/local/tmp/gdnext-play-screenshot.png"
+	envelope := map[string]string{
+		product.EnvPlay:           "1",
+		product.EnvPlayReport:     deviceReport,
+		product.EnvPlayScreenshot: deviceScreenshot,
+		product.EnvPlayHUD:        opts.hud,
+	}
+	envelopeBytes, _ := json.Marshal(envelope)
+	envelopePath := filepath.Join(os.TempDir(), "gdnext-play.json")
+	if err := os.WriteFile(envelopePath, envelopeBytes, 0644); err != nil {
+		return fmt.Errorf("write driver envelope %s: %w", envelopePath, err)
+	}
+	defer os.Remove(envelopePath)
+	if out, err := dev.cmd("push", envelopePath, "/data/local/tmp/gdnext-play.json").CombinedOutput(); err != nil {
+		return fmt.Errorf("adb push envelope: %w\n%s", err, out)
+	}
+	_ = dev.cmd("shell", "chmod", "644", "/data/local/tmp/gdnext-play.json").Run()
+	_ = dev.cmd("shell", "rm", "-f", deviceReport, deviceScreenshot).Run()
+	defer func() {
+		_ = dev.cmd("shell", "rm", "-f", "/data/local/tmp/gdnext-play.json", deviceReport, deviceScreenshot).Run()
+	}()
 	activity, err := androidLauncherActivity(ctx, dev, pkg)
 	if err != nil {
 		return err
 	}
 	_ = dev.cmd("shell", "am", "force-stop", pkg).Run()
-	// Clear the logcat buffer so previous runs can't leak a stale
-	// GDNEXT_PLAY_REPORT line into this read.
 	_ = dev.cmd("logcat", "-c").Run()
 	if out, err := dev.cmd("shell", "am", "start", "-n", activity).CombinedOutput(); err != nil {
 		return fmt.Errorf("am start %s: %w\n%s", activity, err, out)
 	}
-	// Poll logcat for the play-bot's tagged report. -d dumps the
-	// current buffer; the Go runtime emits stdout under the "Go" tag
-	// at info level. Looping with -d keeps the read cheap and means
-	// we can bail on ctx.Done() (the play-cell --timeout).
+	// Poll for the on-device report file the bot writes. We keep the
+	// logcat tail running in parallel only for legacy/back-compat
+	// (older bot builds still emit the base64 line); the file wins
+	// whenever it appears.
 	deadline := time.Now()
 	if opts.timeout > 0 {
 		deadline = time.Now().Add(opts.timeout)
@@ -97,11 +120,16 @@ func runAndroidPlay(opts androidPlayOpts) error {
 	var reportBytes []byte
 poll:
 	for time.Now().Before(deadline) || opts.timeout == 0 {
-		out, _ := dev.cmd("logcat", "-d", "-s", "Go:*").Output()
-		if b64 := scanReportLine(string(out)); b64 != "" {
-			if dec, err := base64.StdEncoding.DecodeString(b64); err == nil {
-				reportBytes = dec
-				break
+		if out, err := dev.cmd("exec-out", "cat", deviceReport).Output(); err == nil && len(out) > 0 {
+			reportBytes = out
+			break
+		}
+		if out, _ := dev.cmd("logcat", "-d", "-s", "Go:*").Output(); len(out) > 0 {
+			if b64 := scanReportLine(string(out)); b64 != "" {
+				if dec, err := base64.StdEncoding.DecodeString(b64); err == nil {
+					reportBytes = dec
+					break
+				}
 			}
 		}
 		select {
@@ -114,17 +142,16 @@ poll:
 		if err := os.WriteFile(opts.reportPath, reportBytes, 0644); err != nil {
 			return fmt.Errorf("write report %s: %w", opts.reportPath, err)
 		}
-	} else {
-		// No report arrived. Dump the relevant logcat tags so the
-		// CI log shows whether the activity launched at all, crashed
-		// in native code, or simply silently exited. The bot's own
-		// Go:* filter wouldn't surface any of that.
-		dumpAndroidDiagnosticLogcat(dev, pkg)
 	}
-	// Always capture a host-side screenshot before tearing down so
-	// the workflow summary still gets a frame even when the report
-	// never arrived. `screencap -p` writes a PNG to stdout.
-	if out, err := dev.cmd("exec-out", "screencap", "-p").Output(); err == nil && len(out) > 0 {
+	// Always surface the filtered logcat (godot + error/fatal lines)
+	// so the run log carries the engine trace whether or not the bot
+	// succeeded. Useful for reviewing warnings on a green run.
+	dumpAndroidDiagnosticLogcat(dev, pkg)
+	// Screenshot: prefer the in-engine PNG the bot wrote, fall back to
+	// `screencap` so the workflow summary still gets a frame on crashes.
+	if out, err := dev.cmd("exec-out", "cat", deviceScreenshot).Output(); err == nil && len(out) > 0 {
+		_ = os.WriteFile(opts.screenshotPath, out, 0644)
+	} else if out, err := dev.cmd("exec-out", "screencap", "-p").Output(); err == nil && len(out) > 0 {
 		_ = os.WriteFile(opts.screenshotPath, out, 0644)
 	}
 	_ = dev.cmd("shell", "am", "force-stop", pkg).Run()
@@ -229,10 +256,9 @@ func androidLauncherActivity(ctx context.Context, dev adbDevice, pkg string) (st
 }
 
 // dumpAndroidDiagnosticLogcat prints logcat (-d) lines mentioning
-// godot or at error/fatal level to stderr when the activity failed
-// to emit GDNEXT_PLAY_REPORT. Full unfiltered dumps drowned the CI
-// log; this keeps the signal (engine traces, crashes) and drops
-// kernel/init/system_server chatter.
+// godot or at error/fatal level to stderr. Always called so the run
+// log carries the engine trace even on green runs; filtered to keep
+// the signal and drop kernel/init/system_server chatter.
 func dumpAndroidDiagnosticLogcat(dev adbDevice, pkg string) {
 	out, err := dev.cmd("logcat", "-d").Output()
 	if err != nil {
