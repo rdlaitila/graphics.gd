@@ -222,17 +222,41 @@ func androidLauncherActivity(ctx context.Context, adb, pkg string) (string, erro
 	return "", fmt.Errorf("could not resolve launcher activity for %s", pkg)
 }
 
-// dumpAndroidDiagnosticLogcat prints unfiltered logcat (-d) to
-// stderr when the activity failed to emit GDNEXT_PLAY_REPORT. The
-// earlier per-tag filter (godot:V AndroidRuntime:E ...) missed
-// startup messages that the engine routes through GodotActivity,
-// GodotJavaWrapper, GodotIO, or plain System.err. Cheaper to dump
-// everything and let CI's log search handle it.
+// dumpAndroidDiagnosticLogcat prints logcat (-d) lines mentioning
+// godot or at error/fatal level to stderr when the activity failed
+// to emit GDNEXT_PLAY_REPORT. Full unfiltered dumps drowned the CI
+// log; this keeps the signal (engine traces, crashes) and drops
+// kernel/init/system_server chatter.
 func dumpAndroidDiagnosticLogcat(adb, pkg string) {
 	out, err := exec.Command(adb, "logcat", "-d").Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "diagnostic logcat failed: %v\n", err)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "\n==> diagnostic logcat for %s (no GDNEXT_PLAY_REPORT was emitted):\n%s\n", pkg, out)
+	fmt.Fprintf(os.Stderr, "\n==> diagnostic logcat for %s (godot/errors only):\n", pkg)
+	for _, line := range strings.Split(string(out), "\n") {
+		if androidLogcatLineRelevant(line) {
+			fmt.Fprintln(os.Stderr, line)
+		}
+	}
+}
+
+// androidLogcatLineRelevant keeps lines that mention godot
+// (case-insensitive) or carry an error/fatal level marker in either
+// threadtime (` E ` / ` F `) or brief (`E/` / `F/`) format.
+func androidLogcatLineRelevant(line string) bool {
+	if line == "" {
+		return false
+	}
+	lower := strings.ToLower(line)
+	if strings.Contains(lower, "godot") {
+		return true
+	}
+	if strings.Contains(line, " E ") || strings.Contains(line, " F ") {
+		return true
+	}
+	if strings.HasPrefix(line, "E/") || strings.HasPrefix(line, "F/") {
+		return true
+	}
+	return false
 }
