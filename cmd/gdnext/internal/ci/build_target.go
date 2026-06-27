@@ -125,6 +125,8 @@ func assertSharedLibrary(scratch string, plat product.Platform, mode product.Lin
 		return mustExist(filepath.Join(scratch, "releases", "js", "wasm", "library.wasm"))
 	case product.GOOSAndroid:
 		return nil // apk landed under releases/android/<arch>/; checked below
+	case product.GOOSMetaQuest:
+		return nil // .so lands inside the apk; releases/metaquest/<name>.apk is checked below
 	default:
 		return fmt.Errorf("no shared-library assertion for %s", plat.Tuple())
 	}
@@ -141,6 +143,9 @@ func assertDistributable(scratch string, plat product.Platform, mode product.Lin
 	switch plat.GOOS {
 	case product.GOOSLinux, product.GOOSWindows, product.GOOSAndroid:
 		return assertDirNonEmpty(filepath.Join(releases, plat.GOOS, plat.GOARCH))
+	case product.GOOSMetaQuest:
+		// metaquest emits a single arch-less apk under releases/metaquest/.
+		return assertDirNonEmpty(filepath.Join(releases, "metaquest"))
 	case product.GOOSDarwin:
 		// macOS exports a universal .app regardless of -goarch.
 		return assertDirNonEmpty(filepath.Join(releases, "darwin", "universal"))
