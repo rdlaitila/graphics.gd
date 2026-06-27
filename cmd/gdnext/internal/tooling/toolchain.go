@@ -323,12 +323,27 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	var install_path = filepath.Join(install_dir, name)
 	// .exe is for executables we drop into GDBin on a Windows host;
 	// libraries carry their own extension via $(EXT) (e.g. .a, .lib)
-	// and must never get a host-driven suffix tacked on.W
+	// and must never get a host-driven suffix tacked on.
 	if runtime.GOOS == product.GOOSWindows && !exe.IsLibrary {
 		install_path += ".exe"
 	}
 	if exe.IsApp && runtime.GOOS == product.GOOSDarwin {
 		install_path += ".app"
+	}
+	// Bundle-sourced wrappers on Windows: android build-tools ships
+	// apksigner / sdkmanager / lint as `.bat`, not `.exe`. When the
+	// initial probe misses, try the windows wrapper extensions so the
+	// resolver doesn't fall through to "no download URL".
+	if runtime.GOOS == product.GOOSWindows && !exe.IsLibrary && bundleInstallDir != "" {
+		if _, err := os.Stat(install_path); err != nil {
+			base := strings.TrimSuffix(install_path, ".exe")
+			for _, ext := range []string{".bat", ".cmd"} {
+				if _, err := os.Stat(base + ext); err == nil {
+					install_path = base + ext
+					break
+				}
+			}
+		}
 	}
 	// always prefer the GDPATH-installed version if it matches the expected version.
 	// ModeForceInstall skips this branch entirely so --force always

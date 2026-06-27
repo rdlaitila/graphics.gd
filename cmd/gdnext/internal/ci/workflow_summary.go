@@ -34,17 +34,17 @@ type WorkflowSummaryActions struct{}
 // Raw shapes returned by `gh api`. Network-only — domain code reads
 // from the typed model below, not these.
 type ghRun struct {
-	ID           int64     `json:"id"`
-	Number       int       `json:"run_number"`
-	Status       string    `json:"status"`
-	Conclusion   string    `json:"conclusion"`
-	HeadBranch   string    `json:"head_branch"`
-	HeadSHA      string    `json:"head_sha"`
-	DisplayTitle string    `json:"display_title"`
-	HeadCommit   ghRunCommit  `json:"head_commit"`
-	Event        string    `json:"event"`
-	CreatedAt    time.Time `json:"created_at"`
-	HTMLURL      string    `json:"html_url"`
+	ID           int64       `json:"id"`
+	Number       int         `json:"run_number"`
+	Status       string      `json:"status"`
+	Conclusion   string      `json:"conclusion"`
+	HeadBranch   string      `json:"head_branch"`
+	HeadSHA      string      `json:"head_sha"`
+	DisplayTitle string      `json:"display_title"`
+	HeadCommit   ghRunCommit `json:"head_commit"`
+	Event        string      `json:"event"`
+	CreatedAt    time.Time   `json:"created_at"`
+	HTMLURL      string      `json:"html_url"`
 }
 
 // ghRunCommit carries only the fields the summary actually uses. The
