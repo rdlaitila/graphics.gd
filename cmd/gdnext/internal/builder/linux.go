@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"graphics.gd/cmd/gdnext/internal/project"
 	"graphics.gd/cmd/gdnext/internal/tooling"
@@ -29,6 +30,7 @@ func (t *Linux) Build(args ...string) error {
 	if !project.IncludesGo {
 		return nil
 	}
+	var glibc bool
 	if t.BuildEnv.Host.GOOS != product.GOOSLinux || t.BuildEnv.Host.GOARCH != t.BuildEnv.Target.GOARCH {
 		zig, err := t.ToolCatalog.Zig.Lookup()
 		if err != nil {
@@ -45,6 +47,25 @@ func (t *Linux) Build(args ...string) error {
 			}
 		default:
 			return fmt.Errorf("gd build: cannot cross-compile linux %v on %v", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.GOOS)
+		}
+		glibc = true
+	} else {
+		version, _ := t.ToolCatalog.ListDynamicDependencies.CombinedOutput("--version")
+		glibc = !strings.HasPrefix(strings.TrimSpace(version), "musl")
+	}
+	if glibc {
+		// Force-link libgcc_s.so.1 so the c-shared extension's _Unwind_* refs
+		// resolve at dlopen time on glibc >= 2.34 (Fedora/Nobara), where the
+		// loader stopped pre-loading libgcc eagerly. --no-as-needed defeats
+		// the linker's pruning of libraries with no pending undef ref, then
+		// --as-needed restores the default for following libs. Skipped on
+		// musl (statically links its own unwinder); harmless under zig (its
+		// toolchain links unwinder too) but the as-needed pair is preferred
+		// over --push-state since zig rejects the latter.
+		const forceUnwinder = "-Wl,--no-as-needed -lgcc_s -Wl,--as-needed"
+		ldflags := strings.TrimSpace(os.Getenv("CGO_LDFLAGS") + " " + forceUnwinder)
+		if err := os.Setenv("CGO_LDFLAGS", ldflags); err != nil {
+			return xray.New(err)
 		}
 	}
 	return t.ToolCatalog.Go.Action("build", args, "-buildmode=c-shared", "-o", filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.so", t.BuildEnv.Target.GOARCH)))
