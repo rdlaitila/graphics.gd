@@ -126,6 +126,15 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		if err := os.Chmod(bin, 0755); err != nil {
 			return fmt.Errorf("chmod +x %s: %w", bin, err)
 		}
+		// Proton's umu-run spawns detached wine helpers (wineserver,
+		// steam-runtime) that don't reliably inherit DISPLAY when it's
+		// set only via xvfb-run's `DISPLAY=:N "$@"` env-prefix.
+		// Start a persistent Xvfb up-front so DISPLAY can ride in c.Env
+		// and propagate via the normal exec fork to every child.
+		needsDisplay := compat == "proton" || compat == "proton-8" || compat == "proton-9" || compat == "proton-10"
+		if needsDisplay {
+			noXvfb = true
+		}
 		argv, err := launchCommand(bin, plat, mode, compat, noXvfb)
 		if err != nil {
 			return err
@@ -141,6 +150,15 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 			product.EnvPlayHUD+"="+hud,
 		)
 		c.Env = append(c.Env, protonEnv(compat)...)
+		if needsDisplay && os.Getenv(product.EnvDisplay) == "" {
+			display, stop, err := startXvfb(ctx)
+			if err != nil {
+				return fmt.Errorf("proton play: start xvfb: %w", err)
+			}
+			defer stop()
+			c.Env = append(c.Env, product.EnvDisplay+"="+display)
+			fmt.Printf("==> Xvfb on %s (umu-run + wine helpers inherit via c.Env)\n", display)
+		}
 		fmt.Printf("==> play env: %s=active %s=%q %s=%q %s=%q\n",
 			product.EnvPlay,
 			product.EnvPlayResult, reportPath,
@@ -316,6 +334,39 @@ func withXvfb(argv ...string) []string {
 		return argv
 	}
 	return append([]string{"xvfb-run", "-a", "--server-args=-screen 0 1280x720x24"}, argv...)
+}
+
+// startXvfb launches a long-lived Xvfb on a free :N display and
+// returns the display string + a stop function. Use this when the
+// child needs DISPLAY in its env block (so detached grandchildren
+// inherit it through fork), rather than xvfb-run's wrap mode which
+// only sets DISPLAY for the immediate child via an env-prefix.
+func startXvfb(ctx context.Context) (display string, stop func(), err error) {
+	xvfb, err := exec.LookPath("Xvfb")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("Xvfb not on PATH (apt install xvfb): %w", err)
+	}
+	// Pick a high display number unlikely to collide with another
+	// xvfb-run on the same runner (xvfb-run -a starts at :99 and
+	// climbs).
+	n := 100 + (os.Getpid() % 100)
+	disp := fmt.Sprintf(":%d", n)
+	cmd := exec.Command(xvfb, disp, "-screen", "0", "1280x720x24", "-nolisten", "tcp")
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return "", func() {}, fmt.Errorf("start Xvfb: %w", err)
+	}
+	// Wait briefly so the X server has time to bind before any
+	// client tries to connect.
+	time.Sleep(300 * time.Millisecond)
+	stop = func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		}
+	}
+	return disp, stop, nil
 }
 
 func mustExecutable(path string) (string, error) {
