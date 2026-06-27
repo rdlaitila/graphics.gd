@@ -43,6 +43,7 @@ func NewPlayCellCommand(di do.Injector) (*PlayCellCommand, error) {
 			&cli.StringFlag{Name: "link", Usage: "link mode (gdextension|libgodot); blank = platform default"},
 			&cli.StringFlag{Name: "compat", Usage: "compatibility layer to drive the target through (wine|proton|proton-9|...); blank = native"},
 			&cli.StringFlag{Name: "build-host", Usage: "GHA runner label that produced the artefact (informational; surfaced on the HUD)"},
+			&cli.StringFlag{Name: "screenshot", Required: true, Usage: "absolute path the play-bot writes the screenshot to"},
 			&cli.DurationFlag{Name: "timeout", Value: 90 * time.Second, Usage: "hard kill after this much wall-clock time"},
 		},
 		Action: shared.BindAction(t.Injector, (*PlayCellActions).action),
@@ -79,7 +80,13 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	}
 	reportPath := filepath.Join(scratch, "play-report.json")
 	_ = os.Remove(reportPath)
-	screenshotPath := filepath.Join(scratch, "play-screenshot.png")
+	screenshotPath, err := filepath.Abs(cmd.String("screenshot"))
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(screenshotPath), 0755); err != nil {
+		return err
+	}
 	_ = os.Remove(screenshotPath)
 	hud := buildPlayHUD(target, mode, compat, buildHost)
 	var runErr error

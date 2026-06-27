@@ -12,11 +12,17 @@ import (
 	"graphics.gd/product"
 )
 
-// shotRow is one cell's screenshot picked up from the downloaded
-// `shot-*/play-screenshot.png` artefact tree. The PNG bytes are
-// loaded eagerly so the renderer can inline them as `data:` URIs in
-// the markdown step summary — GitHub doesn't host arbitrary artefact
-// images for inline display.
+// shotRow is one cell's screenshot picked up from a flat
+// `shots/<artefact-name>.png` tree (download-artifact with
+// `merge-multiple: true`). The PNG bytes are loaded eagerly so the
+// renderer can inline them as `data:` URIs in the markdown step
+// summary — GitHub doesn't host arbitrary artefact images for inline
+// display.
+//
+// Label is the head of the caption (`<target>+<link>`); Tail is the
+// context line (`b: <build-host> p: <play-host>`). Splitting them lets
+// the markdown renderer break between the two with `<br>` so a narrow
+// grid column doesn't overflow.
 //
 // Label is the head of the caption (`<target>+<link>`); Tail is the
 // context line (`b: <build-host> p: <play-host>`). Splitting them lets
@@ -120,16 +126,8 @@ func knownCompatSuffixes() []string {
 
 var cachedCompatSuffixes []string
 
-// collectShots walks dir for artefact subdirectories named
-// `shot-<play-runner>-play-<build-runner>-<example>-<goos>-<goarch>[-<link>]`
-// and returns one row per cell whose play-screenshot.png is present
-// and non-empty. Returns nil when dir is unset or empty so the
-// renderer can short-circuit.
-//
-// Each cell uploads under a unique `shot-...` artefact name; the
-// summary job's `actions/download-artifact` with `pattern: shot-*`
-// materialises each as a sibling directory under the shots/ path
-// passed via --shots.
+// collectShots reads <shot-*>.png files in dir and returns one row per
+// cell, sorted by caption.
 func collectShots(dir string) []shotRow {
 	if dir == "" {
 		return nil
@@ -142,14 +140,15 @@ func collectShots(dir string) []shotRow {
 	var out []shotRow
 	var skipped []string
 	for _, e := range entries {
-		if !e.IsDir() {
+		if e.IsDir() {
 			continue
 		}
-		name := e.Name()
-		if !strings.HasPrefix(name, "shot-") {
+		filename := e.Name()
+		name, ok := strings.CutSuffix(filename, ".png")
+		if !ok || !strings.HasPrefix(name, "shot-") {
 			continue
 		}
-		shot := filepath.Join(dir, name, "play-screenshot.png")
+		shot := filepath.Join(dir, filename)
 		body, err := os.ReadFile(shot)
 		if err != nil || len(body) == 0 {
 			skipped = append(skipped, fmt.Sprintf("%s (%v)", shot, err))
@@ -159,12 +158,7 @@ func collectShots(dir string) []shotRow {
 		out = append(out, shotRow{Label: label, Tail: tail, PNG: body})
 	}
 	if len(out) == 0 && len(entries) > 0 {
-		// Saw artefact dirs under --shots but couldn't build any
-		// rows. Surface what we did see so a renderer regression
-		// (file moved inside the artefact, name pattern drift, ...)
-		// shows up in stderr instead of silently emitting an empty
-		// grid.
-		fmt.Fprintf(os.Stderr, "shots: --shots dir %q had %d entries but none yielded a play-screenshot.png:\n", dir, len(entries))
+		fmt.Fprintf(os.Stderr, "shots: --shots dir %q had %d entries but none yielded a screenshot:\n", dir, len(entries))
 		for _, e := range entries {
 			fmt.Fprintf(os.Stderr, "  - %s (dir=%v)\n", e.Name(), e.IsDir())
 		}

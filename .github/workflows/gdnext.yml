@@ -616,6 +616,13 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Compute screenshot artefact name
+        shell: bash
+        run: |
+          SHOT_NAME="shot-${{ matrix.os }}-${{ matrix.artifact }}${{ matrix.compat && format('-{0}', matrix.compat) || '' }}"
+          echo "SHOT_NAME=$SHOT_NAME" >> "$GITHUB_ENV"
+          echo "SHOT_PATH=scratch/${SHOT_NAME}.png" >> "$GITHUB_ENV"
+
       - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=android-emu (built on ${{ matrix.build_os }})
         if: matrix.compat == 'android-emu'
         continue-on-error: ${{ matrix.allow_fail }}
@@ -634,7 +641,7 @@ jobs:
           # fast-path is lost.
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot ${{ matrix.target == 'android/arm64' && '-no-accel' || '' }}
           disable-animations: true
-          script: gdnext ci play-cell --scratch scratch --example "${{ matrix.example }}" --target "${{ matrix.target }}" --link "${{ matrix.link }}" --compat android-emu --build-host "${{ matrix.build_os }}"
+          script: gdnext ci play-cell --scratch scratch --example "${{ matrix.example }}" --target "${{ matrix.target }}" --link "${{ matrix.link }}" --compat android-emu --build-host "${{ matrix.build_os }}" --screenshot "${{ env.SHOT_PATH }}"
 
       - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=${{ matrix.compat || 'native' }} (built on ${{ matrix.build_os }})
         if: matrix.compat != 'android-emu'
@@ -647,7 +654,8 @@ jobs:
             --target "${{ matrix.target }}" \
             --link "${{ matrix.link }}" \
             --compat "${{ matrix.compat }}" \
-            --build-host "${{ matrix.build_os }}"
+            --build-host "${{ matrix.build_os }}" \
+            --screenshot "${SHOT_PATH}"
 
       - name: Save umu runtime cache
         if: runner.os == 'Linux' && matrix.proton_tag != '' && always() && steps.restore-umu.outputs.cache-hit != 'true'
@@ -668,18 +676,12 @@ jobs:
             echo "no play-report.json"
           fi
 
-      # Per-cell screenshot grabbed by the playbot at game-over. The
-      # artefact name encodes the play host, the build artefact (which
-      # carries build host + example + target + link), and the compat
-      # layer when one is set. Without those axes, cells driving the
-      # same build artefact through different layers would overwrite
-      # each other.
       - name: Upload play screenshot
-        if: always() && hashFiles('scratch/play-screenshot.png') != ''
+        if: always() && hashFiles(env.SHOT_PATH) != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: shot-${{ matrix.os }}-${{ matrix.artifact }}${{ matrix.compat && format('-{0}', matrix.compat) || '' }}
-          path: scratch/play-screenshot.png
+          name: ${{ env.SHOT_NAME }}
+          path: ${{ env.SHOT_PATH }}
           if-no-files-found: warn
           retention-days: 7
 
@@ -704,13 +706,12 @@ jobs:
         run: |
           go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-      # Pull every play-cell's screenshot into shots/<artefact>/play-screenshot.png
-      # so the summary verb can inline them in a markdown grid.
       - name: Download play screenshots
         uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v8.0.1
         with:
           pattern: shot-*
           path: shots
+          merge-multiple: true
       - name: Tree Play Screenshots
         shell: bash
         run: |          
