@@ -212,62 +212,73 @@ func shotAltText(head, tail string) string {
 
 // renderShotsMarkdown appends a screenshot grid directly under the
 // preceding Plays table — no section header, so it reads as part of
-// the same section. Each cell embeds an `<img src="<URL>">` when the
-// upload succeeded; rows whose Error is set print the message
-// instead so push failures stay visible. Skipped entirely when no
-// shots were collected.
+// the same section. Emits raw HTML rather than a Markdown table so
+// the grid doesn't carry an empty header row (GFM tables require one)
+// and the column count adapts to however many shots we have, capped
+// at maxCols for layout.
 func renderShotsMarkdown(w io.Writer, rows []pushedShot) {
 	if len(rows) == 0 {
 		return
 	}
-	const cols = 3
-	fmt.Fprintln(w, strings.Repeat("| ", cols)+"|")
-	fmt.Fprintln(w, strings.Repeat("| --- ", cols)+"|")
+	const maxCols = 3
+	cols := len(rows)
+	if cols > maxCols {
+		cols = maxCols
+	}
+	cellPct := 100 / cols
+	fmt.Fprintln(w, `<table>`)
 	for i := 0; i < len(rows); i += cols {
-		// caption row — head on its own line, tail on the next via
-		// inline <br> so the column stays narrow.
-		for c := 0; c < cols; c++ {
-			if i+c < len(rows) {
-				row := rows[i+c]
-				caption := escapeMDCell(row.Label)
-				if row.Tail != "" {
-					caption += "<br>" + escapeMDCell(row.Tail)
-				}
-				fmt.Fprintf(w, "| **%s** ", caption)
-			} else {
-				fmt.Fprint(w, "|  ")
-			}
-		}
-		fmt.Fprintln(w, "|")
-		// image row
+		// Caption row.
+		fmt.Fprint(w, "<tr>")
 		for c := 0; c < cols; c++ {
 			if i+c >= len(rows) {
-				fmt.Fprint(w, "|  ")
+				fmt.Fprintf(w, `<td width="%d%%"></td>`, cellPct)
 				continue
 			}
 			row := rows[i+c]
+			caption := htmlEscapeCell(row.Label)
+			if row.Tail != "" {
+				caption += "<br>" + htmlEscapeCell(row.Tail)
+			}
+			fmt.Fprintf(w, `<td width="%d%%" align="center"><strong>%s</strong></td>`, cellPct, caption)
+		}
+		fmt.Fprintln(w, "</tr>")
+		// Image row.
+		fmt.Fprint(w, "<tr>")
+		for c := 0; c < cols; c++ {
+			if i+c >= len(rows) {
+				fmt.Fprintf(w, `<td width="%d%%"></td>`, cellPct)
+				continue
+			}
+			row := rows[i+c]
+			fmt.Fprintf(w, `<td width="%d%%" align="center">`, cellPct)
 			switch {
 			case row.Error != "":
-				fmt.Fprintf(w, "| ⚠️ %s ", escapeMDCell(row.Error))
+				fmt.Fprintf(w, "⚠️ %s", htmlEscapeCell(row.Error))
 			case row.URL == "":
-				fmt.Fprint(w, "| _no image_ ")
+				fmt.Fprint(w, "<em>no image</em>")
 			default:
-				fmt.Fprintf(w, "| <img alt=%q src=%q width=\"320\"> ",
+				fmt.Fprintf(w, `<img alt=%q src=%q width="320">`,
 					shotAltText(row.Label, row.Tail), row.URL)
 			}
+			fmt.Fprint(w, "</td>")
 		}
-		fmt.Fprintln(w, "|")
+		fmt.Fprintln(w, "</tr>")
 	}
+	fmt.Fprintln(w, `</table>`)
 	fmt.Fprintln(w)
 }
 
-// escapeMDCell escapes characters that would break out of a GFM
-// table cell. Pipes are the only structural one; newlines are
-// stripped (a `<br>` placed by the caller is what wraps within a
-// cell).
-func escapeMDCell(s string) string {
-	s = strings.ReplaceAll(s, "|", "\\|")
-	s = strings.ReplaceAll(s, "\n", " ")
+// htmlEscapeCell escapes the four characters that would break out of
+// an HTML cell. Keeps tags the caller intentionally embedded (e.g.
+// <br>) intact by only escaping bare `<` / `>` when not already part
+// of an escape sequence; the only callers feed plain strings, so a
+// naive pass is enough.
+func htmlEscapeCell(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
 	return s
 }
 

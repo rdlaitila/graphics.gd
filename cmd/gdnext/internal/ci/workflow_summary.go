@@ -41,9 +41,19 @@ type ghRun struct {
 	HeadBranch   string    `json:"head_branch"`
 	HeadSHA      string    `json:"head_sha"`
 	DisplayTitle string    `json:"display_title"`
+	HeadCommit   ghRunCommit  `json:"head_commit"`
 	Event        string    `json:"event"`
 	CreatedAt    time.Time `json:"created_at"`
 	HTMLURL      string    `json:"html_url"`
+}
+
+// ghRunCommit carries only the fields the summary actually uses. The
+// head_commit object on a workflow run is the commit that triggered
+// it; its first line is the canonical "subject", which beats
+// display_title (which falls back to the workflow name for events
+// like workflow_dispatch or [skip ci] reruns).
+type ghRunCommit struct {
+	Message string `json:"message"`
 }
 
 type ghJob struct {
@@ -555,7 +565,7 @@ func collect(window []runWithJobs, branch string) summary {
 			CreatedAt:  r.Run.CreatedAt,
 			HeadBranch: r.Run.HeadBranch,
 			HeadSHA:    r.Run.HeadSHA,
-			Title:      r.Run.DisplayTitle,
+			Title:      commitSubject(r.Run),
 			Event:      r.Run.Event,
 			Conclusion: c,
 			URL:        r.Run.HTMLURL,
@@ -567,6 +577,22 @@ func collect(window []runWithJobs, branch string) summary {
 	s.Builds = collectBuilds(asc)
 	s.Plays = collectPlays(asc)
 	return s
+}
+
+// commitSubject returns the first line of head_commit.message when
+// available; falls back to display_title. GitHub sets display_title
+// to the workflow name on workflow_dispatch and [skip ci] reruns,
+// which buries the real commit subject — head_commit.message is the
+// actual triggering commit's full body, and its first line is the
+// conventional "subject".
+func commitSubject(r ghRun) string {
+	if msg := strings.TrimSpace(r.HeadCommit.Message); msg != "" {
+		if i := strings.IndexByte(msg, '\n'); i >= 0 {
+			return strings.TrimSpace(msg[:i])
+		}
+		return msg
+	}
+	return r.DisplayTitle
 }
 
 // parseLinkExp pulls (link, allow-fail) out of the suffix axes after
