@@ -16,10 +16,19 @@ import (
 )
 
 // playRequested reports whether the play-bot should attach.
-func playRequested() bool { return os.Getenv(product.EnvPlay) != "" }
+func playRequested() bool { return playEnv(product.EnvPlay) != "" }
 
-// playEnv returns the value the driver passed for name.
-func playEnv(name string) string { return os.Getenv(name) }
+// playEnv returns the value the driver passed for name. Strips a
+// surrounding pair of double-quote bytes if present (driver wraps
+// values that way as a workaround for env-loss seen on libgodot
+// and proton paths).
+func playEnv(name string) string {
+	v := os.Getenv(name)
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		return v[1 : len(v)-1]
+	}
+	return v
+}
 
 // dumpGDNextEnv emits every GDNEXT_-prefixed entry in os.Environ so
 // the CI log shows whether the report var is missing, empty, or
@@ -47,7 +56,7 @@ func dumpGDNextEnv(where string) {
 // CI can pick a permanent transport per platform.
 func writePlayReport(data []byte) {
 	dumpGDNextEnv("writePlayReport")
-	path := os.Getenv(product.EnvPlayResult)
+	path := playEnv(product.EnvPlayResult)
 	dbg := fmt.Sprintf("GDNEXT_DBG writePlayReport entry env[%s]=%q bytes=%d", product.EnvPlayResult, path, len(data))
 	Engine.Print(dbg)
 	fmt.Println(dbg)
@@ -60,7 +69,7 @@ func writePlayReport(data []byte) {
 // writePlayScreenshotFromViewport snapshots the root viewport and
 // writes the PNG to $GDNEXT_PLAY_SCREENSHOT.
 func writePlayScreenshotFromViewport() {
-	path := os.Getenv(product.EnvPlayScreenshot)
+	path := playEnv(product.EnvPlayScreenshot)
 	dbg := fmt.Sprintf("GDNEXT_DBG writePlayScreenshot entry env[%s]=%q", product.EnvPlayScreenshot, path)
 	Engine.Print(dbg)
 	fmt.Println(dbg)
