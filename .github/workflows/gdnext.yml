@@ -619,6 +619,9 @@ jobs:
               sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
               sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
               sudo waydroid init
+              # adb-over-TCP has to be set before the container boots
+              # so adbd inside Android picks it up via init.rc props.
+              sudo waydroid prop set persist.waydroid.adb_tcp true
               sudo systemctl enable --now waydroid-container
               export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-$UID}"
               mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
@@ -679,12 +682,49 @@ jobs:
                 echo "::group::cgroup layout"; mount | grep -E 'cgroup|bpf'; echo; stat -fc '%T' /sys/fs/cgroup; echo "::endgroup::"
                 exit 1
               fi
-              waydroid prop set persist.waydroid.adb_tcp true || true
-              ip=$(waydroid status 2>/dev/null | awk '/IP address/{print $3; exit}')
-              ip=${ip:-192.168.240.112}
-              adb connect "${ip}:5555"
+              # Resolve the container's veth IP. `waydroid status`
+              # reports UNKNOWN until Android init has progressed far
+              # enough; the LXC bridge already has a DHCP lease, so
+              # ask dnsmasq's leases file instead.
+              ip=""
+              for i in $(seq 1 60); do
+                ip=$(awk '{print $3}' /var/lib/misc/dnsmasq.waydroid0.leases 2>/dev/null | head -1)
+                if [ -n "$ip" ]; then break; fi
+                ip=$(waydroid status 2>/dev/null | awk '/IP address/{print $3; exit}')
+                case "$ip" in 192.168.*) break;; *) ip=""; sleep 2;; esac
+              done
+              echo "container IP: ${ip:-<unresolved>}"
+              # adb endpoints to try in order: direct container IP,
+              # then 127.0.0.1:5555 (adbd inside the container may
+              # be exposed via Waydroid's port forward).
+              candidates=""
+              [ -n "$ip" ] && candidates="${ip}:5555 "
+              candidates="${candidates}127.0.0.1:5555"
+              serial=""
+              for endpoint in $candidates; do
+                if adb connect "$endpoint" 2>&1 | grep -qiE 'connected|already'; then
+                  if adb -s "$endpoint" wait-for-device 2>/dev/null; then
+                    serial="$endpoint"
+                    break
+                  fi
+                fi
+              done
+              if [ -z "$serial" ]; then
+                echo "no adb endpoint reachable; tried: $candidates"
+                adb devices
+                exit 1
+              fi
+              # Wait for Android init to finish before play-cell tries
+              # to install. sys.boot_completed flips to 1 only after
+              # PackageManagerService is up.
+              for i in $(seq 1 60); do
+                bc=$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+                [ "$bc" = "1" ] && break
+                sleep 5
+              done
+              adb -s "$serial" shell getprop sys.boot_completed
               adb devices
-              echo "GDNEXT_WAYDROID_ADB=${ip}:5555" >> "$GITHUB_ENV"
+              echo "GDNEXT_WAYDROID_ADB=${serial}" >> "$GITHUB_ENV"
               ;;
           esac
 
