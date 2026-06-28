@@ -126,15 +126,6 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		if err := os.Chmod(bin, 0755); err != nil {
 			return fmt.Errorf("chmod +x %s: %w", bin, err)
 		}
-		// Proton's umu-run spawns detached wine helpers (wineserver,
-		// steam-runtime) that don't reliably inherit DISPLAY when it's
-		// set only via xvfb-run's `DISPLAY=:N "$@"` env-prefix.
-		// Start a persistent Xvfb up-front so DISPLAY can ride in c.Env
-		// and propagate via the normal exec fork to every child.
-		needsDisplay := compat == "proton" || compat == "proton-8" || compat == "proton-9" || compat == "proton-10"
-		if needsDisplay {
-			noXvfb = true
-		}
 		argv, err := launchCommand(bin, plat, mode, compat, noXvfb)
 		if err != nil {
 			return err
