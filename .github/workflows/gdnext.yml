@@ -558,20 +558,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -y
-          # Baseline display + audio stack for every linux play cell.
-          # xvfb backs native plays that need an X display; weston +
-          # pulseaudio cover the corners where the engine init demands
-          # a wayland socket or a pulse server (waydroid hard-requires
-          # both; some godot audio init paths also blow up without
-          # pulse even when the cell is `compat=native`). Cheap to
-          # install, prevents per-cell debugging when a new compat
-          # layer turns out to need them.
-          sudo apt-get install -y --no-install-recommends xvfb weston pulseaudio
-          # AppArmor / userns relax: required by bwrap (proton's
-          # pressure-vessel) and by Waydroid's LXC container. Cheap
-          # to flip globally so any cell can spawn a user-namespace
-          # sandbox without re-running this dance.
+          sudo apt-get update -y          
+          sudo apt-get install -y --no-install-recommends xvfb          
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
           case "${{ matrix.compat }}" in
@@ -643,16 +631,8 @@ jobs:
               ( cd scratch && npx playwright install --with-deps "${pw_browser}" )
               echo "::endgroup::"
               ;;
-            waydroid)
-              # Repo + package per https://docs.waydro.id/usage/install-on-desktops
-              # (Ubuntu/Debian). The OBS bootstrap script drops the
-              # waydroid-container systemd unit (binder/lxc container);
-              # `waydroid session start` is the user-side half that
-              # bridges the container to a Wayland compositor and
-              # triggers Android's init. CI has no display, so we run
-              # weston headless purely to provide a wayland socket
-              # (weston + pulse + the apparmor/userns sysctls are
-              # already installed/flipped above by the baseline).
+            waydroid)              
+              sudo apt-get install -y --no-install-recommends xvfb weston pulseaudio
               sudo apt-get install -y --no-install-recommends curl ca-certificates
               curl -s https://repo.waydro.id | sudo bash
               sudo apt-get install -y --no-install-recommends waydroid "linux-modules-extra-$(uname -r)"
