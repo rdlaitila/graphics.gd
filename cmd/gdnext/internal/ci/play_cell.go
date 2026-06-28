@@ -141,15 +141,6 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 			product.EnvPlayHUD+"="+hud,
 		)
 		c.Env = append(c.Env, protonEnv(compat)...)
-		if needsDisplay && os.Getenv(product.EnvDisplay) == "" {
-			display, stop, err := startXvfb(ctx)
-			if err != nil {
-				return fmt.Errorf("proton play: start xvfb: %w", err)
-			}
-			defer stop()
-			c.Env = append(c.Env, product.EnvDisplay+"="+display)
-			fmt.Printf("==> Xvfb on %s (umu-run + wine helpers inherit via c.Env)\n", display)
-		}
 		fmt.Printf("==> play env: %s=active %s=%q %s=%q %s=%q\n",
 			product.EnvPlay,
 			product.EnvPlayResult, reportPath,
