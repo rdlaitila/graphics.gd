@@ -543,7 +543,7 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.local/share/Steam/compatibilitytools.d/${{ matrix.proton_tag }}
-          key: ${{ runner.os }}-${{ runner.arch }}-proton-${{ matrix.proton_tag }}-v1
+          key: ${{ runner.os }}-${{ runner.arch }}-proton-${{ matrix.proton_tag }}-v2
 
       - name: Restore umu runtime cache
         if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux' && matrix.proton_tag != ''
@@ -551,7 +551,7 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.local/share/umu
-          key: ${{ runner.os }}-${{ runner.arch }}-umu-runtime-v1
+          key: ${{ runner.os }}-${{ runner.arch }}-umu-runtime-v2
 
       - name: Install xvfb + compat layer (${{ matrix.compat || 'native' }})
         if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux'
@@ -788,7 +788,7 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.local/share/Steam/compatibilitytools.d/${{ matrix.proton_tag }}
-          key: ${{ runner.os }}-${{ runner.arch }}-proton-${{ matrix.proton_tag }}-v1
+          key: ${{ runner.os }}-${{ runner.arch }}-proton-${{ matrix.proton_tag }}-v2
 
       # android-emu cells need the emulator-runner. x86_64 guests use
       # KVM on the host (relaxed via the udev rule below); arm64 guests
@@ -852,7 +852,7 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.local/share/umu
-          key: ${{ runner.os }}-${{ runner.arch }}-umu-runtime-v1
+          key: ${{ runner.os }}-${{ runner.arch }}-umu-runtime-v2
 
       - name: Show play report
         if: steps.artefact-check.outputs.present == 'true' && always()
