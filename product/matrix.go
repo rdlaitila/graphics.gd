@@ -383,10 +383,10 @@ var (
 		LinkModes:  GDExtension,
 		BuildHosts: BuildHosts,
 		PlayHosts: []PlayHost{
-			PlayLinuxAmd64Proton,
+			//PlayLinuxAmd64Proton,
 			//PlayLinuxAmd64Wine,
 			//PlayLinuxAmd64Proton10,
-			//PlayLinuxAmd64Proton9,
+			PlayLinuxAmd64Proton9,
 			//PlayLinuxAmd64Proton8,
 		},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
