@@ -122,9 +122,24 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		// download-artifact strips the executable bit; restore it.
 		if err := os.Chmod(bin, 0755); err != nil {
 			return fmt.Errorf("chmod +x %s: %w", bin, err)
+		}
+		// The proton branch of launchCommand no longer wraps in
+		// xvfb-run — umu-run re-execs inside pressure-vessel's
+		// bubblewrap and xvfb-run's env-prefix DISPLAY doesn't
+		// survive. Bring up a persistent Xvfb here so we can put
+		// DISPLAY into c.Env directly.
+		xvfbDisplay := ""
+		if protonRelease(compat) != "" {
+			disp, stop, err := startXvfb(context.Background())
+			if err != nil {
+				return err
+			}
+			defer stop()
+			xvfbDisplay = disp
+			// Use the same log dir Proton writes into.
+			defer protonDumpLog(scratch)
 		}
 		argv, err := launchCommand(bin, plat, mode, compat, noXvfb)
 		if err != nil {
@@ -134,19 +149,39 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		ctx, cancel := contextWithTimeout(timeout)
 		defer cancel()
 		c := exec.CommandContext(ctx, argv[0], argv[1:]...)
+		// GDNEXT_PLAY_* paths must be translated to Z:\... form for
+		// wine/proton so the windows binary can find the host file
+		// (see winePath). Native cells keep the linux path as-is.
+		childResult := reportPath
+		childScreenshot := screenshotPath
+		childHUD := hud
+		if needsWinePathTranslation(compat, plat) {
+			childResult = winePath(reportPath)
+			childScreenshot = winePath(screenshotPath)
+		}
 		c.Env = append(os.Environ(),
 			product.EnvPlay+"=active",
-			product.EnvPlayResult+"="+reportPath,
-			product.EnvPlayScreenshot+"="+screenshotPath,
-			product.EnvPlayHUD+"="+hud,
+			product.EnvPlayResult+"="+childResult,
+			product.EnvPlayScreenshot+"="+childScreenshot,
+			product.EnvPlayHUD+"="+childHUD,
 		)
-		c.Env = append(c.Env, protonEnv(compat)...)
+		c.Env = append(c.Env, protonEnv(compat, scratch)...)
+		if xvfbDisplay != "" {
+			c.Env = append(c.Env, product.EnvDisplay+"="+xvfbDisplay)
+			// pressure-vessel's SDL loader will try Wayland first
+			// otherwise and fail cryptically before Xvfb is even
+			// consulted.
+			c.Env = append(c.Env, "SDL_VIDEODRIVER=x11")
+		}
 		fmt.Printf("==> play env: %s=active %s=%q %s=%q %s=%q\n",
 			product.EnvPlay,
-			product.EnvPlayResult, reportPath,
-			product.EnvPlayScreenshot, screenshotPath,
-			product.EnvPlayHUD, hud,
+			product.EnvPlayResult, childResult,
+			product.EnvPlayScreenshot, childScreenshot,
+			product.EnvPlayHUD, childHUD,
 		)
+		if xvfbDisplay != "" {
+			fmt.Printf("==> play xvfb: DISPLAY=%s SDL_VIDEODRIVER=x11\n", xvfbDisplay)
+		}
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
 		runErr = c.Run()
@@ -238,7 +273,11 @@ func launchCommand(bin string, plat target, mode product.LinkMode, compat string
 		if err != nil {
 			return nil, fmt.Errorf("compat=%s: umu-run not on PATH (apt install umu-launcher or pip install umu-launcher): %w", compat, err)
 		}
-		return xvfb(umu, bin), nil
+		// No xvfb-run wrap: umu-run re-execs inside pressure-vessel's
+		// bubblewrap which drops the env-prefix DISPLAY. The caller
+		// stands up a persistent Xvfb and puts DISPLAY into c.Env
+		// instead so it survives the re-exec.
+		return []string{umu, bin}, nil
 	default:
 		return nil, fmt.Errorf("unknown --compat %q", compat)
 	}
@@ -274,8 +313,11 @@ func protonRelease(compat string) string {
 
 // protonEnv returns the env vars umu-run needs to drive bin through
 // the GE-Proton release pinned to compat. Empty slice for non-proton
-// tokens. GAMEID=0 selects the umu-default protonfix.
-func protonEnv(compat string) []string {
+// tokens. GAMEID=0 selects the umu-default protonfix. logDir is
+// where PROTON_LOG=1 tells Proton to write its steam-<gameid>.log —
+// dumped to stdout by protonDumpLog() after the run so it's visible
+// in the CI job log.
+func protonEnv(compat, logDir string) []string {
 	tag := protonRelease(compat)
 	if tag == "" {
 		return nil
@@ -297,7 +339,78 @@ func protonEnv(compat string) []string {
 		// launcher + README; PROTON_DISABLE_XALIA does not exist).
 		// We don't need accessibility hooks in headless CI.
 		"PROTON_USE_XALIA=0",
+		// Proton's `proton` launcher hard-codes stdout/stderr of
+		// every wine subprocess into a log file. Without PROTON_LOG
+		// the log path is /dev/null-equivalent (WINEDEBUG=-all), so
+		// Godot's own output never reaches our c.Stdout. Set it to
+		// 1 for a general log; drop the file into logDir so
+		// protonDumpLog can find it regardless of $HOME.
+		"PROTON_LOG=1",
+		"PROTON_LOG_DIR=" + logDir,
+		// umu-launcher itself is quiet by default; debug mode makes
+		// it log where it's putting things and which runtime it
+		// picked, which is what we need to diagnose "no output" runs.
+		"UMU_LOG=debug",
 	}
+}
+
+// protonLogPath returns the file Proton writes when PROTON_LOG=1 is
+// set: $PROTON_LOG_DIR/steam-<SteamGameId>.log. We pass GAMEID=0 →
+// umu-launcher rewrites it to a prefix-md5 hash, so we glob rather
+// than hard-code the exact SteamGameId. Returns "" when no matching
+// log exists.
+func protonLogPath(logDir string) string {
+	matches, _ := filepath.Glob(filepath.Join(logDir, "steam-*.log"))
+	if len(matches) == 0 {
+		return ""
+	}
+	return matches[0]
+}
+
+// protonDumpLog prints the Proton log to stdout so it lands in the
+// CI job's raw log. No-op when logDir has no log (proton wasn't
+// used, or PROTON_LOG never fired).
+func protonDumpLog(logDir string) {
+	path := protonLogPath(logDir)
+	if path == "" {
+		fmt.Printf("==> proton log: none found under %s\n", logDir)
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "==> proton log: read %s: %v\n", path, err)
+		return
+	}
+	fmt.Printf("==> proton log (%s, %d bytes):\n", path, len(data))
+	fmt.Println("::group::proton log")
+	os.Stdout.Write(data)
+	fmt.Println("::endgroup::")
+}
+
+// winePath converts a host linux path to the Z:\ form the wine child
+// process sees. Proton auto-symlinks $WINEPREFIX/dosdevices/z: → /,
+// so /tmp/foo becomes Z:\tmp\foo and points at the same host inode.
+// Godot compiled for windows treats a bare leading '/' as a rooted
+// path on the current drive (C:), which under Proton lives inside
+// the prefix and doesn't map to the host — hence the GDNEXT_PLAY_*
+// paths only ever work when translated here.
+func winePath(hostPath string) string {
+	return "Z:" + strings.ReplaceAll(hostPath, "/", `\`)
+}
+
+// needsWinePathTranslation reports whether c.Env values holding host
+// paths must be rewritten to Z:\... form for the child. True when
+// driving a windows binary through wine or proton on a linux host;
+// false for native linux/darwin/windows-on-windows plays.
+func needsWinePathTranslation(compat string, plat target) bool {
+	if runtime.GOOS != product.GOOSLinux || plat.GOOS != product.GOOSWindows {
+		return false
+	}
+	switch compat {
+	case "wine", "proton", "proton-8", "proton-9", "proton-10":
+		return true
+	}
+	return false
 }
 
 func compatOrNative(compat string) string {
