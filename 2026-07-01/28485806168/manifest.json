@@ -1,0 +1,11 @@
+{
+  "day": "2026-07-01",
+  "run_id": 28485806168,
+  "shots": [
+    {
+      "label": "windows/amd64+gdextension (proton-9)",
+      "path": "2026-07-01/28485806168/windows-amd64-gdextension-proton-9.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-01/28485806168/windows-amd64-gdextension-proton-9.png"
+    }
+  ]
+}
