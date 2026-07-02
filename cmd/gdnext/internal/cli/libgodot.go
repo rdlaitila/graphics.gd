@@ -120,8 +120,12 @@ func (t *LibGodotActions) install(_ context.Context, cmd *cli.Command) error {
 		}
 		from = artefact
 	}
-	_, _, err = t.LibGodot.Install(recipe, from)
-	return err
+	installed, _, err := t.LibGodot.Install(recipe, from)
+	if err != nil {
+		return err
+	}
+	fmt.Println(installed)
+	return nil
 }
 
 func (t *LibGodotActions) version(_ context.Context, _ *cli.Command) error {
