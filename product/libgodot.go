@@ -420,6 +420,12 @@ func (r LibGodotRecipe) SconsArgs() []string {
 		// miss the rest of the engine. Turn the redirect off so
 		// SCons produces one fat archive under `bin/`.
 		"redirect_build_objects=no",
+		// SCons scrubs its subprocess env to only what upstream's
+		// SConstruct copies in. We stash the musl <execinfo.h> shim
+		// under CPATH (see plantMuslExecinfoInclude in the builder),
+		// so import it into env["ENV"] here — the builder's own env
+		// is otherwise invisible to the compiler.
+		"import_env_vars=CPATH",
 	}
 	return append(base, r.ExtraSconsArgs...)
 }

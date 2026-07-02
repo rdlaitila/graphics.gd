@@ -113,10 +113,12 @@ func (t *LibGodot) Build(recipe product.LibGodotRecipe) (string, error) {
 // save) so we don't have to extract/repack objects — MRI copies
 // members directly between archives.
 func (t *LibGodot) mergeArchives(src, topLevel string, recipe product.LibGodotRecipe, extras ...string) (string, error) {
-	suffix := fmt.Sprintf(".%s.%s.%s", recipe.GodotPlatform, recipe.SconsTarget(), recipe.GodotArch)
-	if es := recipe.SconsExtraSuffix(); es != "" {
-		suffix += "." + es
-	}
+	// Base scons suffix — <.platform.target.arch>. Godot's detect.py
+	// may insert `.llvm` (use_llvm=yes) or `.san` between arch and
+	// our own extra_suffix, so we match on this stable prefix and
+	// further filter by the extra_suffix token below.
+	baseSuffix := fmt.Sprintf(".%s.%s.%s", recipe.GodotPlatform, recipe.SconsTarget(), recipe.GodotArch)
+	extraSuffix := recipe.SconsExtraSuffix()
 	// Snapshot the pristine SCons-produced top-level archive (which
 	// contains only the linuxbsd platform-driver objects) to a
 	// `.scons` sidecar the first time we see it, so repeated merges
@@ -150,7 +152,10 @@ func (t *LibGodot) mergeArchives(src, topLevel string, recipe product.LibGodotRe
 			return err
 		}
 		name := info.Name()
-		if !strings.HasSuffix(name, ".a") || !strings.Contains(name, suffix) {
+		if !strings.HasSuffix(name, ".a") || !strings.Contains(name, baseSuffix) {
+			return nil
+		}
+		if extraSuffix != "" && !strings.Contains(name, "."+extraSuffix+".") && !strings.HasSuffix(name, "."+extraSuffix+".a") {
 			return nil
 		}
 		if p == topLevel || p == snapshot {
@@ -166,7 +171,11 @@ func (t *LibGodot) mergeArchives(src, topLevel string, recipe product.LibGodotRe
 	// copies of the same names pulled in from module archives.
 	members = append(members, snapshot)
 	if len(members) == 0 {
-		return "", fmt.Errorf("mergeArchives: found no .a files matching *%s*.a under %s", suffix, src)
+		desc := baseSuffix
+		if extraSuffix != "" {
+			desc += "*" + extraSuffix
+		}
+		return "", fmt.Errorf("mergeArchives: found no .a files matching *%s*.a under %s", desc, src)
 	}
 	// Repoint at the tool-provided ar. Zig ships one that
 	// understands MRI scripts and matches whatever CC/AR we told
@@ -367,21 +376,34 @@ func runShim(prog string, args ...string) error {
 }
 
 // findArtefact locates the .a SCons dropped for this recipe. Godot's
-// per-platform detect.py can append extra_suffix segments the recipe
+// per-platform detect.py can inject extra_suffix segments the recipe
 // can't predict statically (`.llvm` on use_llvm=yes, `.san` under
 // sanitizers, custom extra_suffix values), so we first try the
 // recipe's exact ArtefactName and fall back to a glob keyed on the
-// stable prefix `libgodot.<platform>.<target>.<arch>*.a`.
+// stable prefix `libgodot.<platform>.<target>.<arch>*.a`. When the
+// recipe carries an extra_suffix (e.g. `glibc`, `musl`) we then
+// filter the glob matches to those whose basename contains that
+// token, since detect.py may insert `.llvm` between `<arch>` and
+// `<extra_suffix>` (which our prefix would otherwise miss).
 func findArtefact(binDir string, recipe product.LibGodotRecipe) (string, error) {
 	exact := filepath.Join(binDir, recipe.ArtefactName)
 	if _, err := os.Stat(exact); err == nil {
 		return exact, nil
 	}
 	prefix := fmt.Sprintf("libgodot.%s.%s.%s", recipe.GodotPlatform, recipe.SconsTarget(), recipe.GodotArch)
-	if es := recipe.SconsExtraSuffix(); es != "" {
-		prefix += "." + es
-	}
 	matches, _ := filepath.Glob(filepath.Join(binDir, prefix+"*.a"))
+	if es := recipe.SconsExtraSuffix(); es != "" {
+		filtered := matches[:0]
+		token := "." + es + "."
+		altSuffix := "." + es + ".a"
+		for _, m := range matches {
+			name := filepath.Base(m)
+			if strings.Contains(name, token) || strings.HasSuffix(name, altSuffix) {
+				filtered = append(filtered, m)
+			}
+		}
+		matches = filtered
+	}
 	if len(matches) == 1 {
 		return matches[0], nil
 	}
@@ -504,10 +526,8 @@ func (t *LibGodot) Clean(recipe product.LibGodotRecipe, opts CleanOptions) error
 // (source, third-party trees, config caches) stays. When allRecipes is
 // true, all .o/.a files are removed regardless of suffix.
 func cleanSconsOutput(src string, recipe product.LibGodotRecipe, allRecipes, dryRun bool) error {
-	suffix := fmt.Sprintf(".%s.%s.%s", recipe.GodotPlatform, recipe.SconsTarget(), recipe.GodotArch)
-	if es := recipe.SconsExtraSuffix(); es != "" {
-		suffix += "." + es
-	}
+	baseSuffix := fmt.Sprintf(".%s.%s.%s", recipe.GodotPlatform, recipe.SconsTarget(), recipe.GodotArch)
+	extraSuffix := recipe.SconsExtraSuffix()
 	var removed int
 	err := filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
@@ -517,8 +537,13 @@ func cleanSconsOutput(src string, recipe product.LibGodotRecipe, allRecipes, dry
 		if !strings.HasSuffix(name, ".o") && !strings.HasSuffix(name, ".a") {
 			return nil
 		}
-		if !allRecipes && !strings.Contains(name, suffix) {
-			return nil
+		if !allRecipes {
+			if !strings.Contains(name, baseSuffix) {
+				return nil
+			}
+			if extraSuffix != "" && !strings.Contains(name, "."+extraSuffix+".") && !strings.HasSuffix(name, "."+extraSuffix+".a") && !strings.HasSuffix(name, "."+extraSuffix+".o") {
+				return nil
+			}
 		}
 		if err := removePath(p, dryRun); err != nil {
 			return err
@@ -536,7 +561,11 @@ func cleanSconsOutput(src string, recipe product.LibGodotRecipe, allRecipes, dry
 	if allRecipes {
 		fmt.Printf("==> %s %d SCons object/archive files (all recipes)\n", verb, removed)
 	} else {
-		fmt.Printf("==> %s %d SCons object/archive files matching *%s*\n", verb, removed, suffix)
+		desc := baseSuffix
+		if extraSuffix != "" {
+			desc += " + " + extraSuffix
+		}
+		fmt.Printf("==> %s %d SCons object/archive files matching *%s*\n", verb, removed, desc)
 	}
 	return nil
 }
