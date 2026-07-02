@@ -101,6 +101,16 @@ func classifyInstallables() (mandatory, optional []string) {
 		if t.IsLibrary || installSkip[t.Slug] {
 			continue
 		}
+		// Toolchain.Optional entries opt out of the bulk install
+		// walk; they're pulled in only when a specific verb asks
+		// for them (e.g. `gdnext libgodot build` triggers scons
+		// and godot-src / godot-buildroot directly). The check
+		// step is exercising the default install flow, not every
+		// verb, so it shouldn't nag on tools that no user-facing
+		// path would install without opt-in.
+		if t.Optional {
+			continue
+		}
 		if optionalInstall[t.Slug] {
 			optional = append(optional, t.Slug)
 			continue
