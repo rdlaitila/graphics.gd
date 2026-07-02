@@ -277,24 +277,6 @@ var QuirkIOSArm64TemplateLinkUndefined = Quirk{
 	},
 }
 
-// QuirkLibGodotLinuxMuslExecinfoMissing marks the linux musl EDITOR
-// libgodot recipes as broken because the linuxbsd crash_handler pulls
-// in <execinfo.h>, which musl doesn't ship. The release template
-// variant builds fine (crash_handler is a no-op in release); only
-// the editor variant hits the header. Needs a scons flag or upstream
-// patch to gate execinfo behind __GLIBC__.
-var QuirkLibGodotLinuxMuslExecinfoMissing = Quirk{
-	Title:     "linux/musl editor libgodot: crash_handler_linuxbsd.cpp includes <execinfo.h>, missing on musl",
-	Scope:     QuirkCIBuildBroken,
-	LinkModes: nil, // applies regardless of link mode
-	Reason:    "platform/linuxbsd/crash_handler_linuxbsd.cpp:49 does `#include <execinfo.h>` unconditionally when compiling the editor. musl deliberately does not provide execinfo.h (it's a glibc-specific backtrace API). Legacy musl builds must have carried an upstream patch or a scons flag to compile the crash handler out; needs re-derivation. Fix candidates: patch the include site with `#ifdef __GLIBC__`, or set `disable_exceptions=yes debug_symbols=no` (already set), or upstream a scons flag that maps to `-DNO_EXECINFO` in the compilation unit.",
-	Result: []string{
-		"linux/amd64 musl editor and linux/arm64 musl editor libgodot cells surface as allow-fail",
-		"the linux musl release/template cells stay unaffected (crash_handler compiles in a no-op form)",
-		"the linux glibc cells stay unaffected (glibc ships execinfo.h)",
-	},
-}
-
 func (t QuirkScope) String() string {
 	switch t {
 	case QuirkInformational:

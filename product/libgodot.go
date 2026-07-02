@@ -107,8 +107,8 @@ var LibGodotMatrix = []LibGodotRecipe{
 	linuxGlibcRecipe(GOARCHArm64, false),
 	linuxGlibcRecipe(GOARCHArm64, true),
 	// linux/musl static — opt-in single-file variant that bakes in
-	// the graphics.gd dlopen shim (bundled/libgodot/{dlopen.c,
-	// foreign_tramp.S, helper.c}). Requires no runtime dependencies
+	// the graphics.gd dlopen shim (bundled/libgodot/{musl_dlopen.c,
+	// musl_foreign_tramp.S, musl_helper.c}). Requires no runtime dependencies
 	// at all, but the shim's in-process ELF loader is a partial
 	// reimplementation of the kernel's process bootstrap and has
 	// distro-specific compatibility gaps (Bazzite MDWE fix works,
@@ -193,18 +193,7 @@ func linuxMuslRecipe(goarch string, editor bool) LibGodotRecipe {
 		ArtefactName:   "libgodot.linuxbsd." + target + "." + godotArch + "." + LibCMusl + ".a",
 		InstallName:    installName,
 		InstallSlug:    slug,
-		Quirks:         muslQuirks(editor),
 	}
-}
-
-// muslQuirks attaches known-broken CI markers to musl libgodot recipes.
-// Editor variant hits QuirkLibGodotLinuxMuslExecinfoMissing; release
-// variant is fine.
-func muslQuirks(editor bool) []Quirk {
-	if editor {
-		return []Quirk{QuirkLibGodotLinuxMuslExecinfoMissing}
-	}
-	return nil
 }
 
 // linuxGlibcRecipe builds the default linux libgodot variant using

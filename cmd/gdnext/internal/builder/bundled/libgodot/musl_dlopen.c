@@ -1,4 +1,4 @@
-/* dlopen.c - Cosmopolitan-style dlopen port for static musl binaries
+/* musl_dlopen.c - Cosmopolitan-style dlopen port for static musl binaries
  *
  * Supports loading both musl-built and glibc-built shared libraries on Linux.
  * Uses the helper executable trick to borrow the system's dynamic loader.
@@ -100,8 +100,8 @@
 
 /* Pre-compiled glibc helper binary embedded at libgodot-build time.
  * Populated by an auto-generated companion .o (embedded_helper_generated.c)
- * that compileMuslShim in gdnext produces from bundled/libgodot/helper.c.
- * Strong extern: dlopen.c and embedded_helper_generated.o are always
+ * that compileMuslShim in gdnext produces from bundled/libgodot/musl_helper.c.
+ * Strong extern: musl_dlopen.c and embedded_helper_generated.o are always
  * archived together into libdlopen.a. */
 extern const unsigned char embedded_helper_bytes[];
 extern const unsigned int embedded_helper_size;

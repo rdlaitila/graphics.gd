@@ -55,7 +55,11 @@ func (t *LibGodot) Build(recipe product.LibGodotRecipe) (string, error) {
 	if err != nil {
 		return "", xray.New(err)
 	}
-	env, err := t.sconsEnv(recipe, shimDir)
+	includeDir, err := t.plantMuslExecinfoInclude(recipe)
+	if err != nil {
+		return "", xray.New(err)
+	}
+	env, err := t.sconsEnv(recipe, shimDir, includeDir)
 	if err != nil {
 		return "", xray.New(err)
 	}
@@ -215,9 +219,10 @@ func copyRegularFile(src, dst string) error {
 }
 
 // compileMuslShim builds the graphics.gd dlopen shim (bundled copy of
-// startup/internal/dlopen/dlopen.c + foreign_tramp.S) into a small
-// libdlopen archive that gets merged into the final libgodot. Only
-// fires when ZigTarget contains "musl": the shim's whole body is
+// startup/internal/dlopen/dlopen.c + foreign_tramp.S, plus the glibc
+// helper and the execinfo stub) into a small libdlopen archive that
+// gets merged into the final libgodot. Only fires when ZigTarget
+// contains "musl": the shim's whole body is
 // gated by `#ifndef __GLIBC__` upstream, so it is a no-op under glibc
 // and we skip the extra work.
 //
@@ -233,15 +238,15 @@ func (t *LibGodot) compileMuslShim(recipe product.LibGodotRecipe) (string, error
 	if err != nil {
 		return "", xray.New(err)
 	}
-	dlopenC, err := libgodotShims.ReadFile("bundled/libgodot/dlopen.c")
+	dlopenC, err := libgodotShims.ReadFile("bundled/libgodot/musl_dlopen.c")
 	if err != nil {
 		return "", xray.New(err)
 	}
-	trampS, err := libgodotShims.ReadFile("bundled/libgodot/foreign_tramp.S")
+	trampS, err := libgodotShims.ReadFile("bundled/libgodot/musl_foreign_tramp.S")
 	if err != nil {
 		return "", xray.New(err)
 	}
-	helperC, err := libgodotShims.ReadFile("bundled/libgodot/helper.c")
+	helperC, err := libgodotShims.ReadFile("bundled/libgodot/musl_helper.c")
 	if err != nil {
 		return "", xray.New(err)
 	}
@@ -249,9 +254,9 @@ func (t *LibGodot) compileMuslShim(recipe product.LibGodotRecipe) (string, error
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", xray.New(err)
 	}
-	cPath := filepath.Join(dir, "dlopen.c")
-	sPath := filepath.Join(dir, "foreign_tramp.S")
-	helperCPath := filepath.Join(dir, "helper.c")
+	cPath := filepath.Join(dir, "musl_dlopen.c")
+	sPath := filepath.Join(dir, "musl_foreign_tramp.S")
+	helperCPath := filepath.Join(dir, "musl_helper.c")
 	if err := os.WriteFile(cPath, dlopenC, 0o644); err != nil {
 		return "", xray.New(err)
 	}
@@ -261,27 +266,27 @@ func (t *LibGodot) compileMuslShim(recipe product.LibGodotRecipe) (string, error
 	if err := os.WriteFile(helperCPath, helperC, 0o644); err != nil {
 		return "", xray.New(err)
 	}
-	dlopenO := filepath.Join(dir, "dlopen.o")
-	trampO := filepath.Join(dir, "foreign_tramp.o")
-	// -fno-stack-protector: dlopen.c switches %fs/tpidr_el0 in the
+	dlopenO := filepath.Join(dir, "musl_dlopen.o")
+	trampO := filepath.Join(dir, "musl_foreign_tramp.o")
+	// -fno-stack-protector: musl_dlopen.c switches %fs/tpidr_el0 in the
 	// middle of functions, so a canary loaded from one TCB and
 	// checked against another would trip __stack_chk_fail. Matches
 	// the flag set on graphics.gd/startup/internal/dlopen/dlopen.go.
 	if err := runShim(zig, "cc", "-target", recipe.ZigTarget, "-O2", "-g0", "-fno-stack-protector", "-c", cPath, "-o", dlopenO); err != nil {
-		return "", fmt.Errorf("compile dlopen.c: %w", err)
+		return "", fmt.Errorf("compile musl_dlopen.c: %w", err)
 	}
 	if err := runShim(zig, "cc", "-target", recipe.ZigTarget, "-O2", "-g0", "-c", sPath, "-o", trampO); err != nil {
-		return "", fmt.Errorf("compile foreign_tramp.S: %w", err)
+		return "", fmt.Errorf("compile musl_foreign_tramp.S: %w", err)
 	}
-	// Compile helper.c against glibc 2.28 (Godot's official baseline),
+	// Compile musl_helper.c against glibc 2.28 (Godot's official baseline),
 	// then embed the resulting ELF as a byte array so foreign_compile
 	// can memfd_create + write + elf_exec it at runtime. Zero cc
 	// dependency on the end-user's machine.
-	helperBin := filepath.Join(dir, "helper.bin")
+	helperBin := filepath.Join(dir, "musl_helper.bin")
 	helperTarget := strings.Replace(recipe.ZigTarget, "musl", "gnu.2.28", 1)
 	if err := runShim(zig, "cc", "-target", helperTarget, "-pie", "-fPIC", "-O2", "-g0",
 		helperCPath, "-o", helperBin, "-ldl"); err != nil {
-		return "", fmt.Errorf("compile helper.c (glibc): %w", err)
+		return "", fmt.Errorf("compile musl_helper.c (glibc): %w", err)
 	}
 	embeddedC := filepath.Join(dir, "embedded_helper_generated.c")
 	if err := writeEmbeddedHelperWrapper(embeddedC, helperBin); err != nil {
@@ -292,11 +297,30 @@ func (t *LibGodot) compileMuslShim(recipe product.LibGodotRecipe) (string, error
 		"-c", embeddedC, "-o", embeddedO); err != nil {
 		return "", fmt.Errorf("compile embedded_helper_generated.c: %w", err)
 	}
+	// musl_execinfo.c: no-op backtrace/backtrace_symbols/
+	// backtrace_symbols_fd. Godot's crash_handler_linuxbsd.cpp
+	// unconditionally includes <execinfo.h> when the SCons host is
+	// glibc (which it always is on ubuntu-latest), so we plant a
+	// shim header + link stubs to satisfy the references. Effective
+	// runtime behaviour matches upstream's own `execinfo=no`.
+	execinfoC, err := libgodotShims.ReadFile("bundled/libgodot/musl_execinfo.c")
+	if err != nil {
+		return "", xray.New(err)
+	}
+	execinfoCPath := filepath.Join(dir, "musl_execinfo.c")
+	if err := os.WriteFile(execinfoCPath, execinfoC, 0o644); err != nil {
+		return "", xray.New(err)
+	}
+	execinfoO := filepath.Join(dir, "musl_execinfo.o")
+	if err := runShim(zig, "cc", "-target", recipe.ZigTarget, "-O2", "-g0",
+		"-c", execinfoCPath, "-o", execinfoO); err != nil {
+		return "", fmt.Errorf("compile musl_execinfo.c: %w", err)
+	}
 	archive := filepath.Join(dir, "libdlopen.a")
 	if err := os.Remove(archive); err != nil && !os.IsNotExist(err) {
 		return "", xray.New(err)
 	}
-	if err := runShim(zig, "ar", "rcs", archive, dlopenO, trampO, embeddedO); err != nil {
+	if err := runShim(zig, "ar", "rcs", archive, dlopenO, trampO, embeddedO, execinfoO); err != nil {
 		return "", fmt.Errorf("archive libdlopen: %w", err)
 	}
 	fmt.Printf("==> compiled dlopen shim into %s (helper %d bytes embedded)\n", archive, fileSize(helperBin))
@@ -305,9 +329,10 @@ func (t *LibGodot) compileMuslShim(recipe product.LibGodotRecipe) (string, error
 
 // writeEmbeddedHelperWrapper emits a small C source declaring
 // embedded_helper_bytes[] + embedded_helper_size referenced weakly by
-// dlopen.c. The bytes are the pre-compiled glibc helper binary; dlopen.c
-// writes them to a memfd at runtime and hands the /proc/self/fd path to
-// elf_exec, avoiding any cc/filesystem dependency on the end user's host.
+// musl_dlopen.c. The bytes are the pre-compiled glibc helper binary;
+// musl_dlopen.c writes them to a memfd at runtime and hands the
+// /proc/self/fd path to elf_exec, avoiding any cc/filesystem
+// dependency on the end user's host.
 func writeEmbeddedHelperWrapper(dst, helperBin string) error {
 	bytes, err := os.ReadFile(helperBin)
 	if err != nil {
@@ -622,7 +647,7 @@ func (t *LibGodot) hostCanBuild(recipe product.LibGodotRecipe) error {
 // SCONSFLAGS augmented with `-j$(nproc)`, PATH prefixed with a
 // per-recipe shim dir when ZigTarget is set, and android's NDK vars
 // when the recipe targets android.
-func (t *LibGodot) sconsEnv(recipe product.LibGodotRecipe, shimDir string) ([]string, error) {
+func (t *LibGodot) sconsEnv(recipe product.LibGodotRecipe, shimDir, includeDir string) ([]string, error) {
 	strip := map[string]bool{
 		"CC": true, "CXX": true, "LINK": true, "AR": true, "RANLIB": true,
 		"LD": true, "LDFLAGS": true, "CFLAGS": true, "CXXFLAGS": true, "CPPFLAGS": true,
@@ -638,8 +663,8 @@ func (t *LibGodot) sconsEnv(recipe product.LibGodotRecipe, shimDir string) ([]st
 		if eq > 0 && strip[kv[:eq]] {
 			continue
 		}
-		if eq > 0 && kv[:eq] == "PATH" {
-			continue // handled below after all prepends collected
+		if eq > 0 && (kv[:eq] == "PATH" || kv[:eq] == "CPATH") {
+			continue // handled below
 		}
 		env = append(env, kv)
 	}
@@ -656,6 +681,19 @@ func (t *LibGodot) sconsEnv(recipe product.LibGodotRecipe, shimDir string) ([]st
 	if os.Getenv("ZIG_GLOBAL_CACHE_DIR") == "" {
 		env = append(env, "ZIG_GLOBAL_CACHE_DIR="+zigCache)
 	}
+	// CPATH points gcc/clang at our shim <execinfo.h> when targeting
+	// musl (see plantMuslExecinfoInclude). Merges with any inherited
+	// CPATH so callers can layer additional include dirs.
+	if includeDir != "" {
+		parent := os.Getenv("CPATH")
+		if parent != "" {
+			env = append(env, "CPATH="+includeDir+string(os.PathListSeparator)+parent)
+		} else {
+			env = append(env, "CPATH="+includeDir)
+		}
+	} else if parent := os.Getenv("CPATH"); parent != "" {
+		env = append(env, "CPATH="+parent)
+	}
 	// Assemble final PATH: shim dir first, then whatever the parent PATH was.
 	parentPath := os.Getenv("PATH")
 	joined := strings.Join(pathPrepends, string(os.PathListSeparator))
@@ -668,6 +706,33 @@ func (t *LibGodot) sconsEnv(recipe product.LibGodotRecipe, shimDir string) ([]st
 		env = append(env, "PATH="+parentPath)
 	}
 	return env, nil
+}
+
+// plantMuslExecinfoInclude writes the bundled musl_execinfo.h shim
+// as `execinfo.h` under a scratch include directory, and returns
+// that directory for CPATH. Only fires for musl targets — glibc
+// sysroots ship their own execinfo.h and don't need the shim.
+//
+// The stub declarations here are paired with musl_execinfo.o
+// (compiled by compileMuslShim and merged into libgodot.a), so
+// Godot's crash_handler links against no-op backtrace symbols
+// instead of failing on missing <execinfo.h> at compile time.
+func (t *LibGodot) plantMuslExecinfoInclude(recipe product.LibGodotRecipe) (string, error) {
+	if recipe.LibC != product.LibCMusl {
+		return "", nil
+	}
+	header, err := libgodotShims.ReadFile("bundled/libgodot/musl_execinfo.h")
+	if err != nil {
+		return "", xray.New(err)
+	}
+	dir := filepath.Join(t.BuildEnv.Host.GDRootPath, "libgodot-shim", shimSubdir(recipe), "include")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", xray.New(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "execinfo.h"), header, 0o644); err != nil {
+		return "", xray.New(err)
+	}
+	return dir, nil
 }
 
 // plantZigShims writes cc/c++/ld/ld.lld/ar/ranlib scripts into a
