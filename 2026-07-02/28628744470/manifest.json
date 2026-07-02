@@ -1,0 +1,41 @@
+{
+  "day": "2026-07-02",
+  "run_id": 28628744470,
+  "shots": [
+    {
+      "label": "linux/amd64+gdextension",
+      "path": "2026-07-02/28628744470/linux-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-02/28628744470/linux-amd64-gdextension.png"
+    },
+    {
+      "label": "linux/amd64+gdextension",
+      "path": "2026-07-02/28628744470/linux-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-02/28628744470/linux-amd64-gdextension.png"
+    },
+    {
+      "label": "linux/amd64+gdextension",
+      "path": "2026-07-02/28628744470/linux-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-02/28628744470/linux-amd64-gdextension.png"
+    },
+    {
+      "label": "linux/amd64+libgodot",
+      "path": "2026-07-02/28628744470/linux-amd64-libgodot.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-02/28628744470/linux-amd64-libgodot.png"
+    },
+    {
+      "label": "linux/arm64+gdextension",
+      "path": "2026-07-02/28628744470/linux-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-02/28628744470/linux-arm64-gdextension.png"
+    },
+    {
+      "label": "linux/arm64+gdextension",
+      "path": "2026-07-02/28628744470/linux-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-02/28628744470/linux-arm64-gdextension.png"
+    },
+    {
+      "label": "linux/arm64+gdextension",
+      "path": "2026-07-02/28628744470/linux-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-02/28628744470/linux-arm64-gdextension.png"
+    }
+  ]
+}
