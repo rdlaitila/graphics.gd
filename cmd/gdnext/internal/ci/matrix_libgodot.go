@@ -186,15 +186,6 @@ func libgodotRunnerFor(r product.LibGodotRecipe) (string, bool) {
 		return "ubuntu-latest", true
 	case product.GOOSDarwin:
 		return "macos-latest", true
-	case product.GOOSJS:
-		// Emscripten cross-compiles from linux; setup-emsdk in the
-		// workflow primes ~/emsdk before scons runs.
-		return "ubuntu-latest", true
-	case product.GOOSIOS, product.GOOSAndroid:
-		// Upstream Godot's platform drivers don't currently accept
-		// library_type=static_library for these targets; see
-		// LibGodot.hostCanBuild for the details. Skip in CI.
-		return "", false
 	default:
 		return "", false
 	}

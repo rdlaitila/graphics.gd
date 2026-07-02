@@ -131,21 +131,11 @@ var LibGodotMatrix = []LibGodotRecipe{
 	macosRecipe(GOARCHAmd64, true),
 	macosRecipe(GOARCHArm64, false),
 	macosRecipe(GOARCHArm64, true),
-	// ios — no editor build (Godot's ios platform driver refuses
-	// target=editor); device target only, darwin host required.
-	iosRecipe(GOARCHArm64),
-	// android — needs the NDK env var; scons handles cross via NDK
-	// clang directly. arm64 is the release target; amd64 is the
-	// emulator/waydroid target. No editor variant here — the Godot
-	// android editor is a full APK application, not a libgodot
-	// consumer, so it doesn't fit graphics.gd's link mode.
-	androidRecipe(GOARCHArm64),
-	androidRecipe(GOARCHAmd64),
-	// web/wasm — Emscripten produces a .a with dlink_enabled=yes so
-	// downstream bundles can statically link libgodot into their own
-	// library.wasm. Release-only (no editor build path for web
-	// upstream).
-	webWasmRecipe(),
+	// ios / android / web are omitted: upstream Godot's platform
+	// drivers don't list "library" in get_flags().supported, so
+	// library_type=static_library isn't a valid build for them.
+	// Web is served by GDExtension side modules (dlink_enabled=yes),
+	// not libgodot. Add recipes here once upstream flips the flag.
 }
 
 // linuxMuslRecipe builds the musl-static libgodot variant used when
@@ -359,78 +349,6 @@ func macosRecipe(goarch string, editor bool) LibGodotRecipe {
 		ArtefactName:   "libgodot.macos." + target + "." + godotArch + ".a",
 		InstallName:    "libgodot.darwin." + goarch + "." + target + ".a",
 		InstallSlug:    slug,
-	}
-}
-
-// iosRecipe builds libgodot for iOS device targets. Only arm64 is
-// supported by the platform driver as a device target (the simulator
-// variant is a separate build with `ios_simulator=yes`, still TBD).
-// Same darwin-host requirement as macOS.
-func iosRecipe(goarch string) LibGodotRecipe {
-	godotArch := "arm64"
-	extra := []string{
-		"vulkan=yes",
-		"metal=yes",
-		"builtin_sdl=yes",
-	}
-	return LibGodotRecipe{
-		GOOS:           GOOSIOS,
-		GOARCH:         goarch,
-		GodotPlatform:  "ios",
-		GodotArch:      godotArch,
-		ExtraSconsArgs: extra,
-		ArtefactName:   "libgodot.ios.template_release." + godotArch + ".a",
-		InstallName:    "libgodot.ios." + goarch + ".template_release.a",
-		InstallSlug:    "libgodot",
-	}
-}
-
-// androidRecipe builds libgodot for android. Godot's android platform
-// driver picks up ANDROID_HOME / ANDROID_NDK_ROOT from env and drives
-// the NDK's clang directly; the recipe just declares the target arch
-// and lets scons handle the toolchain resolution.
-func androidRecipe(goarch string) LibGodotRecipe {
-	godotArch := "arm64"
-	if goarch == GOARCHAmd64 {
-		godotArch = "x86_64"
-	}
-	extra := []string{
-		"vulkan=yes",
-		"opengl3=yes",
-		"builtin_sdl=yes",
-	}
-	return LibGodotRecipe{
-		GOOS:           GOOSAndroid,
-		GOARCH:         goarch,
-		GodotPlatform:  "android",
-		GodotArch:      godotArch,
-		ExtraSconsArgs: extra,
-		ArtefactName:   "libgodot.android.template_release." + godotArch + ".a",
-		InstallName:    "libgodot.android." + goarch + ".template_release.a",
-		InstallSlug:    "libgodot",
-	}
-}
-
-// webWasmRecipe builds libgodot for the browser via Emscripten. Host
-// needs `emcc` on PATH (setup-emsdk in CI, `emsdk activate latest`
-// locally). Release-only: Godot's web platform driver rejects
-// target=editor.
-func webWasmRecipe() LibGodotRecipe {
-	extra := []string{
-		"dlink_enabled=yes",
-		"threads=yes",
-		"lto=none",
-		"builtin_sdl=yes",
-	}
-	return LibGodotRecipe{
-		GOOS:           GOOSJS,
-		GOARCH:         GOARCHWasm,
-		GodotPlatform:  "web",
-		GodotArch:      "wasm32",
-		ExtraSconsArgs: extra,
-		ArtefactName:   "libgodot.web.template_release.wasm32.dlink.a",
-		InstallName:    "libgodot.js.wasm.template_release.a",
-		InstallSlug:    "libgodot",
 	}
 }
 

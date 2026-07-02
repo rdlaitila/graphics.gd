@@ -611,26 +611,6 @@ func (t *LibGodot) hostCanBuild(recipe product.LibGodotRecipe) error {
 			return fmt.Errorf("libgodot build: %s target requires a darwin host for the macOS SDK sysroot (got %s)", recipe.GOOS, t.BuildEnv.Host.Tuple())
 		}
 		return nil
-	case product.GOOSIOS:
-		// Upstream Godot's platform/ios/detect.py doesn't list
-		// "library" in its `supported` flags (only metal + mono),
-		// so scons refuses with "Library builds unsupported for
-		// ios" no matter what host we run on. Recipe kept in
-		// LibGodotMatrix so it's visible in `libgodot list` and
-		// automatically starts working the day upstream flips the
-		// flag; today we surface that expectation clearly.
-		return fmt.Errorf("libgodot build: ios does not currently support library_type=static_library (upstream Godot's platform/ios/detect.py `supported` flags don't include \"library\"). Track godotengine/godot for library support in the ios platform driver")
-	case product.GOOSAndroid:
-		// Same story as ios: platform/android/detect.py's `supported`
-		// list is just ["mono"]. Android also needs the NDK when it
-		// works, which the catalog (ToolchainAndroidNDK) handles;
-		// we short-circuit here before ever asking the user to
-		// download 600MB for a build that would then fail.
-		return fmt.Errorf("libgodot build: android does not currently support library_type=static_library (upstream Godot's platform/android/detect.py `supported` flags don't include \"library\"). Track godotengine/godot for library support in the android platform driver")
-	case product.GOOSJS:
-		// Emscripten cross-compiles from any host; scons aborts with a
-		// clear message if emcc isn't on PATH.
-		return nil
 	default:
 		return fmt.Errorf("libgodot build: target %s/%s is declared in product.LibGodotMatrix but no host is known to be able to build it", recipe.GOOS, recipe.GOARCH)
 	}
@@ -675,19 +655,6 @@ func (t *LibGodot) sconsEnv(recipe product.LibGodotRecipe, shimDir string) ([]st
 	}
 	if os.Getenv("ZIG_GLOBAL_CACHE_DIR") == "" {
 		env = append(env, "ZIG_GLOBAL_CACHE_DIR="+zigCache)
-	}
-	if recipe.GOOS == product.GOOSAndroid {
-		ndk, err := t.ToolCatalog.AndroidNDK.Lookup()
-		if err != nil {
-			return nil, xray.New(err)
-		}
-		env = append(env,
-			"ANDROID_NDK_ROOT="+ndk,
-			"ANDROID_NDK_HOME="+ndk,
-		)
-		if os.Getenv("ANDROID_HOME") == "" && os.Getenv("ANDROID_SDK_ROOT") == "" {
-			env = append(env, "ANDROID_HOME="+filepath.Dir(ndk))
-		}
 	}
 	// Assemble final PATH: shim dir first, then whatever the parent PATH was.
 	parentPath := os.Getenv("PATH")
