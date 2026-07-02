@@ -210,6 +210,30 @@ jobs:
             libxrandr-dev libwayland-dev libxkbcommon-dev libgl1-mesa-dev \
             libglu1-mesa-dev git
 
+      # Godot's windows recipe uses real mingw-w64 gcc (matching upstream
+      # Godot's own CI). Zig-cc was tried as an alternative but trips
+      # Godot's detect.py clang-detection path and cascades into
+      # -Wa,-mbig-obj / windres failures. Real mingw-w64 sidesteps
+      # all of it. Only relevant on ubuntu cross-hosting windows.
+      #
+      # ubuntu-24.04 ships both win32-thread and posix-thread mingw
+      # variants; Godot's platform/windows/detect.py refuses to build
+      # against win32 threads. Switch the update-alternatives symlinks
+      # to point at the posix variant before scons runs.
+      - name: apt mingw-w64 (windows cross)
+        if: matrix.goos == 'windows'
+        shell: bash
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends mingw-w64
+          arch=x86_64
+          if [ "${{ matrix.goarch }}" = "arm64" ]; then
+            arch=aarch64
+          fi
+          for tool in gcc g++; do
+            sudo update-alternatives --set "${arch}-w64-mingw32-${tool}" "/usr/bin/${arch}-w64-mingw32-${tool}-posix" || true
+          done
+
       - id: build
         name: Build libgodot
         shell: bash

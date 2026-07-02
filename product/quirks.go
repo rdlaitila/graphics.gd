@@ -277,24 +277,6 @@ var QuirkIOSArm64TemplateLinkUndefined = Quirk{
 	},
 }
 
-// QuirkLibGodotWindowsMingwSconsArgSplit marks the windows libgodot
-// recipes as broken because the recipe passes CC="zig cc -target ..."
-// as a multi-word SCons argument. Upstream SCons parses that as
-// separate positional tokens and drops platform=windows, so the
-// compile fails at "Please run SCons again and select a valid
-// platform". The fix is to plant a zig-cc forwarder shim (same
-// pattern as the linux musl recipe uses via plantZigShims) so
-// CC=cc / CXX=c++ resolve to single-token PATH lookups.
-var QuirkLibGodotWindowsMingwSconsArgSplit = Quirk{
-	Title:  "windows libgodot: recipe's multi-word CC= confuses SCons and drops platform=",
-	Scope:  QuirkCIBuildBroken,
-	Reason: "windowsMingwRecipe passes CC=\"zig cc -target x86_64-windows-gnu\" as a single ARGUMENTS entry; SCons's argv parser treats the whitespace as a delimiter and reads the remaining tokens as positional args, which leaves platform= empty and bails with `Please run SCons again and select a valid platform: platform=<string>`. Needs plantZigShims-style forwarders (cc, c++, ar, ranlib) prepended to PATH so the recipe can pass bare CC=cc CXX=c++ single-token args.",
-	Result: []string{
-		"windows/amd64 and windows/arm64 libgodot build cells surface as allow-fail in the matrix",
-		"the linux + darwin libgodot cells stay unaffected",
-	},
-}
-
 // QuirkLibGodotDarwinMoltenVKMissing marks the darwin libgodot recipes
 // as broken because they pass vulkan=yes but the macos-latest GitHub
 // runner doesn't ship the MoltenVK SDK. Either drop vulkan=yes (metal

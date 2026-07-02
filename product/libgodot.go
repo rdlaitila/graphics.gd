@@ -283,30 +283,44 @@ func editorTag(editor bool) (target, installInfix, slug string) {
 	return "template_release", "", "libgodot"
 }
 
-// windowsMingwRecipe cross-compiles the windows libgodot via mingw.
-// Zig ships a mingw sysroot for both x86_64 and aarch64, so this
-// recipe works from any host. `use_mingw=yes` toggles Godot's windows
-// platform driver into gcc/mingw mode instead of MSVC.
+// windowsMingwRecipe cross-compiles the windows libgodot via mingw-w64.
+// Godot's own upstream CI uses this route (real mingw-w64 gcc from
+// Debian/Ubuntu, not zig-cc), so it's the well-worn path. The build
+// host needs mingw-w64 installed (apt install mingw-w64 on ubuntu;
+// dnf install mingw64-gcc-c++ mingw64-winpthreads on Fedora). CI's
+// libgodot.yml installs it in the build step for windows-targeting
+// cells.
+//
+// The zig-cc route was tried and produces uncooperative behaviour:
+// Godot's platform/windows/detect.py detects zig-cc as clang, flips
+// use_llvm=True and appends .llvm to every artefact, then emits
+// -Wa,-mbig-obj which clang rejects, and resolves windres to `None`.
+// Real mingw-w64 sidesteps every one of those.
 func windowsMingwRecipe(goarch string, editor bool) LibGodotRecipe {
 	godotArch := "x86_64"
-	zigTarget := "x86_64-windows-gnu"
+	mingwPrefix := "x86_64-w64-mingw32-"
 	if goarch == GOARCHArm64 {
 		godotArch = "arm64"
-		zigTarget = "aarch64-windows-gnu"
+		mingwPrefix = "aarch64-w64-mingw32-"
 	}
 	target, _, slug := editorTag(editor)
+	// use_mingw=yes routes Godot's windows platform driver through
+	// gcc/mingw instead of MSVC. use_static_cpp=yes bundles libstdc++
+	// into the archive. lto=none keeps aggregate size manageable
+	// (mingw + lto ~= 1GB archives).
 	extra := []string{
 		"use_mingw=yes",
 		"use_static_cpp=yes",
 		"builtin_sdl=yes",
+		"lto=none",
 		"vulkan=no",
 		"d3d12=no",
 		"opengl3=no",
-		"CC=zig cc -target " + zigTarget,
-		"CXX=zig c++ -target " + zigTarget,
-		"LINK=zig c++ -target " + zigTarget,
-		"AR=zig ar",
-		"RANLIB=zig ranlib",
+		"CC=" + mingwPrefix + "gcc",
+		"CXX=" + mingwPrefix + "g++",
+		"LINK=" + mingwPrefix + "g++",
+		"AR=" + mingwPrefix + "ar",
+		"RANLIB=" + mingwPrefix + "ranlib",
 	}
 	return LibGodotRecipe{
 		GOOS:           GOOSWindows,
@@ -318,7 +332,6 @@ func windowsMingwRecipe(goarch string, editor bool) LibGodotRecipe {
 		ArtefactName:   "libgodot.windows." + target + "." + godotArch + ".a",
 		InstallName:    "libgodot.windows." + goarch + "." + target + ".a",
 		InstallSlug:    slug,
-		Quirks:         []Quirk{QuirkLibGodotWindowsMingwSconsArgSplit},
 	}
 }
 
