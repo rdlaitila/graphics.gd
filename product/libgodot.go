@@ -51,6 +51,25 @@ type LibGodotRecipe struct {
 	// instead of zig. Value is the SDK's target triple prefix, e.g.
 	// "x86_64-godot-linux-gnu". Mutually exclusive with ZigTarget.
 	BuildrootToolchain string
+	// Quirks documents known-broken build cells (same shape as
+	// Platform.Quirks). Consumed by ci/matrix_libgodot to gate
+	// individual cells behind allow_fail without dropping them
+	// from the matrix — the quirk row stays visible in workflow
+	// summaries as the contract for why the cell is tolerated.
+	Quirks []Quirk
+}
+
+// CIBlockedFor reports whether the recipe carries a QuirkCIBuildBroken
+// for the given build host. The libgodot matrix generator uses it to
+// mark the row as allow_fail (rather than omit it — visibility of
+// the tolerated failure is the point of a Quirk).
+func (r LibGodotRecipe) CIBlockedFor(hostGOOS, hostGOARCH string) bool {
+	for _, q := range r.Quirks {
+		if q.Scope == QuirkCIBuildBroken && q.AppliesToHost(hostGOOS, hostGOARCH) {
+			return true
+		}
+	}
+	return false
 }
 
 // LibC values a linux recipe can carry.
@@ -186,7 +205,18 @@ func linuxMuslRecipe(goarch string, editor bool) LibGodotRecipe {
 		ArtefactName:   "libgodot.linuxbsd." + target + "." + godotArch + "." + LibCMusl + ".a",
 		InstallName:    installName,
 		InstallSlug:    slug,
+		Quirks:         muslQuirks(editor),
 	}
+}
+
+// muslQuirks attaches known-broken CI markers to musl libgodot recipes.
+// Editor variant hits QuirkLibGodotLinuxMuslExecinfoMissing; release
+// variant is fine.
+func muslQuirks(editor bool) []Quirk {
+	if editor {
+		return []Quirk{QuirkLibGodotLinuxMuslExecinfoMissing}
+	}
+	return nil
 }
 
 // linuxGlibcRecipe builds the default linux libgodot variant using
@@ -288,6 +318,7 @@ func windowsMingwRecipe(goarch string, editor bool) LibGodotRecipe {
 		ArtefactName:   "libgodot.windows." + target + "." + godotArch + ".a",
 		InstallName:    "libgodot.windows." + goarch + "." + target + ".a",
 		InstallSlug:    slug,
+		Quirks:         []Quirk{QuirkLibGodotWindowsMingwSconsArgSplit},
 	}
 }
 
@@ -317,6 +348,7 @@ func macosRecipe(goarch string, editor bool) LibGodotRecipe {
 		ArtefactName:   "libgodot.macos." + target + "." + godotArch + ".a",
 		InstallName:    "libgodot.darwin." + goarch + "." + target + ".a",
 		InstallSlug:    slug,
+		Quirks:         []Quirk{QuirkLibGodotDarwinMoltenVKMissing},
 	}
 }
 

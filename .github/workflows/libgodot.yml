@@ -145,9 +145,10 @@ jobs:
           key: ${{ steps.tools-key.outputs.key }}
 
   build:
-    name: libgodot (${{ matrix.goos }}/${{ matrix.goarch }}, ${{ matrix.libc || 'default' }}, ${{ matrix.variant }})
+    name: libgodot (${{ matrix.goos }}/${{ matrix.goarch }}, ${{ matrix.libc || 'default' }}, ${{ matrix.variant }}${{ matrix.allow_fail && ', allow-fail' || '' }})
     needs: [matrix, bootstrap]
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.allow_fail == true }}
     strategy:
       fail-fast: false
       matrix:
@@ -231,6 +232,12 @@ jobs:
           ls -lah out
 
       - name: Upload artefact
+        # Allow-fail cells never produce an artefact; skip the upload
+        # so continue-on-error can properly mark the job as
+        # "failed-but-tolerated" without a spurious upload-artefact
+        # failure on top. `if: success()` guards on build step
+        # outcome so a failed build cell skips upload naturally.
+        if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: libgodot-${{ matrix.goos }}-${{ matrix.goarch }}-${{ matrix.libc || 'default' }}-${{ matrix.variant }}

@@ -680,6 +680,7 @@ var (
 		KnownChecksums: []string{
 			"sha256:3cc2bab367e185cdfb27501c4b30b1b0653c28d9f73df8dc91488e66ece5fa6b", // darwin/arm64
 			"sha256:02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239", // linux/amd64
+			"sha256:958ed7d1e00d0ea76590d27666efbf7a932281b3d7ba0c6b01b0ff26498f667f", // linux/arm64
 			"sha256:3a0ed1e8799a2f8ce2a6e6290a9ff22e6906f8227865911fb7ddedc3cc14cb0c", // windows/amd64
 		},
 	}

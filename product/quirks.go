@@ -277,6 +277,57 @@ var QuirkIOSArm64TemplateLinkUndefined = Quirk{
 	},
 }
 
+// QuirkLibGodotWindowsMingwSconsArgSplit marks the windows libgodot
+// recipes as broken because the recipe passes CC="zig cc -target ..."
+// as a multi-word SCons argument. Upstream SCons parses that as
+// separate positional tokens and drops platform=windows, so the
+// compile fails at "Please run SCons again and select a valid
+// platform". The fix is to plant a zig-cc forwarder shim (same
+// pattern as the linux musl recipe uses via plantZigShims) so
+// CC=cc / CXX=c++ resolve to single-token PATH lookups.
+var QuirkLibGodotWindowsMingwSconsArgSplit = Quirk{
+	Title:  "windows libgodot: recipe's multi-word CC= confuses SCons and drops platform=",
+	Scope:  QuirkCIBuildBroken,
+	Reason: "windowsMingwRecipe passes CC=\"zig cc -target x86_64-windows-gnu\" as a single ARGUMENTS entry; SCons's argv parser treats the whitespace as a delimiter and reads the remaining tokens as positional args, which leaves platform= empty and bails with `Please run SCons again and select a valid platform: platform=<string>`. Needs plantZigShims-style forwarders (cc, c++, ar, ranlib) prepended to PATH so the recipe can pass bare CC=cc CXX=c++ single-token args.",
+	Result: []string{
+		"windows/amd64 and windows/arm64 libgodot build cells surface as allow-fail in the matrix",
+		"the linux + darwin libgodot cells stay unaffected",
+	},
+}
+
+// QuirkLibGodotDarwinMoltenVKMissing marks the darwin libgodot recipes
+// as broken because they pass vulkan=yes but the macos-latest GitHub
+// runner doesn't ship the MoltenVK SDK. Either drop vulkan=yes (metal
+// alone is enough for darwin production builds) or install MoltenVK
+// via `brew install --cask vulkan-sdk` before scons runs.
+var QuirkLibGodotDarwinMoltenVKMissing = Quirk{
+	Title:  "darwin libgodot: recipe requires vulkan_sdk_path but MoltenVK isn't installed on macos-latest",
+	Scope:  QuirkCIBuildBroken,
+	Reason: "macosRecipe passes vulkan=yes to enable Godot's MoltenVK-backed vulkan driver. macos-latest runners don't ship MoltenVK, so upstream Godot's platform/macos/detect.py aborts with `MoltenVK SDK installation directory not found, use 'vulkan_sdk_path' SCons parameter to specify SDK path.` before compilation starts. Fix by adding a MoltenVK install step (`brew install --cask vulkan-sdk`) or by dropping vulkan=yes (metal alone covers darwin production paths).",
+	Result: []string{
+		"darwin/amd64 and darwin/arm64 libgodot build cells surface as allow-fail in the matrix",
+		"the linux + windows libgodot cells stay unaffected",
+	},
+}
+
+// QuirkLibGodotLinuxMuslExecinfoMissing marks the linux musl EDITOR
+// libgodot recipes as broken because the linuxbsd crash_handler pulls
+// in <execinfo.h>, which musl doesn't ship. The release template
+// variant builds fine (crash_handler is a no-op in release); only
+// the editor variant hits the header. Needs a scons flag or upstream
+// patch to gate execinfo behind __GLIBC__.
+var QuirkLibGodotLinuxMuslExecinfoMissing = Quirk{
+	Title:     "linux/musl editor libgodot: crash_handler_linuxbsd.cpp includes <execinfo.h>, missing on musl",
+	Scope:     QuirkCIBuildBroken,
+	LinkModes: nil, // applies regardless of link mode
+	Reason:    "platform/linuxbsd/crash_handler_linuxbsd.cpp:49 does `#include <execinfo.h>` unconditionally when compiling the editor. musl deliberately does not provide execinfo.h (it's a glibc-specific backtrace API). Legacy musl builds must have carried an upstream patch or a scons flag to compile the crash handler out; needs re-derivation. Fix candidates: patch the include site with `#ifdef __GLIBC__`, or set `disable_exceptions=yes debug_symbols=no` (already set), or upstream a scons flag that maps to `-DNO_EXECINFO` in the compilation unit.",
+	Result: []string{
+		"linux/amd64 musl editor and linux/arm64 musl editor libgodot cells surface as allow-fail",
+		"the linux musl release/template cells stay unaffected (crash_handler compiles in a no-op form)",
+		"the linux glibc cells stay unaffected (glibc ships execinfo.h)",
+	},
+}
+
 func (t QuirkScope) String() string {
 	switch t {
 	case QuirkInformational:
@@ -387,15 +438,26 @@ type QuirkEntry struct {
 func KnownQuirks() []QuirkEntry {
 	by := map[string]*QuirkEntry{}
 	var order []string
+	add := func(q Quirk, tuple string) {
+		e, ok := by[q.Title]
+		if !ok {
+			e = &QuirkEntry{Quirk: q}
+			by[q.Title] = e
+			order = append(order, q.Title)
+		}
+		e.Platforms = append(e.Platforms, tuple)
+	}
 	for _, p := range PlatformMatrix {
 		for _, q := range p.Quirks {
-			e, ok := by[q.Title]
-			if !ok {
-				e = &QuirkEntry{Quirk: q}
-				by[q.Title] = e
-				order = append(order, q.Title)
-			}
-			e.Platforms = append(e.Platforms, p.Tuple())
+			add(q, p.Tuple())
+		}
+	}
+	// Recipe-scoped quirks (libgodot per-cell caveats) render with a
+	// `libgodot(...)` prefix so consumers can tell them apart from
+	// Platform-scoped rows.
+	for _, r := range LibGodotMatrix {
+		for _, q := range r.Quirks {
+			add(q, libgodotRecipeTuple(r))
 		}
 	}
 	out := make([]QuirkEntry, 0, len(order))
@@ -411,4 +473,19 @@ func KnownQuirks() []QuirkEntry {
 		return out[i].Quirk.Title < out[j].Quirk.Title
 	})
 	return out
+}
+
+// libgodotRecipeTuple renders a LibGodotRecipe as a stable tuple for
+// KnownQuirks / summary output. Format: `libgodot(<goos>/<goarch>[/<libc>]/<variant>)`.
+func libgodotRecipeTuple(r LibGodotRecipe) string {
+	tuple := "libgodot(" + r.GOOS + "/" + r.GOARCH
+	if r.LibC != "" {
+		tuple += "/" + r.LibC
+	}
+	if r.Editor {
+		tuple += "/editor"
+	} else {
+		tuple += "/template_release"
+	}
+	return tuple + ")"
 }

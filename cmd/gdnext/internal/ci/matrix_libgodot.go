@@ -27,14 +27,15 @@ type LibGodotMatrixCommand struct {
 type LibGodotMatrixActions struct{}
 
 type libgodotMatrixRow struct {
-	Runner   string `json:"runner"`
-	GOOS     string `json:"goos"`
-	GOARCH   string `json:"goarch"`
-	LibC     string `json:"libc,omitempty"`
-	Editor   bool   `json:"editor"`
-	Variant  string `json:"variant"`
-	Install  string `json:"install"`
-	Artefact string `json:"artefact"`
+	Runner    string `json:"runner"`
+	GOOS      string `json:"goos"`
+	GOARCH    string `json:"goarch"`
+	LibC      string `json:"libc,omitempty"`
+	Editor    bool   `json:"editor"`
+	Variant   string `json:"variant"`
+	Install   string `json:"install"`
+	Artefact  string `json:"artefact"`
+	AllowFail bool   `json:"allow_fail,omitempty"`
 }
 
 // NewLibGodotMatrixCommand constructs `gdnext ci libgodot-matrix`.
@@ -131,17 +132,44 @@ func libgodotMatrix(targetFilter, libcFilter []string, editorOnly, templateOnly 
 			variant = "editor"
 		}
 		out = append(out, libgodotMatrixRow{
-			Runner:   runner,
-			GOOS:     r.GOOS,
-			GOARCH:   r.GOARCH,
-			LibC:     r.LibC,
-			Editor:   r.Editor,
-			Variant:  variant,
-			Install:  r.InstallName,
-			Artefact: r.ArtefactName,
+			Runner:    runner,
+			GOOS:      r.GOOS,
+			GOARCH:    r.GOARCH,
+			LibC:      r.LibC,
+			Editor:    r.Editor,
+			Variant:   variant,
+			Install:   r.InstallName,
+			Artefact:  r.ArtefactName,
+			AllowFail: r.CIBlockedFor(runnerHostGOOS(runner), runnerHostGOARCH(runner)),
 		})
 	}
 	return out
+}
+
+// runnerHostGOOS maps a GHA runner label back to the product BuildHost
+// GOOS token, so LibGodotRecipe.CIBlockedFor can compare against the
+// same values Platform.CIBlockedFor uses. Keeps the runner → host
+// mapping in one place — libgodotRunnerFor is the forward direction.
+func runnerHostGOOS(runner string) string {
+	switch runner {
+	case "ubuntu-latest", "ubuntu-24.04-arm":
+		return product.GOOSLinux
+	case "macos-latest":
+		return product.GOOSDarwin
+	case "windows-latest":
+		return product.GOOSWindows
+	}
+	return ""
+}
+
+// runnerHostGOARCH is the arch counterpart to runnerHostGOOS.
+func runnerHostGOARCH(runner string) string {
+	switch runner {
+	case "ubuntu-24.04-arm":
+		return product.GOARCHArm64
+	default:
+		return product.GOARCHAmd64
+	}
 }
 
 // libgodotRunnerFor returns the GHA runner label a recipe should build
