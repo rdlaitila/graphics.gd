@@ -30,6 +30,10 @@ on:
           - both
           - template
           - editor
+      release-as:
+        description: "If non-empty, publish results as a GitHub Release under this tag (e.g. libgodot-v4.7-stable-3). Missing tags are created at the workflow SHA."
+        required: false
+        default: ""
   push:
     tags:
       - "libgodot-v*"
@@ -310,8 +314,8 @@ jobs:
 
   release:
     name: Publish libgodot release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/libgodot-v')
+    needs: build    
+    if: startsWith(github.ref, 'refs/tags/libgodot-v') || (github.event_name == 'workflow_dispatch' && inputs.release-as != '')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -328,13 +332,43 @@ jobs:
         run: |
           find release -type f | sort
           ( cd release && sha256sum * | tee CHECKSUMS.txt )
+      - id: release-tag
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.release-as }}" ]; then
+            echo "tag=${{ inputs.release-as }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+      # Create + push the tag ourselves when release-as was supplied
+      # and the tag doesn't exist yet. Points at the SHA this workflow
+      # ran against, so the release matches the artefacts. Only fires
+      # on the workflow_dispatch path; tag-push events already have
+      # the tag on origin by definition.
+      - name: Ensure tag exists
+        if: github.event_name == 'workflow_dispatch' && inputs.release-as != ''
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag='${{ steps.release-tag.outputs.tag }}'
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "Tag ${tag} already exists on origin; leaving it as-is."
+            exit 0
+          fi
+          echo "Creating ${tag} at ${GITHUB_SHA}."
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${tag}" -m "libgodot release ${tag}" "${GITHUB_SHA}"
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${tag}"
       - name: Create GitHub Release
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: ${{ steps.release-tag.outputs.tag }}
+          name: ${{ steps.release-tag.outputs.tag }}
           body: |
-            libgodot static libraries built from godotengine/godot @ ${{ github.ref_name }}.
+            libgodot static libraries built from godotengine/godot @ ${{ steps.release-tag.outputs.tag }}.
 
             Consumed by graphics.gd via `product.ToolchainLibGodot{,Editor}`. See
             docs/toolchains.md for the download + verify pipeline.
