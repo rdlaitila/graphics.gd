@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/bzip2"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -39,6 +40,8 @@ func detectTopDirForTar(src, archiveType string) (string, *tar.Reader, error) {
 			return "", nil, fmt.Errorf("failed to create xz reader: %w", err)
 		}
 		tr = tar.NewReader(io.TeeReader(xzReader, buf))
+	case "tar.bz2":
+		tr = tar.NewReader(io.TeeReader(bzip2.NewReader(file), buf))
 	default:
 		return "", nil, fmt.Errorf("unsupported tar compression: %s", archiveType)
 	}
@@ -270,7 +273,15 @@ func extractTar(dest, targetFile, topDir string, tr *tar.Reader) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return fmt.Errorf("failed to create parent directory for %s: %w", target, err)
 			}
-			linkTarget := header.Linkname
+			// Hardlink targets are archive-relative paths, so
+			// they need the same topDir strip we applied to
+			// header.Name above — otherwise they still point at
+			// the un-stripped hierarchy that was never written.
+			linkName := header.Linkname
+			if topDir != "" {
+				linkName = strings.TrimPrefix(linkName, topDir+string("/"))
+			}
+			linkTarget := linkName
 			if !filepath.IsAbs(linkTarget) {
 				linkTarget = filepath.Join(dest, linkTarget)
 			}
@@ -313,7 +324,7 @@ func ExtractArchive(src, dest, archiveType, targetFile string, stripTopDir bool)
 			if err != nil {
 				return err
 			}
-		case "tar.gz", "tar.xz":
+		case "tar.gz", "tar.xz", "tar.bz2":
 			var err error
 			topDir, tz, err = detectTopDirForTar(src, archiveType)
 			if err != nil {
@@ -328,7 +339,7 @@ func ExtractArchive(src, dest, archiveType, targetFile string, stripTopDir bool)
 	switch archiveType {
 	case "zip":
 		return extractZip(src, dest, targetFile, topDir)
-	case "tar.gz", "tar.xz":
+	case "tar.gz", "tar.xz", "tar.bz2":
 		return extractTar(dest, targetFile, topDir, tz)
 	default:
 		return fmt.Errorf("unsupported archive type: %s", archiveType)

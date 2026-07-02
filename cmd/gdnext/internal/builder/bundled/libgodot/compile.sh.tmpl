@@ -1,0 +1,4 @@
+#!/bin/sh
+export ZIG_LOCAL_CACHE_DIR={{CACHE}}
+export ZIG_GLOBAL_CACHE_DIR={{CACHE}}
+exec {{ZIG}} {{VERB}} -target {{TARGET}} -g0 "$@"

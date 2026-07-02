@@ -131,6 +131,7 @@ var (
 	EnvAndroidPreset  = "GD_ANDROID_PRESET"
 	EnvWaydroidADB    = "GDNEXT_WAYDROID_ADB"
 	EnvGraphicsGDRoot = "GRAPHICS_GD_ROOT"
+	EnvLibGodotLibC   = "GDNEXT_LIBGODOT_LIBC"
 	// Runtime contract with the example / play-bot ---------------------
 	EnvRunningInsideGodot = "RUNNING_INSIDE_GODOT"
 	EnvPlay               = "GDNEXT_PLAY"
@@ -358,7 +359,7 @@ var (
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
 		Quirks:     []Quirk{QuirkLinuxAmd64LibGodotPlayEnvLoss},
-		Notes:      "libgodot mode (--link=libgodot or GOOS=musl alias) currently fetches the .musl. artefact",
+		Notes:      "libgodot mode (--link=libgodot or GOOS=musl alias) fetches libgodot.linux.<arch>.a (a musl-static build under the hood)",
 	}
 	PlatformLinuxArm64 = Platform{
 		Title:      "Linux ARM64",
@@ -515,12 +516,12 @@ var (
 var ToolchainMatrix = []Toolchain{
 	ToolchainGodot,
 	ToolchainGo,
-	ToolchainJDK,
 	ToolchainZig,
 	ToolchainLLVM,
 	ToolchainAndroidPlatformTools,
 	ToolchainAndroidBuildTools,
 	ToolchainAndroidPlatform35,
+	ToolchainAndroidJDK,
 	ToolchainADB,
 	ToolchainApkSigner,
 	ToolchainAAPT2,
@@ -532,6 +533,11 @@ var ToolchainMatrix = []Toolchain{
 	ToolchainLibGodot,
 	ToolchainLibGodotEditor,
 	ToolchainLDD,
+	// optionals
+	ToolchainSCons,
+	ToolchainGodotSrc,
+	ToolchainGodotBuildroot,
+	ToolchainAndroidNDK,
 }
 
 // SharedToolchains lists the toolchains that are required for all builds,
@@ -544,7 +550,7 @@ var SharedToolchains = []Toolchain{
 
 // AndroidToolchains lists the toolchains required for building Android targets.
 var AndroidToolchains = []Toolchain{
-	ToolchainJDK,
+	ToolchainAndroidJDK,
 	ToolchainAndroidPlatformTools,
 	ToolchainAndroidBuildTools,
 	ToolchainAndroidPlatform35,
@@ -610,6 +616,55 @@ var (
 			"--verbose": "-v",
 		},
 	}
+	ToolchainSCons = Toolchain{
+		Slug:           "scons",
+		Name:           "scons",
+		Version:        "4.10.1",
+		VersionFlags:   []string{"--version"},
+		VersionPrefix:  "SCons by Steven Knight et al.:",
+		RequiredFor:    "building libgodot (`gdnext libgodot build`)",
+		AvailableHosts: HostMatrix,
+		DownloadHint:   "https://scons.org/pages/download.html (or: pip install scons, apt install scons, brew install scons)",
+		Optional:       true,
+	}
+	ToolchainGodotSrc = Toolchain{
+		Slug:           "godot-src",
+		Name:           "godot-src",
+		Version:        LibGodotRef,
+		RequiredFor:    "compiling libgodot from source (`gdnext libgodot build`)",
+		AvailableHosts: HostMatrix,
+		DownloadURL:    "https://github.com/godotengine/godot/archive/refs/tags/$(VERSION).zip",
+		Installations: map[string]string{
+			"linux":   "$(GDPATH)/godot-src/$(VERSION)",
+			"darwin":  "$(GDPATH)/godot-src/$(VERSION)",
+			"windows": "$(GDPATH)/godot-src/$(VERSION)",
+		},
+		IsBundle:     true,
+		Optional:     true,
+		DownloadHint: "https://github.com/godotengine/godot/releases",
+		KnownChecksums: []string{
+			"sha256:c1a3329bd79c38fd2a65e261a6744f96914e5cc6ec3ff56c886a8c10656feb1b", // 4.7-stable (host-agnostic source zip)
+		},
+	}
+	ToolchainGodotBuildroot = Toolchain{
+		Slug:           "godot-buildroot",
+		Name:           "godot-buildroot",
+		Version:        "godot-2023.08.x-4",
+		RequiredFor:    "compiling libgodot's default (glibc) linux variant",
+		AvailableHosts: []BuildHost{HostLinuxAmd64, HostLinuxArm64},
+		DownloadURL:    "https://github.com/godotengine/buildroot/releases/download/$(VERSION)/$(ARCH)-godot-linux-gnu_sdk-buildroot.tar.bz2",
+		DownloadARCH:   map[string]string{"amd64": "x86_64", "arm64": "aarch64"},
+		Installations: map[string]string{
+			"linux": "$(GDPATH)/godot-buildroot/$(VERSION)-$(GOARCH)",
+		},
+		IsBundle:     true,
+		Optional:     true,
+		DownloadHint: "https://github.com/godotengine/buildroot/releases",
+		KnownChecksums: []string{
+			"sha256:b89f173b1f2f2f35f3090bc4efad732f1c0c1c1206e5480cfcb141977010bc94", // amd64 (x86_64)
+			"sha256:d7b673823e8078ac70ffa202b4471356eca360b80960c6d1a722af0c03aea29d", // arm64 (aarch64)
+		},
+	}
 	ToolchainZig = Toolchain{
 		Slug:           "zig",
 		Name:           "zig",
@@ -644,7 +699,7 @@ var (
 			"sha256:af59510bd670c4b2d190e5e6318b9ff4fc05736a1aa60874cfb05eaed8fd5d8d", // windows/amd64
 		},
 	}
-	ToolchainJDK = Toolchain{
+	ToolchainAndroidJDK = Toolchain{
 		Slug:           "android-jdk",
 		Name:           "jdk",
 		Version:        "21.0.5+11",
@@ -750,6 +805,38 @@ var (
 		DownloadHint: "https://dl.google.com/android/repository/platform-35_r02.zip",
 		KnownChecksums: []string{
 			"sha256:0988cacad01b38a18a47bac14a0695f246bc76c1b06c0eeb8eb0dc825ab0c8e0", // upstream (host-agnostic)
+		},
+	}
+	ToolchainAndroidNDK = Toolchain{
+		Slug:           "android-ndk",
+		Name:           "android-ndk-r27d",
+		Version:        "r27d",
+		RequiredFor:    "compiling libgodot for android targets (`gdnext libgodot build --goos android`)",
+		AvailableHosts: []BuildHost{HostLinuxAmd64, HostDarwinAmd64, HostDarwinArm64, HostWindowsAmd64},
+		Downloads: map[string]map[string]string{
+			"linux": {
+				"amd64": "https://dl.google.com/android/repository/android-ndk-r27d-linux.zip",
+			},
+			"darwin": {
+				"amd64": "https://dl.google.com/android/repository/android-ndk-r27d-darwin.zip",
+				"arm64": "https://dl.google.com/android/repository/android-ndk-r27d-darwin.zip",
+			},
+			"windows": {
+				"amd64": "https://dl.google.com/android/repository/android-ndk-r27d-windows.zip",
+			},
+		},
+		Installations: map[string]string{
+			"linux":   "$(GDPATH)/android/ndk/$(VERSION)",
+			"darwin":  "$(GDPATH)/android/ndk/$(VERSION)",
+			"windows": "$(GDPATH)/android/ndk/$(VERSION)",
+		},
+		IsBundle:     true,
+		Optional:     true,
+		DownloadHint: "https://developer.android.com/ndk/downloads",
+		KnownChecksums: []string{
+			"sha256:601246087a682d1944e1e16dd85bc6e49560fe8b6d61255be2829178c8ed15d9", // linux/amd64  (sha1 22105e41…)
+			"sha256:e69092f9d2bfa5d1199039980a14eb91c03cc971ab5c6968fc08a8e6b84e7bb7", // darwin       (universal zip; unnotarized)
+			"sha256:82094f53e66a76b6a9ec4fc35a5076091a92de3b91d13c5d4a7cfdb226304c59", // windows/amd64 (sha1 56607cbc…)
 		},
 	}
 	ToolchainADB = Toolchain{
@@ -870,24 +957,27 @@ var (
 		RequiredFor:    "libgodot static-link mode",
 		AvailableHosts: []BuildHost{HostLinuxAmd64},
 		DownloadURL:    "https://release.graphics.gd/libgodot.$(OS).$(GOARCH).$(EXT)",
-		DownloadOS:     map[string]string{"linux": "musl", "musl": "musl", "windows": "windows", "darwin": "darwin"},
+		DownloadOS:     map[string]string{"linux": "linux", "musl": "linux", "windows": "windows", "darwin": "darwin"},
 		DownloadEXT:    map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
 		IsLibrary:      true,
 		KnownChecksums: []string{
-			"sha256:3c85abc4b2711dd08a97cb1d58ea3d9833ea98709e62c9ab3264b6c535efbe4c", // linux/amd64
+			// Hashes will be re-seeded from the first CI run of the
+			// libgodot workflow that publishes libgodot.linux.<libc>.<arch>.a
+			// under the new name; previous entries were keyed on the
+			// old libgodot.musl.<arch>.a artefact and no longer match.
 		},
 	}
 	ToolchainLibGodotEditor = Toolchain{
 		Slug:           "libgodot-editor",
 		Name:           "libgodot.$(OS).editor.$(GOARCH).$(EXT)",
-		RequiredFor:    "libgodot editor (musl host today)",
+		RequiredFor:    "libgodot editor",
 		AvailableHosts: []BuildHost{HostLinuxAmd64},
 		DownloadURL:    "https://release.graphics.gd/libgodot.$(OS).editor.$(GOARCH).$(EXT)",
-		DownloadOS:     map[string]string{"linux": "musl", "musl": "musl", "windows": "windows", "darwin": "darwin"},
+		DownloadOS:     map[string]string{"linux": "linux", "musl": "linux", "windows": "windows", "darwin": "darwin"},
 		DownloadEXT:    map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
 		IsLibrary:      true,
 		KnownChecksums: []string{
-			"sha256:042c22cf9cb1952be0ba83bdcc45154d9dadd44d0d7bee269da67cb06a66dcef", // linux/amd64
+			// See note on ToolchainLibGodot.KnownChecksums.
 		},
 	}
 	ToolchainLDD = Toolchain{

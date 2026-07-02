@@ -37,6 +37,7 @@ type Toolchain struct {
 	IsBundle         bool                         `json:"is_bundle,omitempty"         xml:"is_bundle,attr,omitempty"        yaml:"is_bundle,omitempty"`
 	JavaJar          bool                         `json:"java_jar,omitempty"          xml:"java_jar,attr,omitempty"         yaml:"java_jar,omitempty"`
 	DarwinUniversal  bool                         `json:"darwin_universal,omitempty"  xml:"darwin_universal,attr,omitempty" yaml:"darwin_universal,omitempty"`
+	Optional         bool                         `json:"optional,omitempty"          xml:"optional,attr,omitempty"         yaml:"optional,omitempty"`
 	KnownChecksums   []string                     `json:"known_checksums,omitempty"   xml:"known_checksums>checksum,omitempty" yaml:"known_checksums,omitempty"`
 	RequiresBundles  []string                     `json:"requires_bundles,omitempty"  xml:"requires_bundles>slug,omitempty" yaml:"requires_bundles,omitempty"`
 	AddBinSymlink    bool                         `json:"add_bin_symlink,omitempty"   xml:"add_bin_symlink,attr,omitempty"  yaml:"add_bin_symlink,omitempty"`

@@ -10,12 +10,18 @@
 package main
 
 import (
+	"os"
+
 	"graphics.gd/classdb"
 	"graphics.gd/classdb/SceneTree"
 	"graphics.gd/startup"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "say-hi" {
+		println("hi")
+		return
+	}
 	dumpEnv("main entry")
 	debugf("==> canarybird main: registering CanaryBird and entering scene tree")
 	classdb.Register[CanaryBird]()

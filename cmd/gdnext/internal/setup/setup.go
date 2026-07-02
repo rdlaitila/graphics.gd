@@ -106,27 +106,39 @@ func ForBuild(di do.Injector, testing bool, extraArgs []string) (builder.Builder
 	return build, nil
 }
 
+// muslBuildClosure returns a build_godot closure that, on a musl host,
+// links the libgodot single-file linux template via the Linux builder
+// with GDNEXT_LIBGODOT_LIBC forced to musl (regardless of the outer
+// caller's link/libc selection, since a musl host can't run a glibc
+// binary and must always rebuild godot itself for the musl variant).
 func muslBuildClosure(di do.Injector) func() error {
 	return func() error {
 		GOARCH := os.Getenv(product.EnvGOARCH)
 		os.Setenv(product.EnvGOARCH, runtime.GOARCH)
 		defer os.Setenv(product.EnvGOARCH, GOARCH)
+		libc := os.Getenv(product.EnvLibGodotLibC)
+		os.Setenv(product.EnvLibGodotLibC, product.LibCMusl)
+		defer os.Setenv(product.EnvLibGodotLibC, libc)
 		current, err := os.Getwd()
 		if err != nil {
 			return xray.New(err)
 		}
 		os.Chdir(project.Directory)
 		defer os.Chdir(current)
-		musl, err := do.Invoke[*builder.Musl](di)
+		linux, err := do.Invoke[*builder.Linux](di)
 		if err != nil {
 			return xray.New(err)
 		}
-		return musl.Build("-gcflags=graphics.gd/classdb/...=-N -l")
+		return linux.Build("-gcflags=graphics.gd/classdb/...=-N -l")
 	}
 }
 
+// muslTestClosure mirrors [muslBuildClosure] for the test path.
 func muslTestClosure(di do.Injector, env product.BuildEnv, testArgsAll []string) func() error {
 	return func() error {
+		libc := os.Getenv(product.EnvLibGodotLibC)
+		os.Setenv(product.EnvLibGodotLibC, product.LibCMusl)
+		defer os.Setenv(product.EnvLibGodotLibC, libc)
 		current, err := os.Getwd()
 		if err != nil {
 			return xray.New(err)
@@ -141,10 +153,10 @@ func muslTestClosure(di do.Injector, env product.BuildEnv, testArgsAll []string)
 		if !env.Target.LinkMode.Has(product.LibGodot) {
 			args = []string{"-test.skip", "."}
 		}
-		musl, err := do.Invoke[*builder.Musl](di)
+		linux, err := do.Invoke[*builder.Linux](di)
 		if err != nil {
 			return xray.New(err)
 		}
-		return musl.Test(append(faster_compile, TestArgs(args)...)...)
+		return linux.Test(append(faster_compile, TestArgs(args)...)...)
 	}
 }

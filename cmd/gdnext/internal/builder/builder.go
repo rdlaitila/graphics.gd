@@ -27,7 +27,6 @@ var (
 	_ Builder = (*Android)(nil)
 	_ Builder = (*MetaQuest)(nil)
 	_ Builder = (*Browser)(nil)
-	_ Builder = (*Musl)(nil)
 )
 
 // Provides is the package-level provider set for every builder.
@@ -40,22 +39,14 @@ var Provides = do.Package(
 	do.Lazy(NewAndroid),
 	do.Lazy(NewMetaQuest),
 	do.Lazy(NewBrowser),
-	do.Lazy(NewMusl),
+	do.Lazy(NewLibGodot),
 )
 
-// For returns the Builder responsible for env. LinkMode wins: any
-// (*, LibGodot) target routes to *Musl (same recipe regardless of
-// GOOS); (*, GDExtension) dispatches per GOOS.
-//
-// env is passed explicitly so setup.ForBuild can dispatch on a
-// musl-mutated copy without re-registering the injector's BuildEnv.
-// The selected builder still resolves its OWN env via DI, which is
-// fine: the only field musl-detection mutates is Target.LinkMode,
-// and that's only read here for dispatch.
+// For returns the Builder responsible for env. Dispatch is per-GOOS;
+// the selected builder is responsible for branching on LinkMode
+// internally (linux, e.g., folds libgodot single-file builds into
+// its own methods by branching on LinkMode + GDNEXT_LIBGODOT_LIBC).
 func For(di do.Injector, env product.BuildEnv) (Builder, error) {
-	if env.Target.LinkMode.Has(product.LibGodot) {
-		return do.Invoke[*Musl](di)
-	}
 	switch env.Target.GOOS {
 	case product.GOOSLinux:
 		return do.Invoke[*Linux](di)

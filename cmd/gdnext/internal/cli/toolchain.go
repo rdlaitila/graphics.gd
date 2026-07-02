@@ -133,7 +133,11 @@ func (t *ToolchainActions) list(_ context.Context, cmd *cli.Command) error {
 			if v == "" {
 				v = "-"
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Slug, v, r.Required, strings.Join(r.Hosts, ","))
+			purpose := r.Required
+			if r.Optional {
+				purpose = "[optional] " + purpose
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Slug, v, purpose, strings.Join(r.Hosts, ","))
 		}
 		return nil
 	}
@@ -342,6 +346,11 @@ func (t *ToolchainActions) doctor(_ context.Context, cmd *cli.Command) error {
 	if err := validateJobs(t.BuildEnv.Host, jobs); err != nil {
 		return err
 	}
+	// Append opt-in tools the user has already installed. Missing
+	// optionals stay hidden — this is the "show me what I opted
+	// into, don't nag me about the ones I didn't" behavior.
+	jobs = append(jobs, optionalJobsInstalled(t.ToolCatalog, t.BuildEnv.Host)...)
+	sortJobsByCatalog(t.ToolCatalog, jobs)
 	if format != "" && format != "table" {
 		return printDoctorAudit(t.BuildEnv.Host, jobs, format)
 	}
@@ -406,6 +415,13 @@ func jobsForHost(catalog tooling.Catalog, host product.BuildHost) []toolJob {
 	idx := map[key]*toolJob{}
 	var order []key
 	add := func(t product.Toolchain, goos, goarch string, ctx jobContext) {
+		// Optional tools opt out of the bulk install walk; they're
+		// only pulled in when a specific verb asks for them
+		// (e.g. `gdnext libgodot build --goos android` triggers
+		// ToolchainAndroidNDK via a direct Lookup).
+		if t.Optional {
+			return
+		}
 		// IsLibrary AvailableHosts lists published target tuples; skip
 		// jobs whose tuple has no published artefact.
 		if t.IsLibrary && !t.CanInstallOn(product.BuildHost{GOOS: goos, GOARCH: goarch}) {
@@ -460,27 +476,36 @@ func jobsForHost(catalog tooling.Catalog, host product.BuildHost) []toolJob {
 			}
 		}
 	}
-	catalogOrder := map[string]int{}
-	for i, t := range catalog.Tools() {
-		catalogOrder[t.Slug] = i
-	}
 	out := make([]toolJob, 0, len(order))
 	for _, k := range order {
 		j := idx[k]
 		j.Experimental = jobIsExperimentalOnly(*j)
 		out = append(out, *j)
 	}
-	for i := 1; i < len(out); i++ {
+	sortJobsByCatalog(catalog, out)
+	return out
+}
+
+// sortJobsByCatalog stable-sorts jobs into the order catalog.Tools()
+// declares them, tie-breaking by (goos, goarch) so per-target library
+// jobs render deterministically. Used by jobsForHost after the initial
+// PlatformMatrix walk, and by doctor after appending installed
+// optionals so both flows agree on row ordering.
+func sortJobsByCatalog(catalog tooling.Catalog, jobs []toolJob) {
+	order := map[string]int{}
+	for i, t := range catalog.Tools() {
+		order[t.Slug] = i
+	}
+	for i := 1; i < len(jobs); i++ {
 		for j := i; j > 0; j-- {
-			a, b := out[j-1], out[j]
-			ai, bi := catalogOrder[a.Tool.Slug], catalogOrder[b.Tool.Slug]
+			a, b := jobs[j-1], jobs[j]
+			ai, bi := order[a.Tool.Slug], order[b.Tool.Slug]
 			if ai < bi || (ai == bi && (a.GOOS < b.GOOS || (a.GOOS == b.GOOS && a.GOARCH < b.GOARCH))) {
 				break
 			}
-			out[j-1], out[j] = b, a
+			jobs[j-1], jobs[j] = b, a
 		}
 	}
-	return out
 }
 
 func jobIsExperimentalOnly(j toolJob) bool {
@@ -493,6 +518,36 @@ func jobIsExperimentalOnly(j toolJob) bool {
 		}
 	}
 	return true
+}
+
+// optionalJobsInstalled returns synthetic doctor rows for every
+// Toolchain.Optional entry the user has already installed on host.
+// Uses ModeFind so a missing optional stays hidden — the whole point
+// of Optional is that the user opts in per-verb, and doctor should
+// not nag about opt-outs. --fix intentionally ignores these too: they
+// were installed by a named `toolchain install` (or by a verb that
+// does its own Lookup) and doctor is not the right place to make the
+// opt-in call.
+func optionalJobsInstalled(catalog tooling.Catalog, host product.BuildHost) []toolJob {
+	var out []toolJob
+	for _, tool := range catalog.Tools() {
+		if !tool.Optional {
+			continue
+		}
+		if !tool.CanInstallOn(host) {
+			continue
+		}
+		if _, err := tool.LookupPlatform(host.GOOS, host.GOARCH, tooling.ModeFind); err != nil {
+			continue
+		}
+		out = append(out, toolJob{
+			Tool:      tool,
+			GOOS:      host.GOOS,
+			GOARCH:    host.GOARCH,
+			IsLibrary: tool.IsLibrary,
+		})
+	}
+	return out
 }
 
 // validateJobs surfaces product-catalog bugs (a non-library tool a
@@ -759,6 +814,7 @@ type CatalogRow struct {
 	Version  string   `json:"version,omitempty"      xml:"version,omitempty"      yaml:"version,omitempty"`
 	Required string   `json:"required_for,omitempty" xml:"required_for,omitempty" yaml:"required_for,omitempty"`
 	Library  bool     `json:"library,omitempty"      xml:"library,attr,omitempty" yaml:"library,omitempty"`
+	Optional bool     `json:"optional,omitempty"     xml:"optional,attr,omitempty" yaml:"optional,omitempty"`
 	Hosts    []string `json:"installable_hosts"      xml:"installable_hosts>host" yaml:"installable_hosts"`
 	Source   string   `json:"source,omitempty"       xml:"source,omitempty"       yaml:"source,omitempty"`
 }
@@ -777,6 +833,7 @@ func collectCatalogRows(cat tooling.Catalog) []CatalogRow {
 			Version:  tool.Version,
 			Required: tool.RequiredFor,
 			Library:  tool.IsLibrary,
+			Optional: tool.Optional,
 			Hosts:    hosts,
 			Source:   tool.DownloadURL,
 		})

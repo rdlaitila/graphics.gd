@@ -443,17 +443,6 @@ gdnext web serve   # serve releases/js/wasm/ with COEP/COOP headers
 The COEP/COOP headers are what `SharedArrayBuffer` requires in the
 browser; serving any other way will silently break threads.
 
-#### `musl`
-
-Static-musl Linux build helpers.
-
-```
-gdnext musl setup           # stage the musl build environment
-gdnext musl patch-malloc    # TODO: apply the deterministic malloc.c patch
-```
-
-Used by `--link=libgodot` Linux builds.
-
 #### `ci`
 
 CI helpers for the GitHub Actions workflow. Full reference in

@@ -67,8 +67,8 @@ var Provides = do.Package(
 	do.Lazy(NewMacosActions),
 	do.Lazy(NewWebCommand),
 	do.Lazy(NewWebActions),
-	do.Lazy(NewMuslCommand),
-	do.Lazy(NewMuslActions),
+	do.Lazy(NewLibGodotCommand),
+	do.Lazy(NewLibGodotActions),
 )
 
 // NewRootCommand constructs the root command for gdnext
@@ -172,7 +172,7 @@ func commands(di do.Injector) []*cli.Command {
 		do.MustInvoke[*IosCommand](di).Command,
 		do.MustInvoke[*MacosCommand](di).Command,
 		do.MustInvoke[*WebCommand](di).Command,
-		do.MustInvoke[*MuslCommand](di).Command,
+		do.MustInvoke[*LibGodotCommand](di).Command,
 		do.MustInvoke[*ci.CICommand](di).Command,
 	}
 }

@@ -79,8 +79,12 @@ func AssertTemplate(env product.BuildEnv, version string) error {
 				"gdnext: downloading export templates",
 			)
 			if _, err := io.Copy(io.MultiWriter(out, bar), resp.Body); err != nil {
+				_ = bar.Close()
 				return xray.New(err)
 			}
+			_ = bar.Finish()
+			_ = bar.Close()
+			fmt.Fprintln(os.Stderr)
 		}
 		if err := tooling.ExtractArchive(dest, location, "zip", "", true); err != nil {
 			return xray.New(err)

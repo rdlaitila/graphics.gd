@@ -201,8 +201,8 @@ aapt2                          2.19-android-13.0.0_r6  gd       OK      9dd86ae7
 apktool                        2.12.1                  gd       OK      cf6c59294179  /home/me/gd/bin/apktool
 bundletool                     1.18.3                  gd       OK      649c11f74c05  /home/me/gd/bin/bundletool
 android.jar (android/amd64)    -                       gd       OK      1ef3b7ae9e0d  /home/me/gd/lib/android.jar
-libgodot (linux/amd64)         -                       gd       OK      3c85abc4b271  /home/me/gd/lib/libgodot.musl.amd64.a
-libgodot-editor (linux/amd64)  -                       gd       OK      042c22cf9cb1  /home/me/gd/lib/libgodot.musl.editor.amd64.a
+libgodot (linux/amd64)         -                       gd       OK      3c85abc4b271  /home/me/gd/lib/libgodot.linux.amd64.a
+libgodot-editor (linux/amd64)  -                       gd       OK      042c22cf9cb1  /home/me/gd/lib/libgodot.linux.editor.amd64.a
 all toolchains present for every target buildable from linux/amd64
 ```
 
@@ -286,13 +286,13 @@ toolchain install for linux/amd64
     skip: shares artefact with a previous job (/home/me/gd/lib/android.jar)
 
 ==> libgodot (linux/amd64)
-    source: https://release.graphics.gd/libgodot.musl.amd64.a
-    skip: already installed (gd-managed at /home/me/gd/lib/libgodot.musl.amd64.a)
+    source: https://release.graphics.gd/libgodot.linux.amd64.a
+    skip: already installed (gd-managed at /home/me/gd/lib/libgodot.linux.amd64.a)
     sha256:3c85abc4b2711dd08a97cb1d58ea3d9833ea98709e62c9ab3264b6c535efbe4c
 
 ==> libgodot-editor (linux/amd64)
-    source: https://release.graphics.gd/libgodot.musl.editor.amd64.a
-    skip: already installed (gd-managed at /home/me/gd/lib/libgodot.musl.editor.amd64.a)
+    source: https://release.graphics.gd/libgodot.linux.editor.amd64.a
+    skip: already installed (gd-managed at /home/me/gd/lib/libgodot.linux.editor.amd64.a)
     sha256:042c22cf9cb1952be0ba83bdcc45154d9dadd44d0d7bee269da67cb06a66dcef
 
 Summary: 0 installed, 10 already gd-managed, 2 already user-managed, 0 skipped (experimental), 0 failed.
@@ -365,11 +365,11 @@ toolchain uninstall for linux/amd64
     skip: not installed
 
 ==> libgodot
-    removed binary: /home/me/gd/lib/libgodot.musl.amd64.a
+    removed binary: /home/me/gd/lib/libgodot.linux.amd64.a
     removed checksum: /home/me/gd/checksums/libgodot-linux-amd64.sha256
 
 ==> libgodot-editor
-    removed binary: /home/me/gd/lib/libgodot.musl.editor.amd64.a
+    removed binary: /home/me/gd/lib/libgodot.linux.editor.amd64.a
     removed checksum: /home/me/gd/checksums/libgodot-editor-linux-amd64.sha256
 
 ==> ldd

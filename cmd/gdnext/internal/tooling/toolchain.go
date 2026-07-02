@@ -484,8 +484,12 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 				fmt.Sprintf("gd: downloading %s v%s", name, exe.Version),
 			)
 			if _, err := io.Copy(io.MultiWriter(out, bar), resp.Body); err != nil {
+				_ = bar.Close()
 				return xray.New(err)
 			}
+			_ = bar.Finish()
+			_ = bar.Close()
+			fmt.Fprintln(os.Stderr)
 		}
 		return nil
 	}(); err != nil {
@@ -698,6 +702,8 @@ func archiveType(url string) string {
 		return "tar.gz"
 	case strings.HasSuffix(url, ".tar.xz"):
 		return "tar.xz"
+	case strings.HasSuffix(url, ".tar.bz2"):
+		return "tar.bz2"
 	default:
 		return "zip"
 	}
@@ -712,7 +718,7 @@ func bundleArchiveSuffix(url string) string {
 	if i := strings.LastIndex(base, "/"); i >= 0 {
 		base = base[i+1:]
 	}
-	for _, ext := range []string{".tar.gz", ".tar.xz", ".zip"} {
+	for _, ext := range []string{".tar.gz", ".tar.xz", ".tar.bz2", ".zip"} {
 		if strings.HasSuffix(base, ext) {
 			base = strings.TrimSuffix(base, ext)
 			break
@@ -773,8 +779,12 @@ func downloadResumable(url, dest, displayName, displayVersion string) error {
 			fmt.Sprintf("gd: downloading %s v%s", displayName, displayVersion),
 		)
 		if _, err := io.Copy(io.MultiWriter(out, bar), resp.Body); err != nil {
+			_ = bar.Close()
 			return err
 		}
+		_ = bar.Finish()
+		_ = bar.Close()
+		fmt.Fprintln(os.Stderr)
 	}
 	return nil
 }
@@ -898,4 +908,56 @@ func SidecarPath(host product.BuildHost, slug, goos, goarch string) string {
 // summary code paths.
 func ReadSidecar(path string) (sum string, size int64, err error) {
 	return readSidecar(path)
+}
+
+// InstallLibraryFromFile copies srcPath into <host.GDLibPath>/destName
+// and writes the matching sidecar under host.GDChecksumsPath keyed on
+// (slug, goos, goarch). Returns the installed absolute path plus the
+// computed sha256 (with the "sha256:" prefix). Used by `gdnext libgodot
+// install` and any other verb that produces a library artefact
+// out-of-band and needs to plug it into the same lookup + audit
+// machinery `gdnext toolchain install` uses.
+func InstallLibraryFromFile(host product.BuildHost, slug, goos, goarch, srcPath, destName string) (installedPath, sum string, err error) {
+	if host.GDLibPath == "" {
+		return "", "", fmt.Errorf("tooling.InstallLibraryFromFile: host has no GDLibPath (BuildEnv not resolved)")
+	}
+	if err := os.MkdirAll(host.GDLibPath, 0755); err != nil {
+		return "", "", xray.New(err)
+	}
+	dest := filepath.Join(host.GDLibPath, destName)
+	if err := copyFile(srcPath, dest); err != nil {
+		return "", "", xray.New(err)
+	}
+	size, hash, err := sha256File(dest)
+	if err != nil {
+		return "", "", xray.New(err)
+	}
+	sum = "sha256:" + hash
+	sidecarPath := sidecarPathFor(host, slug, goos, goarch)
+	if err := writeSidecar(sidecarPath, sum, size); err != nil {
+		return "", "", xray.New(err)
+	}
+	return dest, sum, nil
+}
+
+// copyFile copies src to dst with 0644 perms, creating dst if missing
+// and overwriting when present. Used by InstallLibraryFromFile so we
+// don't rely on os.Rename (which fails across filesystems, common in
+// CI when the scratch dir is a tmpfs and GDLibPath is on the runner's
+// data volume).
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return nil
 }
