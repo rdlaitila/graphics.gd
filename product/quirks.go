@@ -277,21 +277,6 @@ var QuirkIOSArm64TemplateLinkUndefined = Quirk{
 	},
 }
 
-// QuirkLibGodotDarwinMoltenVKMissing marks the darwin libgodot recipes
-// as broken because they pass vulkan=yes but the macos-latest GitHub
-// runner doesn't ship the MoltenVK SDK. Either drop vulkan=yes (metal
-// alone is enough for darwin production builds) or install MoltenVK
-// via `brew install --cask vulkan-sdk` before scons runs.
-var QuirkLibGodotDarwinMoltenVKMissing = Quirk{
-	Title:  "darwin libgodot: recipe requires vulkan_sdk_path but MoltenVK isn't installed on macos-latest",
-	Scope:  QuirkCIBuildBroken,
-	Reason: "macosRecipe passes vulkan=yes to enable Godot's MoltenVK-backed vulkan driver. macos-latest runners don't ship MoltenVK, so upstream Godot's platform/macos/detect.py aborts with `MoltenVK SDK installation directory not found, use 'vulkan_sdk_path' SCons parameter to specify SDK path.` before compilation starts. Fix by adding a MoltenVK install step (`brew install --cask vulkan-sdk`) or by dropping vulkan=yes (metal alone covers darwin production paths).",
-	Result: []string{
-		"darwin/amd64 and darwin/arm64 libgodot build cells surface as allow-fail in the matrix",
-		"the linux + windows libgodot cells stay unaffected",
-	},
-}
-
 // QuirkLibGodotLinuxMuslExecinfoMissing marks the linux musl EDITOR
 // libgodot recipes as broken because the linuxbsd crash_handler pulls
 // in <execinfo.h>, which musl doesn't ship. The release template

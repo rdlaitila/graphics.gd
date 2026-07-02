@@ -627,6 +627,10 @@ func (t *LibGodot) hostCanBuild(recipe product.LibGodotRecipe) error {
 		// we short-circuit here before ever asking the user to
 		// download 600MB for a build that would then fail.
 		return fmt.Errorf("libgodot build: android does not currently support library_type=static_library (upstream Godot's platform/android/detect.py `supported` flags don't include \"library\"). Track godotengine/godot for library support in the android platform driver")
+	case product.GOOSJS:
+		// Emscripten cross-compiles from any host; scons aborts with a
+		// clear message if emcc isn't on PATH.
+		return nil
 	default:
 		return fmt.Errorf("libgodot build: target %s/%s is declared in product.LibGodotMatrix but no host is known to be able to build it", recipe.GOOS, recipe.GOARCH)
 	}

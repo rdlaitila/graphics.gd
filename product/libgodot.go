@@ -141,13 +141,11 @@ var LibGodotMatrix = []LibGodotRecipe{
 	// consumer, so it doesn't fit graphics.gd's link mode.
 	androidRecipe(GOARCHArm64),
 	androidRecipe(GOARCHAmd64),
-	// web/wasm — the .a variant Emscripten produces so downstream
-	// bundles can statically link libgodot into library.wasm. Kept
-	// off the matrix until upstream ships a libgodot.web wasm build:
-	// today emscripten + library_type=static_library emits an .a but
-	// the toolchain plumbing to link it into a Go wasm build isn't in
-	// place. See QuirkWebWasmGDExtensionPlayBroken for the tracker.
-	// webWasmRecipe(),
+	// web/wasm — Emscripten produces a .a with dlink_enabled=yes so
+	// downstream bundles can statically link libgodot into their own
+	// library.wasm. Release-only (no editor build path for web
+	// upstream).
+	webWasmRecipe(),
 }
 
 // linuxMuslRecipe builds the musl-static libgodot variant used when
@@ -361,7 +359,6 @@ func macosRecipe(goarch string, editor bool) LibGodotRecipe {
 		ArtefactName:   "libgodot.macos." + target + "." + godotArch + ".a",
 		InstallName:    "libgodot.darwin." + goarch + "." + target + ".a",
 		InstallSlug:    slug,
-		Quirks:         []Quirk{QuirkLibGodotDarwinMoltenVKMissing},
 	}
 }
 
@@ -410,6 +407,29 @@ func androidRecipe(goarch string) LibGodotRecipe {
 		ExtraSconsArgs: extra,
 		ArtefactName:   "libgodot.android.template_release." + godotArch + ".a",
 		InstallName:    "libgodot.android." + goarch + ".template_release.a",
+		InstallSlug:    "libgodot",
+	}
+}
+
+// webWasmRecipe builds libgodot for the browser via Emscripten. Host
+// needs `emcc` on PATH (setup-emsdk in CI, `emsdk activate latest`
+// locally). Release-only: Godot's web platform driver rejects
+// target=editor.
+func webWasmRecipe() LibGodotRecipe {
+	extra := []string{
+		"dlink_enabled=yes",
+		"threads=yes",
+		"lto=none",
+		"builtin_sdl=yes",
+	}
+	return LibGodotRecipe{
+		GOOS:           GOOSJS,
+		GOARCH:         GOARCHWasm,
+		GodotPlatform:  "web",
+		GodotArch:      "wasm32",
+		ExtraSconsArgs: extra,
+		ArtefactName:   "libgodot.web.template_release.wasm32.dlink.a",
+		InstallName:    "libgodot.js.wasm.template_release.a",
 		InstallSlug:    "libgodot",
 	}
 }

@@ -234,6 +234,31 @@ jobs:
             sudo update-alternatives --set "${arch}-w64-mingw32-${tool}" "/usr/bin/${arch}-w64-mingw32-${tool}-posix" || true
           done
 
+      # setup-emsdk exports EMSDK / PATH into $GITHUB_ENV so scons finds emcc.
+      - name: Setup Emscripten (web)
+        if: matrix.goos == 'js'
+        uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+        with:
+          version: 3.1.64
+          actions-cache-folder: emsdk-cache
+
+      # Mirrors upstream Godot's misc/scripts/install_vulkan_sdk_macos.sh;
+      # provides MoltenVK so platform/macos/detect.py finds it via VULKAN_SDK.
+      - name: Install Vulkan SDK (macOS)
+        if: matrix.goos == 'darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.zip" -o /tmp/vulkan-sdk.zip
+          unzip -q /tmp/vulkan-sdk.zip -d /tmp/vulkan-sdk
+          installer=$(find /tmp/vulkan-sdk -name InstallVulkan.app -maxdepth 4 -print -quit)
+          sudo "$installer/Contents/MacOS/InstallVulkan" \
+            --root "$HOME/VulkanSDK/latest" \
+            --accept-licenses --default-answer --confirm-command install \
+            com.lunarg.vulkan.core com.lunarg.vulkan.usr
+          rm -rf /tmp/vulkan-sdk /tmp/vulkan-sdk.zip
+          echo "VULKAN_SDK=$HOME/VulkanSDK/latest/macOS" >> $GITHUB_ENV
+
       - id: build
         name: Build libgodot
         shell: bash
