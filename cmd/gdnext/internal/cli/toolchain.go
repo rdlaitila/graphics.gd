@@ -318,14 +318,17 @@ func uninstallTool(host product.BuildHost, tool *tooling.Tool, keepSidecar bool)
 		sidecar := tooling.SidecarPath(host, tool.Slug, host.GOOS, host.GOARCH, "")
 		if tool.IsLibrary {
 			// IsLibrary tools may have multiple per-target sidecars;
-			// walk PlatformMatrix to clear them all.
+			// walk PlatformMatrix + libc variants to clear them all.
+			libcs := []string{"", product.LibCGlibc, product.LibCMusl}
 			for _, p := range product.PlatformMatrix {
 				if !p.Kind.Has(product.Target) {
 					continue
 				}
-				s := tooling.SidecarPath(host, tool.Slug, p.GOOS, p.GOARCH, "")
-				if err := os.Remove(s); err == nil {
-					fmt.Printf("    removed checksum: %s\n", s)
+				for _, libc := range libcs {
+					s := tooling.SidecarPath(host, tool.Slug, p.GOOS, p.GOARCH, libc)
+					if err := os.Remove(s); err == nil {
+						fmt.Printf("    removed checksum: %s\n", s)
+					}
 				}
 			}
 		} else if err := os.Remove(sidecar); err == nil {
@@ -412,7 +415,7 @@ func (j toolJob) Lookup(mode ...tooling.Mode) (string, error) {
 // jobs needed to prepare every target host can build. Non-library tools
 // dedupe by slug; library tools dedupe by (slug, goos, goarch).
 func jobsForHost(catalog tooling.Catalog, host product.BuildHost) []toolJob {
-	type key struct{ slug, goos, goarch string }
+	type key struct{ slug, goos, goarch, libc string }
 	idx := map[key]*toolJob{}
 	var order []key
 	add := func(t product.Toolchain, goos, goarch string, ctx jobContext) {
@@ -428,9 +431,13 @@ func jobsForHost(catalog tooling.Catalog, host product.BuildHost) []toolJob {
 		if t.IsLibrary && !t.CanInstallOn(product.BuildHost{GOOS: goos, GOARCH: goarch}) {
 			return
 		}
+		libc := ""
+		if t.IsLibrary && goos == product.GOOSLinux && (t.Slug == product.ToolchainLibGodot.Slug || t.Slug == product.ToolchainLibGodotEditor.Slug) {
+			libc = product.LibCGlibc
+		}
 		k := key{slug: t.Slug}
 		if t.IsLibrary {
-			k = key{slug: t.Slug, goos: goos, goarch: goarch}
+			k = key{slug: t.Slug, goos: goos, goarch: goarch, libc: libc}
 		}
 		if existing, ok := idx[k]; ok {
 			existing.ContextTargets = append(existing.ContextTargets, ctx)
@@ -448,6 +455,7 @@ func jobsForHost(catalog tooling.Catalog, host product.BuildHost) []toolJob {
 			Tool:           runtime,
 			GOOS:           jg,
 			GOARCH:         jc,
+			LibC:           libc,
 			IsLibrary:      t.IsLibrary,
 			ContextTargets: []jobContext{ctx},
 		}
