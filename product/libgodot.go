@@ -223,18 +223,19 @@ func muslQuirks(editor bool) []Quirk {
 func linuxGlibcRecipe(goarch string, editor bool) LibGodotRecipe {
 	target, _, slug := editorTag(editor)
 	installName := "libgodot.linux." + goarch + ".glibc." + target + ".a"
+	// arm64 goes through zig-cc pinned to glibc 2.28 rather than the
+	// buildroot SDK: Godot's aarch64 buildroot is a native aarch64
+	// toolchain (not amd64-hosted), so it can't cross-compile from
+	// the ubuntu-latest amd64 runner. zig-cc with target
+	// aarch64-linux-gnu.2.28 lands the same glibc baseline.
 	godotArch := "x86_64"
 	triplePrefix := "x86_64-godot-linux-gnu"
+	zigTarget := ""
 	if goarch == GOARCHArm64 {
 		godotArch = "arm64"
-		triplePrefix = "aarch64-godot-linux-gnu"
+		triplePrefix = ""
+		zigTarget = "aarch64-linux-gnu.2.28"
 	}
-	// use_static_cpp bundles libstdc++/libgcc so the resulting binary
-	// doesn't depend on the host's libstdc++.so version. builtin_sdl
-	// uses Godot's bundled SDL2. lto=none keeps the aggregate archive
-	// around 250MB; Godot's default (thin) balloons past 1GB in .a form.
-	// AR/RANLIB point at the SDK's tools (planted by the builder as
-	// `ar`/`ranlib` shims that forward to `<triple>-ar` / `<triple>-ranlib`).
 	extra := []string{
 		"use_static_cpp=yes",
 		"lto=none",
@@ -254,6 +255,7 @@ func linuxGlibcRecipe(goarch string, editor bool) LibGodotRecipe {
 		GodotArch:          godotArch,
 		ExtraSconsArgs:     extra,
 		BuildrootToolchain: triplePrefix,
+		ZigTarget:          zigTarget,
 		ArtefactName:       "libgodot.linuxbsd." + target + "." + godotArch + "." + LibCGlibc + ".a",
 		InstallName:        installName,
 		InstallSlug:        slug,

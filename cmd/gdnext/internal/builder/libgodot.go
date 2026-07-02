@@ -245,7 +245,7 @@ func (t *LibGodot) compileMuslShim(recipe product.LibGodotRecipe) (string, error
 	if err != nil {
 		return "", xray.New(err)
 	}
-	dir := filepath.Join(t.BuildEnv.Host.GDRootPath, "libgodot-shim", recipe.GOOS+"-"+recipe.GOARCH)
+	dir := filepath.Join(t.BuildEnv.Host.GDRootPath, "libgodot-shim", shimSubdir(recipe))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", xray.New(err)
 	}
@@ -690,7 +690,7 @@ func (t *LibGodot) plantZigShims(recipe product.LibGodotRecipe) (string, error) 
 	if err != nil {
 		return "", xray.New(err)
 	}
-	dir := filepath.Join(t.BuildEnv.Host.GDRootPath, "libgodot-shim", recipe.GOOS+"-"+recipe.GOARCH)
+	dir := filepath.Join(t.BuildEnv.Host.GDRootPath, "libgodot-shim", shimSubdir(recipe))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", xray.New(err)
 	}
@@ -759,7 +759,7 @@ func (t *LibGodot) plantBuildrootShims(recipe product.LibGodotRecipe) (string, e
 		return "", xray.New(err)
 	}
 	sdkBin := filepath.Join(sdk, "bin")
-	dir := filepath.Join(t.BuildEnv.Host.GDRootPath, "libgodot-shim", recipe.GOOS+"-"+recipe.GOARCH+"-glibc")
+	dir := filepath.Join(t.BuildEnv.Host.GDRootPath, "libgodot-shim", shimSubdir(recipe))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", xray.New(err)
 	}
@@ -818,6 +818,18 @@ func (t *LibGodot) plantToolchainShims(recipe product.LibGodotRecipe) (string, e
 		return "", xray.New(err)
 	}
 	return t.plantZigShims(recipe)
+}
+
+// shimSubdir names the per-recipe shim directory under $GDPATH/libgodot-shim/.
+// Includes LibC when set so glibc-arm64 (zig-cc, gnu.2.28 target) and
+// musl-arm64 (zig-cc, musl target) don't share a directory and clobber
+// each other's cc/c++ shim templates.
+func shimSubdir(r product.LibGodotRecipe) string {
+	sub := r.GOOS + "-" + r.GOARCH
+	if r.LibC != "" {
+		sub += "-" + r.LibC
+	}
+	return sub
 }
 
 // jobsForScons returns the -j argument SCons should use. Reads
