@@ -169,7 +169,6 @@ jobs:
         run: |
           go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
       # Reuse the ~/gd cache the bootstrap job primed above. Key format
       # matches gdnext.yml so both workflows can share cache slots.
       # restore-keys fallback tolerates catalog additions between the
@@ -199,7 +198,6 @@ jobs:
             python3 -m pip install --upgrade "scons>=4.4"
           fi
           scons --version
-
       # System headers scons needs for the linuxbsd platform driver
       # (xkbcommon / wayland / x11 dev headers). Only relevant when the
       # matrix cell targets linuxbsd; a cross-compiled windows build
@@ -213,7 +211,6 @@ jobs:
             pkg-config libx11-dev libxcursor-dev libxinerama-dev libxi-dev \
             libxrandr-dev libwayland-dev libxkbcommon-dev libgl1-mesa-dev \
             libglu1-mesa-dev git
-
       # Godot's windows recipe uses real mingw-w64 gcc (matching upstream
       # Godot's own CI). Zig-cc was tried as an alternative but trips
       # Godot's detect.py clang-detection path and cascades into
@@ -233,7 +230,6 @@ jobs:
           for tool in gcc g++; do
             sudo update-alternatives --set "x86_64-w64-mingw32-${tool}" "/usr/bin/x86_64-w64-mingw32-${tool}-posix" || true
           done
-
       # aarch64-w64-mingw32 isn't in Ubuntu's mingw-w64 package
       # (it only ships x86_64 + i686). Upstream Godot uses mstorsjo's
       # llvm-mingw for arm64 windows builds; do the same. Extract
@@ -252,7 +248,6 @@ jobs:
           tar -xJf /tmp/llvm-mingw.tar.xz -C "$HOME/llvm-mingw" --strip-components=1
           rm /tmp/llvm-mingw.tar.xz
           echo "$HOME/llvm-mingw/bin" >> $GITHUB_PATH
-
       # Mirrors upstream Godot's misc/scripts/install_vulkan_sdk_macos.sh.
       # The zip extracts to /tmp/vulkansdk-macOS-<version>.app; the
       # installer is that .app's binary matching its basename. Godot's
@@ -271,7 +266,6 @@ jobs:
               --accept-licenses --default-answer --confirm-command install
           done
           rm -rf /tmp/vulkansdk-macOS-*.app /tmp/vulkan-sdk.zip
-
       - id: build
         name: Build libgodot
         shell: bash
@@ -295,7 +289,6 @@ jobs:
           cp "$installed" "out/${{ matrix.install }}"
           ( cd out && sha256sum "${{ matrix.install }}" > "${{ matrix.install }}.sha256" )
           ls -lah out
-
       - name: Upload artefact
         # Allow-fail cells never produce an artefact; skip the upload
         # so continue-on-error can properly mark the job as

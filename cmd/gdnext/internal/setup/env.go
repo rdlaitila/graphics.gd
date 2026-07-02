@@ -11,13 +11,15 @@ import (
 	"runtime.link/api/xray"
 )
 
-// NewBuildEnv constructs the canonical BuildEnv for the current host
-// and target, reflecting canonical GOOS/GOARCH/GOLINK back into the
-// environment. Intended to be called via dependency injection — the
-// resulting BuildEnv is registered as a value so consumers can declare
-// `product.BuildEnv` fields without juggling pointers.
+// NewBuildEnv constructs the canonical BuildEnv for the current host and target, reflecting resolved
+// GOOS/GOARCH/GOLINK/LibC back into the environment.
 func NewBuildEnv(di do.Injector) (product.BuildEnv, error) {
-	buildEnv, err := product.FindBuildEnv(os.Getenv(product.EnvGOOS), os.Getenv(product.EnvGOARCH), os.Getenv(product.EnvGOLink))
+	buildEnv, err := product.FindBuildEnv(
+		os.Getenv(product.EnvGOOS),
+		os.Getenv(product.EnvGOARCH),
+		os.Getenv(product.EnvLibGodotLibC),
+		os.Getenv(product.EnvGOLink),
+	)
 	if err != nil {
 		return buildEnv, xray.New(err)
 	}
@@ -37,6 +39,11 @@ func NewBuildEnv(di do.Injector) (product.BuildEnv, error) {
 	}
 	if linkStr := buildEnv.Target.LinkMode.String(); os.Getenv(product.EnvGOLink) != linkStr {
 		if err := os.Setenv(product.EnvGOLink, linkStr); err != nil {
+			return buildEnv, xray.New(err)
+		}
+	}
+	if buildEnv.Target.LibC != "" && os.Getenv(product.EnvLibGodotLibC) != buildEnv.Target.LibC {
+		if err := os.Setenv(product.EnvLibGodotLibC, buildEnv.Target.LibC); err != nil {
 			return buildEnv, xray.New(err)
 		}
 	}

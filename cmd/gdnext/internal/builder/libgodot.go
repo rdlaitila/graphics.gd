@@ -440,6 +440,7 @@ func (t *LibGodot) Install(recipe product.LibGodotRecipe, artefact string) (stri
 		recipe.InstallSlug,
 		recipe.GOOS,
 		recipe.GOARCH,
+		recipe.LibC,
 		artefact,
 		recipe.InstallName,
 	)
@@ -506,7 +507,7 @@ func (t *LibGodot) Clean(recipe product.LibGodotRecipe, opts CleanOptions) error
 		}
 		for _, r := range targets {
 			installed := filepath.Join(host.GDLibPath, r.InstallName)
-			sidecar := tooling.SidecarPath(host, r.InstallSlug, r.GOOS, r.GOARCH)
+			sidecar := tooling.SidecarPath(host, r.InstallSlug, r.GOOS, r.GOARCH, r.LibC)
 			for _, p := range []string{installed, sidecar} {
 				if _, err := os.Stat(p); err == nil {
 					if err := removePath(p, opts.DryRun); err != nil {

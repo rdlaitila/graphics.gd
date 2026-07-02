@@ -167,14 +167,10 @@ func (t *Linux) Test(args ...string) error {
 	return t.ToolCatalog.Godot.Exec(args...)
 }
 
-// libgodotBuild produces the single-file linux binary that statically
-// links libgodot + the c-archive Go build together. Dispatches to the
-// glibc (Godot buildroot SDK) or musl (zig + dlopen shim) helper based
-// on GDNEXT_LIBGODOT_LIBC (default: glibc). The glibc path emits a
-// normal dynamic-libc binary that runs on any distro with glibc >= 2.28;
-// musl keeps the older opt-in static-musl + dlopen-shim path.
+// libgodotBuild produces the single-file linux binary that statically links libgodot + the c-archive Go build together.
+// Dispatches to the glibc (Godot buildroot SDK) or musl (zig + dlopen shim) helper based on BuildEnv.Target.LibC.
 func (t *Linux) libgodotBuild(args ...string) (err error) {
-	switch libgodotLibC() {
+	switch t.BuildEnv.Target.LibC {
 	case product.LibCMusl:
 		return t.libgodotBuildMusl(args...)
 	default:
@@ -182,40 +178,18 @@ func (t *Linux) libgodotBuild(args ...string) (err error) {
 	}
 }
 
-// libgodotLibC returns the caller-requested libc variant for the
-// libgodot linker path. Reads GDNEXT_LIBGODOT_LIBC; empty / unknown
-// values fall through to glibc (the default).
-func libgodotLibC() string {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv(product.EnvLibGodotLibC)))
-	if v == product.LibCMusl {
-		return product.LibCMusl
-	}
-	return product.LibCGlibc
-}
-
-// libgodotArtefactPath resolves the installed libgodot .a for the
-// given (goarch, editor) under the caller-requested libc. Returns
-// `<host.GDLibPath>/<recipe.InstallName>` — the same location
-// `gdnext libgodot install` writes to. Errors when no recipe matches
-// the tuple or the file isn't on disk (run `gdnext libgodot install`).
+// libgodotArtefactPath resolves the installed libgodot .a for the given (goarch, editor) under BuildEnv.Target.LibC.
+// Downloads the published artefact via ToolCatalog when it isn't already under $GDPATH/lib.
 func (t *Linux) libgodotArtefactPath(goarch string, editor bool) (string, error) {
-	recipe, ok := product.FindLibGodotRecipeLibC(product.GOOSLinux, goarch, editor, libgodotLibC())
-	if !ok {
-		return "", fmt.Errorf("libgodot: no recipe for linux/%s editor=%v libc=%s", goarch, editor, libgodotLibC())
+	libc := t.BuildEnv.Target.LibC
+	if libc == "" {
+		libc = product.LibCGlibc
 	}
-	path := filepath.Join(t.BuildEnv.Host.GDLibPath, recipe.InstallName)
-	if _, err := os.Stat(path); err != nil {
-		return "", fmt.Errorf("libgodot: %s not installed (run `gdnext libgodot install --libc=%s%s`): %w",
-			recipe.InstallName, recipe.LibC, editorFlag(editor), err)
-	}
-	return path, nil
-}
-
-func editorFlag(editor bool) string {
+	tool := t.ToolCatalog.LibGodot
 	if editor {
-		return " --editor"
+		tool = t.ToolCatalog.LibGodotEditor
 	}
-	return ""
+	return tool.LookupPlatform(product.GOOSLinux, goarch, libc)
 }
 
 // libgodotBuildMusl produces the single-file linux binary that statically
@@ -435,8 +409,12 @@ func (t *Linux) libgodotBuildMain(args ...string) error {
 	if GOARCH == product.GOARCHArm64 {
 		godotArch = "arm64"
 	}
+	libc := t.BuildEnv.Target.LibC
+	if libc == "" {
+		libc = product.LibCGlibc
+	}
 	t.out = filepath.Join(project.GraphicsDirectory, ".godot",
-		"godot.linux."+libgodotLibC()+".template_release."+godotArch)
+		"godot.linux."+libc+".template_release."+godotArch)
 	t.lib, err = t.libgodotArtefactPath(GOARCH, false)
 	if err != nil {
 		return xray.New(err)

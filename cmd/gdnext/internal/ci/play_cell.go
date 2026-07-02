@@ -41,6 +41,7 @@ func NewPlayCellCommand(di do.Injector) (*PlayCellCommand, error) {
 			&cli.StringFlag{Name: "example", Required: true, Usage: "example name (binary basename inside releases/<goos>/<goarch>/)"},
 			&cli.StringFlag{Name: "target", Required: true, Usage: "target goos/goarch (e.g. linux/amd64, windows/amd64)"},
 			&cli.StringFlag{Name: "link", Usage: "link mode (gdextension|libgodot); blank = platform default"},
+			&cli.StringFlag{Name: "libc", Usage: "linux libc variant (glibc|musl); surfaces in the HUD next to link mode"},
 			&cli.StringFlag{Name: "compat", Usage: "compatibility layer to drive the target through (wine|proton|proton-9|...); blank = native"},
 			&cli.StringFlag{Name: "build-host", Usage: "GHA runner label that produced the artefact (informational; surfaced on the HUD)"},
 			&cli.StringFlag{Name: "screenshot", Required: true, Usage: "absolute path the play-bot writes the screenshot to"},
@@ -65,6 +66,7 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 	example := cmd.String("example")
 	target := cmd.String("target")
 	link := cmd.String("link")
+	libc := cmd.String("libc")
 	compat := cmd.String("compat")
 	buildHost := cmd.String("build-host")
 	timeout := cmd.Duration("timeout")
@@ -90,7 +92,7 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		return err
 	}
 	_ = os.Remove(screenshotPath)
-	hud := buildPlayHUD(target, mode, compat, buildHost)
+	hud := buildPlayHUD(target, mode, libc, compat, buildHost)
 	var runErr error
 	switch {
 	case plat.GOOS == product.GOOSJS || compat == "chrome" || compat == "firefox":
@@ -521,10 +523,16 @@ type hudColumn = product.PlayHUDColumn
 // column is filled in by the running engine itself, so this slice
 // covers everything the CLI/CI side knows: target tuple, link mode,
 // build/play hosts, compat layer, and the workflow's GITHUB_* env.
-func buildPlayHUD(target string, mode product.LinkMode, compat, buildHost string) string {
+// libc — when non-empty (linux libgodot fans out) — is appended to
+// the Link Mode value as "libgodot(glibc)" / "libgodot(musl)".
+func buildPlayHUD(target string, mode product.LinkMode, libc, compat, buildHost string) string {
+	linkValue := mode.String()
+	if libc != "" && mode.Has(product.LibGodot) {
+		linkValue += "(" + libc + ")"
+	}
 	cols := []hudColumn{
 		{Name: "Target Host", Value: target},
-		{Name: "Link Mode", Value: mode.String()},
+		{Name: "Link Mode", Value: linkValue},
 		{Name: "Build Host", Value: buildHostOrLocal(buildHost)},
 		{Name: "Play Host", Value: runtime.GOOS + "/" + runtime.GOARCH},
 		{Name: "Compat Mode", Value: compatOrNative(compat)},

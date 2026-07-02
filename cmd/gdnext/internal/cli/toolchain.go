@@ -204,7 +204,7 @@ func (t *ToolchainActions) install(_ context.Context, cmd *cli.Command) error {
 			return err
 		}
 		fmt.Printf("installed: %s -> %s\n", tool.Slug, path)
-		if sum, _, err := tooling.ReadSidecar(tooling.SidecarPath(t.BuildEnv.Host, tool.Slug, t.BuildEnv.Host.GOOS, t.BuildEnv.Host.GOARCH)); err == nil {
+		if sum, _, err := tooling.ReadSidecar(tooling.SidecarPath(t.BuildEnv.Host, tool.Slug, t.BuildEnv.Host.GOOS, t.BuildEnv.Host.GOARCH, "")); err == nil {
 			fmt.Printf("    %s\n", sum)
 		}
 		return nil
@@ -315,7 +315,7 @@ func uninstallTool(host product.BuildHost, tool *tooling.Tool, keepSidecar bool)
 	fmt.Printf("    removed binary: %s\n", path)
 	tool.Path = "" // drop cache so subsequent Lookup calls re-resolve
 	if !keepSidecar {
-		sidecar := tooling.SidecarPath(host, tool.Slug, host.GOOS, host.GOARCH)
+		sidecar := tooling.SidecarPath(host, tool.Slug, host.GOOS, host.GOARCH, "")
 		if tool.IsLibrary {
 			// IsLibrary tools may have multiple per-target sidecars;
 			// walk PlatformMatrix to clear them all.
@@ -323,7 +323,7 @@ func uninstallTool(host product.BuildHost, tool *tooling.Tool, keepSidecar bool)
 				if !p.Kind.Has(product.Target) {
 					continue
 				}
-				s := tooling.SidecarPath(host, tool.Slug, p.GOOS, p.GOARCH)
+				s := tooling.SidecarPath(host, tool.Slug, p.GOOS, p.GOARCH, "")
 				if err := os.Remove(s); err == nil {
 					fmt.Printf("    removed checksum: %s\n", s)
 				}
@@ -391,6 +391,7 @@ type toolJob struct {
 	Tool           *tooling.Tool
 	GOOS           string
 	GOARCH         string
+	LibC           string
 	IsLibrary      bool
 	ContextTargets []jobContext
 	// Experimental: every consumer Platform is Experimental, so a
@@ -404,7 +405,7 @@ type jobContext struct {
 }
 
 func (j toolJob) Lookup(mode ...tooling.Mode) (string, error) {
-	return j.Tool.LookupPlatform(j.GOOS, j.GOARCH, mode...)
+	return j.Tool.LookupPlatform(j.GOOS, j.GOARCH, j.LibC, mode...)
 }
 
 // jobsForHost returns, in catalog order, the unique (tool, target-tuple)
@@ -537,7 +538,7 @@ func optionalJobsInstalled(catalog tooling.Catalog, host product.BuildHost) []to
 		if !tool.CanInstallOn(host) {
 			continue
 		}
-		if _, err := tool.LookupPlatform(host.GOOS, host.GOARCH, tooling.ModeFind); err != nil {
+		if _, err := tool.LookupPlatform(host.GOOS, host.GOARCH, "", tooling.ModeFind); err != nil {
 			continue
 		}
 		out = append(out, toolJob{
@@ -703,7 +704,7 @@ func reportJobStatus(host product.BuildHost, jobs []toolJob) (missing int) {
 			seenOK[path] = struct{}{}
 			sha := "-"
 			if j.Tool.ManagedBy() == product.GDManaged {
-				sidecar := tooling.SidecarPath(host, j.Tool.Slug, j.GOOS, j.GOARCH)
+				sidecar := tooling.SidecarPath(host, j.Tool.Slug, j.GOOS, j.GOARCH, j.LibC)
 				if sum, _, err := tooling.ReadSidecar(sidecar); err == nil {
 					sha = shortSHA(sum)
 				}
@@ -749,7 +750,7 @@ func shortSHA(sum string) string {
 // the install / already-installed line so the hash is grep-able on
 // its own row without bloating the primary line.
 func sidecarSHALine(host product.BuildHost, j toolJob) string {
-	sum, _, err := tooling.ReadSidecar(tooling.SidecarPath(host, j.Tool.Slug, j.GOOS, j.GOARCH))
+	sum, _, err := tooling.ReadSidecar(tooling.SidecarPath(host, j.Tool.Slug, j.GOOS, j.GOARCH, j.LibC))
 	if err != nil {
 		return ""
 	}
@@ -936,7 +937,7 @@ func collectDoctorAudit(host product.BuildHost, jobs []toolJob) []DoctorAuditRow
 		// pre-existing local installs) have no sidecar; that's not an
 		// error, just no provenance to surface.
 		if row.ManageType == product.GDManaged {
-			sidecar := tooling.SidecarPath(host, j.Tool.Slug, j.GOOS, j.GOARCH)
+			sidecar := tooling.SidecarPath(host, j.Tool.Slug, j.GOOS, j.GOARCH, j.LibC)
 			if sum, size, err := tooling.ReadSidecar(sidecar); err == nil {
 				row.SHA256 = sum
 				row.Size = size

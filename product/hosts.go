@@ -23,10 +23,12 @@ type BuildHost struct {
 	UserAppdataRoot string
 }
 
-// TargetHost is the (GOOS, GOARCH, LinkMode) a build is producing for.
+// TargetHost is the (GOOS, GOARCH, LibC, LinkMode) a build is producing for.
+// LibC is populated only for linux targets; empty elsewhere.
 type TargetHost struct {
 	GOOS     string
 	GOARCH   string
+	LibC     string
 	LinkMode LinkMode
 }
 
@@ -87,11 +89,10 @@ func (t BuildHost) GDChecksumsPath() string {
 // Tuple returns the target as "goos/goarch".
 func (t TargetHost) Tuple() string { return Tuple(t.GOOS, t.GOARCH) }
 
-// FindBuildEnv resolves the BuildEnv for the current runtime host and
-// the given target (GOOS, GOARCH, LinkMode) tokens, applying defaults
-// for empty fields. Returns an error when host is unknown, a token is
-// unrecognised, or the link mode is unsupported by the target.
-func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, error) {
+// FindBuildEnv resolves the BuildEnv for the current runtime host and the given target
+// (GOOS, GOARCH, LibC, LinkMode) tokens, applying defaults for empty fields. libc defaults to glibc
+// on linux and stays empty elsewhere.
+func FindBuildEnv(targetGOOS, targetGOARCH, targetLibC, targetLinkMode string) (BuildEnv, error) {
 	var env BuildEnv
 	for _, host := range HostMatrix {
 		if host.GOOS == runtime.GOOS && host.GOARCH == runtime.GOARCH {
@@ -117,9 +118,16 @@ func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, er
 			targetGOARCH,
 		)
 	}
-	// Capture GOOS-alias implied LinkMode before remapping the GOOS,
-	// otherwise GOOS=musl loses its LibGodot implication.
-	impliedMode, hasImplied := GOOSAliasLinkMode[targetGOOS]
+	if targetLibC != "" && targetLibC != LibCGlibc && targetLibC != LibCMusl {
+		return env, fmt.Errorf(
+			"target LibC '%s' is not recognized (want %q or %q)",
+			targetLibC, LibCGlibc, LibCMusl,
+		)
+	}
+	// Capture GOOS-alias implied LinkMode / LibC before remapping the GOOS,
+	// otherwise GOOS=musl loses its LibGodot + musl implication.
+	impliedMode, hasImpliedMode := GOOSAliasLinkMode[targetGOOS]
+	impliedLibC, hasImpliedLibC := GOOSAliasLibC[targetGOOS]
 	if remap, ok := GOOSRemaps[targetGOOS]; ok {
 		targetGOOS = remap
 	}
@@ -148,7 +156,7 @@ func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, er
 	switch {
 	case mode != 0:
 		env.Target.LinkMode = mode
-	case hasImplied:
+	case hasImpliedMode:
 		env.Target.LinkMode = impliedMode
 	default:
 		if def, ok := GOOSLinkModeDefaults[env.Target.GOOS]; ok {
@@ -156,6 +164,14 @@ func FindBuildEnv(targetGOOS, targetGOARCH, targetLinkMode string) (BuildEnv, er
 		} else {
 			env.Target.LinkMode = GDExtension
 		}
+	}
+	switch {
+	case targetLibC != "":
+		env.Target.LibC = targetLibC
+	case hasImpliedLibC:
+		env.Target.LibC = impliedLibC
+	case env.Target.GOOS == GOOSLinux:
+		env.Target.LibC = LibCGlibc
 	}
 	if plat, ok := FindPlatformByTargetEnv(env.Target.GOOS, env.Target.GOARCH); ok {
 		if plat.LinkModes != 0 && !plat.LinkModes.Has(env.Target.LinkMode) {

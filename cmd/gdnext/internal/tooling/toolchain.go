@@ -224,10 +224,13 @@ func (exe Tool) CombinedOutput(args ...string) (string, error) {
 // the download step (diagnostic / dry-run); pass nothing or ModeInstall to
 // auto-download when missing.
 func (exe *Tool) Lookup(mode ...Mode) (string, error) {
-	return exe.LookupPlatform(runtime.GOOS, runtime.GOARCH, mode...)
+	return exe.LookupPlatform(runtime.GOOS, runtime.GOARCH, "", mode...)
 }
 
-func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, error) {
+// LookupPlatform resolves the toolchain for the given (goos, goarch, libc) target.
+// libc is only meaningful for linux libgodot-style artefacts that fan out
+// between glibc and musl; pass "" for every other tool and target.
+func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string, error) {
 	m := ModeInstall
 	if len(mode) > 0 {
 		m = mode[0]
@@ -262,7 +265,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 		}
 		bundleTool := &Tool{Toolchain: bundle, Host: exe.Host}
 		if m != ModeFind {
-			if _, err := bundleTool.LookupPlatform(bundleGOOS, bundleGOARCH, m); err != nil {
+			if _, err := bundleTool.LookupPlatform(bundleGOOS, bundleGOARCH, "", m); err != nil {
 				return "", fmt.Errorf("toolchain %s: required bundle %s: %w", exe.Slug, slug, err)
 			}
 		}
@@ -290,6 +293,11 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 	if GOOS == product.GOOSDarwin && exe.DarwinUniversal {
 		MaybeUniversal = "universal"
 	}
+	var LIBC = LibC
+	var LIBC_DOT string
+	if LibC != "" {
+		LIBC_DOT = "." + LibC
+	}
 	var variables = strings.NewReplacer(
 		"$(VERSION)", exe.Version,
 		"$(ARCH)", ARCH,
@@ -299,6 +307,8 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 		"$(HOME)", HOME,
 		"$(GDPATH)", GDPATH,
 		"$(EXT)", EXT,
+		"$(LIBC)", LIBC,
+		"$(LIBC_DOT)", LIBC_DOT,
 	)
 	var install_dir = GDBin
 	if exe.IsLibrary {
@@ -509,7 +519,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH string, mode ...Mode) (string, erro
 		return "", xray.New(err)
 	}
 	downloadHash := "sha256:" + dlHash
-	sidecarPath := sidecarPathFor(exe.Host, exe.Slug, GOOS, GOARCH)
+	sidecarPath := sidecarPathFor(exe.Host, exe.Slug, GOOS, GOARCH, LibC)
 	if err := verifyChecksum(downloadHash, exe.KnownChecksums, sidecarPath); err != nil {
 		// Leave dest in place so the user can inspect what was
 		// served before deciding whether to retry, allow-list, or
@@ -588,6 +598,8 @@ func (exe *Tool) installDirFor(GOOS, GOARCH string) string {
 		"$(GOOS)", GOOS,
 		"$(HOME)", exe.Host.UserHomeRoot,
 		"$(GDPATH)", GDPATH,
+		"$(LIBC)", "",
+		"$(LIBC_DOT)", "",
 	)
 	install_dir := GDBin
 	if exe.IsLibrary {
@@ -667,7 +679,7 @@ func (exe *Tool) lookupBundle(install_dir, GOOS, GOARCH string, m Mode, variable
 		return "", xray.New(err)
 	}
 	downloadHash := "sha256:" + dlHash
-	sidecarPath := sidecarPathFor(exe.Host, exe.Slug, GOOS, GOARCH)
+	sidecarPath := sidecarPathFor(exe.Host, exe.Slug, GOOS, GOARCH, "")
 	if err := verifyChecksum(downloadHash, exe.KnownChecksums, sidecarPath); err != nil {
 		return "", xray.New(fmt.Errorf("checksum verification failed for %s (downloaded from %s, kept at %s): %w", exe.Slug, url, dest, err))
 	}
@@ -847,16 +859,18 @@ func verifyChecksum(got string, catalogKnown []string, sidecarPath string) error
 	return fmt.Errorf("got %s, no match in %d catalog entry/entries or sidecar %s (override with GDNEXT_SKIP_CHECKSUM=1 or --skip-checksum)", got, len(catalogKnown), sidecarPath)
 }
 
-// sidecarPathFor returns <Host.GDChecksumsPath>/<slug>-<goos>-<goarch>.sha256.
-// goos/goarch are the (target) tokens LookupPlatform was called with,
-// so per-target IsLibrary downloads get one sidecar each and host-
-// scoped tools get one sidecar keyed on host.GOOS/host.GOARCH.
-func sidecarPathFor(host product.BuildHost, slug, goos, goarch string) string {
+// sidecarPathFor returns <Host.GDChecksumsPath>/<slug>-<goos>-<goarch>[-<libc>].sha256.
+// libc segment is omitted when empty so existing (non-libc-fanned) sidecars stay valid.
+func sidecarPathFor(host product.BuildHost, slug, goos, goarch, libc string) string {
 	dir := host.GDChecksumsPath()
 	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, fmt.Sprintf("%s-%s-%s.sha256", slug, goos, goarch))
+	name := fmt.Sprintf("%s-%s-%s", slug, goos, goarch)
+	if libc != "" {
+		name += "-" + libc
+	}
+	return filepath.Join(dir, name+".sha256")
 }
 
 // writeSidecar persists the (sha256, size) for a freshly downloaded
@@ -900,8 +914,8 @@ func readSidecar(path string) (sum string, size int64, err error) {
 
 // SidecarPath is the package-public wrapper around sidecarPathFor for
 // callers (cli audit, ci summary) that need to read the sidecar back.
-func SidecarPath(host product.BuildHost, slug, goos, goarch string) string {
-	return sidecarPathFor(host, slug, goos, goarch)
+func SidecarPath(host product.BuildHost, slug, goos, goarch, libc string) string {
+	return sidecarPathFor(host, slug, goos, goarch, libc)
 }
 
 // ReadSidecar is the package-public read helper for the audit /
@@ -910,14 +924,10 @@ func ReadSidecar(path string) (sum string, size int64, err error) {
 	return readSidecar(path)
 }
 
-// InstallLibraryFromFile copies srcPath into <host.GDLibPath>/destName
-// and writes the matching sidecar under host.GDChecksumsPath keyed on
-// (slug, goos, goarch). Returns the installed absolute path plus the
-// computed sha256 (with the "sha256:" prefix). Used by `gdnext libgodot
-// install` and any other verb that produces a library artefact
-// out-of-band and needs to plug it into the same lookup + audit
-// machinery `gdnext toolchain install` uses.
-func InstallLibraryFromFile(host product.BuildHost, slug, goos, goarch, srcPath, destName string) (installedPath, sum string, err error) {
+// InstallLibraryFromFile copies srcPath into <host.GDLibPath>/destName and writes the matching sidecar
+// under host.GDChecksumsPath keyed on (slug, goos, goarch, libc). Returns the installed absolute path
+// plus the computed sha256. libc is only used for linux libgodot-style artefacts; pass "" otherwise.
+func InstallLibraryFromFile(host product.BuildHost, slug, goos, goarch, libc, srcPath, destName string) (installedPath, sum string, err error) {
 	if host.GDLibPath == "" {
 		return "", "", fmt.Errorf("tooling.InstallLibraryFromFile: host has no GDLibPath (BuildEnv not resolved)")
 	}
@@ -933,7 +943,7 @@ func InstallLibraryFromFile(host product.BuildHost, slug, goos, goarch, srcPath,
 		return "", "", xray.New(err)
 	}
 	sum = "sha256:" + hash
-	sidecarPath := sidecarPathFor(host, slug, goos, goarch)
+	sidecarPath := sidecarPathFor(host, slug, goos, goarch, libc)
 	if err := writeSidecar(sidecarPath, sum, size); err != nil {
 		return "", "", xray.New(err)
 	}
