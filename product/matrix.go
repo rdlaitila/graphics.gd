@@ -957,27 +957,24 @@ var (
 		RequiredFor:    "libgodot static-link mode",
 		AvailableHosts: []BuildHost{HostLinuxAmd64},
 		DownloadURL:    "https://release.graphics.gd/libgodot.$(OS).$(GOARCH).$(EXT)",
-		DownloadOS:     map[string]string{"linux": "linux", "musl": "linux", "windows": "windows", "darwin": "darwin"},
+		DownloadOS:     map[string]string{"linux": "musl", "musl": "musl", "windows": "windows", "darwin": "darwin"},
 		DownloadEXT:    map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
 		IsLibrary:      true,
 		KnownChecksums: []string{
-			// Hashes will be re-seeded from the first CI run of the
-			// libgodot workflow that publishes libgodot.linux.<libc>.<arch>.a
-			// under the new name; previous entries were keyed on the
-			// old libgodot.musl.<arch>.a artefact and no longer match.
+			"sha256:3c85abc4b2711dd08a97cb1d58ea3d9833ea98709e62c9ab3264b6c535efbe4c", // linux/amd64
 		},
 	}
 	ToolchainLibGodotEditor = Toolchain{
 		Slug:           "libgodot-editor",
 		Name:           "libgodot.$(OS).editor.$(GOARCH).$(EXT)",
-		RequiredFor:    "libgodot editor",
+		RequiredFor:    "libgodot editor (musl host today)",
 		AvailableHosts: []BuildHost{HostLinuxAmd64},
 		DownloadURL:    "https://release.graphics.gd/libgodot.$(OS).editor.$(GOARCH).$(EXT)",
-		DownloadOS:     map[string]string{"linux": "linux", "musl": "linux", "windows": "windows", "darwin": "darwin"},
+		DownloadOS:     map[string]string{"linux": "musl", "musl": "musl", "windows": "windows", "darwin": "darwin"},
 		DownloadEXT:    map[string]string{"musl": "a", "linux": "a", "windows": "lib", "darwin": "a"},
 		IsLibrary:      true,
 		KnownChecksums: []string{
-			// See note on ToolchainLibGodot.KnownChecksums.
+			"sha256:042c22cf9cb1952be0ba83bdcc45154d9dadd44d0d7bee269da67cb06a66dcef", // linux/amd64
 		},
 	}
 	ToolchainLDD = Toolchain{
