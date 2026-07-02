@@ -16,7 +16,7 @@ import (
 var helpVerbs = []string{
 	"build", "run", "test", "export", "doc", "fix", "version",
 	"project", "toolchain", "platform",
-	"android", "ios", "macos", "web", "musl", "ci",
+	"android", "ios", "macos", "web", "libgodot", "ci",
 }
 
 // HelpTextCommand wires `gdnext ci check-help-text`. Runtime state lives

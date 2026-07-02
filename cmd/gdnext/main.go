@@ -3,7 +3,7 @@
 // command performs (build, run, test, export, editor launch, go passthrough)
 // as a self-documenting subcommand tree, plus first-class verbs for the
 // previously buried subsystems (toolchain management, keystore, APK ops,
-// macOS lipo/codesign, web serve, musl setup, project init, fix).
+// macOS lipo/codesign, web serve, libgodot recipes, project init, fix).
 package main
 
 import (

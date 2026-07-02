@@ -44,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       include: ${{ steps.gen.outputs.include }}
+      runners: ${{ steps.gen.outputs.runners }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -73,10 +74,79 @@ jobs:
           matrix_json=$(gdnext ci libgodot-matrix --summary "${args[@]}" 2>matrix.log)
           cat matrix.log >&2
           echo "include=$(echo "$matrix_json" | jq -c '.include')" >> $GITHUB_OUTPUT
+          # Distinct runner labels so the bootstrap job can prime
+          # ~/gd once per host before the build fan-out. Each cell
+          # in `include` carries its own `runner` field.
+          runners=$(echo "$matrix_json" | jq -c '[.include[].runner] | unique | map({runner: .})')
+          echo "runners=${runners}" >> $GITHUB_OUTPUT
+
+  # Prime ~/gd on each distinct runner once so the parallel build
+  # fan-out below restores from cache instead of every cell racing to
+  # download zig + scons + buildroot SDK independently. Cache key
+  # matches gdnext.yml so both workflows share cache slots on the
+  # same runner.
+  bootstrap:
+    name: Prime ~/gd (${{ matrix.runner }})
+    needs: matrix
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.matrix.outputs.runners) }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+      - name: Install gdnext into PATH
+        shell: bash
+        run: |
+          go install ./cmd/gdnext
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+      - id: tools-key
+        shell: bash
+        run: |
+          digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
+          echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
+      - name: Restore ~/gd (catalog digest)
+        id: restore-tools
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/gd
+          key: ${{ steps.tools-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.prefix }}
+      - name: Install zig (required for musl / windows-mingw)
+        shell: bash
+        run: gdnext toolchain install zig
+      - name: Prime godot source tarball
+        shell: bash
+        # Every libgodot cell extracts the same Godot source zip
+        # (~200MB) under ~/gd/godot-src/<ref>. Priming once here means
+        # the fan-out below restores from ~/gd instead of each cell
+        # re-downloading + re-extracting. Host-agnostic tarball, so
+        # this runs on every bootstrap runner.
+        run: gdnext toolchain install godot-src
+      - name: Prime buildroot SDK (linux runners only)
+        if: runner.os == 'Linux'
+        shell: bash
+        # The glibc libgodot recipes fetch the ~120MB buildroot SDK on
+        # demand; priming it here means the 8 linux cells in the build
+        # fan-out restore it from ~/gd instead of each racing to
+        # download the same tarball. Only linux runners consume the
+        # buildroot SDK (macOS + windows targets link differently).
+        run: gdnext toolchain install godot-buildroot
+      - name: Save ~/gd
+        if: steps.restore-tools.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/gd
+          key: ${{ steps.tools-key.outputs.key }}
 
   build:
     name: libgodot (${{ matrix.goos }}/${{ matrix.goarch }}, ${{ matrix.libc || 'default' }}, ${{ matrix.variant }})
-    needs: matrix
+    needs: [matrix, bootstrap]
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -95,12 +165,25 @@ jobs:
           go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
-      # zig serves the cross-compilers for windows-mingw and the
-      # libgodot musl variant on linux; buildroot glibc has its own
-      # SDK pulled in on demand by `gdnext libgodot build --libc=glibc`.
-      - name: Toolchain doctor (zig)
+      # Reuse the ~/gd cache the bootstrap job primed above. Key format
+      # matches gdnext.yml so both workflows can share cache slots.
+      # restore-keys fallback tolerates catalog additions between the
+      # bootstrap step and this restore (e.g. a new optional tool
+      # added mid-run); the buildroot SDK is fetched on demand
+      # by `gdnext libgodot build` regardless.
+      - id: tools-key
         shell: bash
-        run: gdnext toolchain install zig
+        run: |
+          digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
+          echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
+      - name: Restore ~/gd
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/gd
+          key: ${{ steps.tools-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.prefix }}
 
       - name: Install scons
         shell: bash
