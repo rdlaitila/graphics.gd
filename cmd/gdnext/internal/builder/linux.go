@@ -90,6 +90,9 @@ func (t *Linux) Build(args ...string) error {
 		default:
 			return fmt.Errorf("gd build: cannot cross-compile linux %v on %v", t.BuildEnv.Target.GOARCH, t.BuildEnv.Host.GOOS)
 		}
+		if err := setGoCrossEnv(product.GOOSLinux, t.BuildEnv.Target.GOARCH); err != nil {
+			return xray.New(err)
+		}
 		glibc = true
 	} else {
 		version, _ := t.ToolCatalog.ListDynamicDependencies.CombinedOutput("--version")
@@ -203,9 +206,9 @@ func (t *Linux) libgodotBuildMusl(args ...string) (err error) {
 	env := t.BuildEnv
 	tools := t.ToolCatalog
 	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
-	goos := os.Getenv(product.EnvGOOS)
-	os.Setenv(product.EnvGOOS, product.GOOSLinux)
-	defer os.Setenv(product.EnvGOOS, goos)
+	if err := setGoCrossEnv(product.GOOSLinux, env.Target.GOARCH); err != nil {
+		return xray.New(err)
+	}
 	if built_musl {
 		return nil
 	}
@@ -324,6 +327,9 @@ func (t *Linux) libgodotBuildGlibc(args ...string) (err error) {
 	if err := os.Setenv(product.EnvCC, zig+" cc -target "+target); err != nil {
 		return xray.New(err)
 	}
+	if err := setGoCrossEnv(product.GOOSLinux, GOARCH); err != nil {
+		return xray.New(err)
+	}
 	if t.lib == "" {
 		libgodot, err := t.libgodotArtefactPath(GOARCH, true)
 		if err != nil {
@@ -379,6 +385,20 @@ func glibcZigTarget(goarch string) (string, error) {
 		return "aarch64-linux-gnu.2.28", nil
 	}
 	return "", fmt.Errorf("no glibc zig target for GOARCH=%s", goarch)
+}
+
+// setGoCrossEnv points subsequent go invocations at the given cross
+// target. Without GOOS/GOARCH the host toolchain produces Mach-O / PE
+// archives on mac / windows runners and the zig-cc link fails on
+// undefined `main`.
+func setGoCrossEnv(goos, goarch string) error {
+	if err := os.Setenv(product.EnvGOOS, goos); err != nil {
+		return err
+	}
+	if err := os.Setenv(product.EnvGOARCH, goarch); err != nil {
+		return err
+	}
+	return os.Setenv("CGO_ENABLED", "1")
 }
 
 func (t *Linux) libgodotBuildMain(args ...string) error {
