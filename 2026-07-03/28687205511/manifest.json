@@ -1,0 +1,31 @@
+{
+  "day": "2026-07-03",
+  "run_id": 28687205511,
+  "shots": [
+    {
+      "label": "darwin/amd64+gdextension",
+      "path": "2026-07-03/28687205511/darwin-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-03/28687205511/darwin-amd64-gdextension.png"
+    },
+    {
+      "label": "darwin/amd64+gdextension (rosetta)",
+      "path": "2026-07-03/28687205511/darwin-amd64-gdextension-rosetta.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-03/28687205511/darwin-amd64-gdextension-rosetta.png"
+    },
+    {
+      "label": "darwin/amd64+gdextension (rosetta)",
+      "path": "2026-07-03/28687205511/darwin-amd64-gdextension-rosetta.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-03/28687205511/darwin-amd64-gdextension-rosetta.png"
+    },
+    {
+      "label": "darwin/arm64+gdextension",
+      "path": "2026-07-03/28687205511/darwin-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-03/28687205511/darwin-arm64-gdextension.png"
+    },
+    {
+      "label": "darwin/arm64+gdextension",
+      "path": "2026-07-03/28687205511/darwin-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-03/28687205511/darwin-arm64-gdextension.png"
+    }
+  ]
+}
