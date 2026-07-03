@@ -72,19 +72,21 @@ type Tool struct {
 	Path string // cached by [toolchain.Lookup]
 }
 
-// ManagedBy classifies who owns the resolved binary on disk.
-// GDManaged when Path is under Host.GDRootPath (gdnext installed it,
-// gdnext is responsible for upgrades + the checksum sidecar);
+// ManagedByPath classifies who owns the resolved binary at path.
+// GDManaged when path is under Host.GDRootPath (gdnext installed
+// it, gdnext is responsible for upgrades + the checksum sidecar);
 // UserManaged otherwise (came from $PATH or a pre-existing local
-// install). Returns UserManaged for an unresolved tool to keep the
-// "user owns it until proven otherwise" default.
-func (exe Tool) ManagedBy() product.ManageType {
-	if exe.Path == "" || exe.Host.GDRootPath == "" {
+// install). Returns UserManaged for an empty path to keep the
+// "user owns it until proven otherwise" default. Callers pass the
+// resolved path explicitly because library tools' Path field is a
+// scalar shared across every target-fanned Lookup.
+func (exe Tool) ManagedByPath(path string) product.ManageType {
+	if path == "" || exe.Host.GDRootPath == "" {
 		return product.UserManaged
 	}
-	abs, err := filepath.Abs(exe.Path)
+	abs, err := filepath.Abs(path)
 	if err != nil {
-		abs = exe.Path
+		abs = path
 	}
 	root, err := filepath.Abs(exe.Host.GDRootPath)
 	if err != nil {
@@ -235,7 +237,14 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 	if len(mode) > 0 {
 		m = mode[0]
 	}
-	if exe.Path != "" {
+	// Library artefacts fan out across (GOOS, GOARCH, LibC) targets
+	// but share a single *Tool via Catalog.BySlug. Caching Path on
+	// that shared struct would leak the first target's resolution
+	// into every subsequent call — one job's linux/amd64 install
+	// would trick a later linux/arm64 Lookup into returning the
+	// amd64 path. Non-library binaries are host-native (one path
+	// per host) and safe to cache.
+	if exe.Path != "" && !exe.IsLibrary {
 		return exe.Path, nil
 	}
 	if exe.Host.GDRootPath == "" {
@@ -360,7 +369,6 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 	// re-downloads.
 	if _, err := os.Stat(install_path); err == nil && m != ModeForceInstall {
 		if exe.IsLibrary {
-			exe.Path = install_path
 			return install_path, nil
 		}
 		var exe_path = install_path
@@ -564,6 +572,9 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 		if err := os.Rename(filepath.Join(install_dir, unzip), install_path); err != nil {
 			return "", xray.New(err)
 		}
+	}
+	if exe.IsLibrary {
+		return install_path, nil
 	}
 	exe.Path = install_path
 	return exe.PathToCommand(), nil

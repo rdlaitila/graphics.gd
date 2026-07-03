@@ -182,7 +182,7 @@ func (t *ToolchainActions) install(_ context.Context, cmd *cli.Command) error {
 				tool.Slug, t.BuildEnv.Host.Tuple(), hostsString(tool.AvailableHosts))
 		}
 		if existing, err := tool.Lookup(tooling.ModeFind); err == nil && !force {
-			switch tool.ManagedBy() {
+			switch tool.ManagedByPath(existing) {
 			case product.UserManaged:
 				fmt.Fprintf(os.Stdout, "skip: %s is already installed (user-managed at %s; pass --force to install gdnext's pinned copy into %s)\n",
 					tool.Slug, existing, t.BuildEnv.Host.GDRootPath)
@@ -196,7 +196,7 @@ func (t *ToolchainActions) install(_ context.Context, cmd *cli.Command) error {
 			mode = tooling.ModeForceInstall
 			tool.Path = "" // drop the cached Path so Lookup re-runs the resolver
 		}
-		if src := doctorAuditSource(tool.Toolchain, t.BuildEnv.Host.GOOS, t.BuildEnv.Host.GOARCH); src != "" {
+		if src := doctorAuditSource(tool.Toolchain, t.BuildEnv.Host.GOOS, t.BuildEnv.Host.GOARCH, ""); src != "" {
 			fmt.Printf("source: %s\n", src)
 		}
 		path, err := tool.Lookup(mode)
@@ -305,7 +305,7 @@ func uninstallTool(host product.BuildHost, tool *tooling.Tool, keepSidecar bool)
 	if err != nil {
 		return errUninstallMissing
 	}
-	if tool.ManagedBy() == product.UserManaged {
+	if tool.ManagedByPath(path) == product.UserManaged {
 		fmt.Printf("    found at %s\n", path)
 		return errUninstallUserManaged
 	}
@@ -615,7 +615,7 @@ func installJobs(host product.BuildHost, jobs []toolJob, force bool) (failed int
 			header += " v" + v
 		}
 		fmt.Printf("\n==> %s\n", header)
-		if src := doctorAuditSource(j.Tool.Toolchain, j.GOOS, j.GOARCH); src != "" {
+		if src := doctorAuditSource(j.Tool.Toolchain, j.GOOS, j.GOARCH, j.LibC); src != "" {
 			fmt.Printf("    source: %s\n", src)
 		}
 		mode := tooling.ModeInstall
@@ -625,7 +625,7 @@ func installJobs(host product.BuildHost, jobs []toolJob, force bool) (failed int
 				continue
 			}
 			seenPath[path] = true
-			if j.Tool.ManagedBy() == product.UserManaged {
+			if j.Tool.ManagedByPath(path) == product.UserManaged {
 				// --force never touches user-managed tools in bulk
 				// mode; that'd surprise users who installed go/adb
 				// via their package manager. Use the named-install
@@ -710,14 +710,15 @@ func reportJobStatus(host product.BuildHost, jobs []toolJob) (missing int) {
 				continue
 			}
 			seenOK[path] = struct{}{}
+			managed := j.Tool.ManagedByPath(path)
 			sha := "-"
-			if j.Tool.ManagedBy() == product.GDManaged {
+			if managed == product.GDManaged {
 				sidecar := tooling.SidecarPath(host, j.Tool.Slug, j.GOOS, j.GOARCH, j.LibC)
 				if sum, _, err := tooling.ReadSidecar(sidecar); err == nil {
 					sha = shortSHA(sum)
 				}
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\tOK\t%s\t%s\n", jobLabel(j), ver, j.Tool.ManagedBy(), sha, path)
+			fmt.Fprintf(tw, "%s\t%s\t%s\tOK\t%s\t%s\n", jobLabel(j), ver, managed, sha, path)
 			continue
 		}
 		status := "MISSING"
@@ -928,7 +929,7 @@ func collectDoctorAudit(host product.BuildHost, jobs []toolJob) []DoctorAuditRow
 			Host:     host.Tuple(),
 			Library:  j.IsLibrary,
 			Required: j.Tool.RequiredFor,
-			Source:   doctorAuditSource(j.Tool.Toolchain, j.GOOS, j.GOARCH),
+			Source:   doctorAuditSource(j.Tool.Toolchain, j.GOOS, j.GOARCH, j.LibC),
 		}
 		path, err := j.Lookup(tooling.ModeFind)
 		if err != nil {
@@ -939,7 +940,7 @@ func collectDoctorAudit(host product.BuildHost, jobs []toolJob) []DoctorAuditRow
 		}
 		row.Status = "ok"
 		row.Path = path
-		row.ManageType = j.Tool.ManagedBy()
+		row.ManageType = j.Tool.ManagedByPath(path)
 		// SHA256 + Size come from the install-time sidecar under
 		// <GDChecksumsPath>. UserManaged tools (system PATH or
 		// pre-existing local installs) have no sidecar; that's not an
@@ -960,8 +961,9 @@ func collectDoctorAudit(host product.BuildHost, jobs []toolJob) []DoctorAuditRow
 
 // doctorAuditSource resolves the catalog's DownloadURL with the same
 // substitutions LookupPlatform applies, so the audit row carries the
-// exact upstream the artefact was fetched from.
-func doctorAuditSource(t product.Toolchain, goos, goarch string) string {
+// exact upstream the artefact was fetched from. libc feeds
+// $(LIBC)/$(LIBC_DOT); pass "" for tools that don't fan out on libc.
+func doctorAuditSource(t product.Toolchain, goos, goarch, libc string) string {
 	if u, ok := t.Downloads[goos][goarch]; ok {
 		return u
 	}
@@ -971,6 +973,10 @@ func doctorAuditSource(t product.Toolchain, goos, goarch string) string {
 	arch := t.DownloadARCH[goarch]
 	osTok := strings.ReplaceAll(t.DownloadOS[goos], "$(ARCH)", arch)
 	ext := t.DownloadEXT[goos]
+	libcDot := ""
+	if libc != "" {
+		libcDot = "." + libc
+	}
 	r := strings.NewReplacer(
 		"$(VERSION)", t.Version,
 		"$(ARCH)", arch,
@@ -978,6 +984,8 @@ func doctorAuditSource(t product.Toolchain, goos, goarch string) string {
 		"$(GOARCH)", goarch,
 		"$(GOOS)", goos,
 		"$(EXT)", ext,
+		"$(LIBC)", libc,
+		"$(LIBC_DOT)", libcDot,
 	)
 	return r.Replace(t.DownloadURL)
 }
