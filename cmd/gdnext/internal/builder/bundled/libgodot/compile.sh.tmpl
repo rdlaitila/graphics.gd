@@ -1,4 +1,19 @@
 #!/bin/sh
 export ZIG_LOCAL_CACHE_DIR={{CACHE}}
 export ZIG_GLOBAL_CACHE_DIR={{CACHE}}
+# SCons probes the toolchain via --version / -dumpversion / -dumpmachine /
+# -### / -print-* before compiling anything. Zig >= 0.15 emits a diagnostic
+# and exits 1 when `-target <arch>-linux-gnu.<glibc>` reaches clang's driver
+# in probe mode (real -c compilation is unaffected). Detect any of those
+# flags and drop `-target` for that invocation only, so the subprocess exits
+# 0 with a clean stdout SCons can parse — otherwise gcc.exists()'s version
+# probe returns None, FindTool falls through to clang, and detect.py flips
+# use_llvm=True.
+for arg do
+    case "$arg" in
+        --version|-dumpversion|-dumpmachine|-dumpspecs|-###|-print-*|-v)
+            exec {{ZIG}} {{VERB}} "$@"
+            ;;
+    esac
+done
 exec {{ZIG}} {{VERB}} -target {{TARGET}} -g0 "$@"

@@ -544,7 +544,6 @@ var ToolchainMatrix = []Toolchain{
 	// optionals
 	ToolchainSCons,
 	ToolchainGodotSrc,
-	ToolchainGodotBuildroot,
 	ToolchainAndroidNDK,
 }
 
@@ -652,25 +651,6 @@ var (
 		DownloadHint: "https://github.com/godotengine/godot/releases",
 		KnownChecksums: []string{
 			"sha256:c1a3329bd79c38fd2a65e261a6744f96914e5cc6ec3ff56c886a8c10656feb1b", // 4.7-stable (host-agnostic source zip)
-		},
-	}
-	ToolchainGodotBuildroot = Toolchain{
-		Slug:           "godot-buildroot",
-		Name:           "godot-buildroot",
-		Version:        "godot-2023.08.x-4",
-		RequiredFor:    "compiling libgodot's default (glibc) linux variant",
-		AvailableHosts: []BuildHost{HostLinuxAmd64, HostLinuxArm64},
-		DownloadURL:    "https://github.com/godotengine/buildroot/releases/download/$(VERSION)/$(ARCH)-godot-linux-gnu_sdk-buildroot.tar.bz2",
-		DownloadARCH:   map[string]string{"amd64": "x86_64", "arm64": "aarch64"},
-		Installations: map[string]string{
-			"linux": "$(GDPATH)/godot-buildroot/$(VERSION)-$(GOARCH)",
-		},
-		IsBundle:     true,
-		Optional:     true,
-		DownloadHint: "https://github.com/godotengine/buildroot/releases",
-		KnownChecksums: []string{
-			"sha256:b89f173b1f2f2f35f3090bc4efad732f1c0c1c1206e5480cfcb141977010bc94", // amd64 (x86_64)
-			"sha256:d7b673823e8078ac70ffa202b4471356eca360b80960c6d1a722af0c03aea29d", // arm64 (aarch64)
 		},
 	}
 	ToolchainZig = Toolchain{
@@ -961,44 +941,28 @@ var (
 	ToolchainLibGodot = Toolchain{
 		Slug:           "libgodot",
 		Name:           "libgodot.$(OS).$(GOARCH)$(LIBC_DOT).template_release.$(EXT)",
-		Version:        LibGodotRef + "-3",
+		Version:        LibGodotRef + "-4",
 		RequiredFor:    "libgodot static-link mode",
 		AvailableHosts: []BuildHost{HostLinuxAmd64, HostLinuxArm64, HostWindowsAmd64, HostDarwinAmd64, HostDarwinArm64},
 		DownloadURL:    "https://github.com/rdlaitila/graphics.gd/releases/download/libgodot-v$(VERSION)/libgodot.$(OS).$(GOARCH)$(LIBC_DOT).template_release.$(EXT)",
 		DownloadOS:     map[string]string{"linux": "linux", "windows": "windows", "darwin": "darwin"},
 		DownloadEXT:    map[string]string{"linux": "a", "windows": "a", "darwin": "a"},
 		IsLibrary:      true,
-		KnownChecksums: []string{
-			"sha256:f8d65cda55a872f9315ec56b20be1a83b7747b539073fb4e7de181528cc9bfa6", // linux/amd64/glibc
-			"sha256:8a806f586b59df4c7bc880dc7b96933cbea0a10ddfe330faae86a9001243c9e8", // linux/arm64/glibc
-			"sha256:40b17ba2915fb3147043deefaa51eedad9a50e519de04b4e1d5063d184879cef", // linux/amd64/musl
-			"sha256:7eed4d0824e00fd6c83719a1a9905fb9f8b1dbae822b5b7b7435b11e7bc8bf2c", // linux/arm64/musl
-			"sha256:675f93e87ab93e6301de721994f5df5f3fe55f02f52eb8aeb9acdea98ebc20d0", // windows/amd64
-			"sha256:343261304f294b9232923814022f8a2767323d3dc8a481f07a0dae14eb3cb1e3", // windows/arm64
-			"sha256:8b02ce6b5734a24cddf9d2367201c96a5e380594e9f817d0d98886e9ad58dc78", // darwin/amd64
-			"sha256:3f62d9ed1afac11175f431eecd5ff4655a2b5b8986ecb14fd61306d4420889fa", // darwin/arm64
-		},
+		// Checksums cleared for the -4 release: linux glibc now builds
+		// through zig-cc (was buildroot), so amd64/glibc content
+		// changes. Rebuild via libgodot.yml with GDNEXT_SKIP_CHECKSUM=1
+		// on first run, then paste the sidecar hashes back here.
 	}
 	ToolchainLibGodotEditor = Toolchain{
 		Slug:           "libgodot-editor",
 		Name:           "libgodot.$(OS).$(GOARCH)$(LIBC_DOT).editor.$(EXT)",
-		Version:        LibGodotRef + "-3",
+		Version:        LibGodotRef + "-4",
 		RequiredFor:    "libgodot editor link mode",
 		AvailableHosts: []BuildHost{HostLinuxAmd64, HostLinuxArm64, HostWindowsAmd64, HostDarwinAmd64, HostDarwinArm64},
 		DownloadURL:    "https://github.com/rdlaitila/graphics.gd/releases/download/libgodot-v$(VERSION)/libgodot.$(OS).$(GOARCH)$(LIBC_DOT).editor.$(EXT)",
 		DownloadOS:     map[string]string{"linux": "linux", "windows": "windows", "darwin": "darwin"},
 		DownloadEXT:    map[string]string{"linux": "a", "windows": "a", "darwin": "a"},
 		IsLibrary:      true,
-		KnownChecksums: []string{
-			"sha256:daea74c395d975003e40ff3c9b75293c91abb8a548cc18b306a8cab25cea6b97", // linux/amd64/glibc
-			"sha256:7a289aaa2a1363252e3aa038c1b88b3c661dd7b58a6e671cd9b3d5de8737da00", // linux/arm64/glibc
-			"sha256:3c7086db4881d223c76717713689bd6506ac70901f42423b9c503068b98ffffe", // linux/amd64/musl
-			"sha256:3bd3db74cb26ec84a5287a3bd3354dcb466e1704509c2f364f2c169e82055d17", // linux/arm64/musl
-			"sha256:07924dd642bbac462e4ecace1a1d9c266afd76961e7b4d579e0f1534e18dfdf4", // windows/amd64
-			"sha256:720212380bf5e1e71e625412ef3ede4392f998217ef71895aec5e73151f68040", // windows/arm64
-			"sha256:51bf49e817a8230d13d7514b9d4a3271d7f5e2e743ba2e7f7117778617b02d43", // darwin/amd64
-			"sha256:1fc8816acd311851c3546323f941f4cfb061c1c519fa7d2f0fddea60f462e7d7", // darwin/arm64
-		},
 	}
 	ToolchainLDD = Toolchain{
 		Slug:           "ldd",

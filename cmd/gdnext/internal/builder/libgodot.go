@@ -835,79 +835,14 @@ func (t *LibGodot) plantZigShims(recipe product.LibGodotRecipe) (string, error) 
 	return dir, nil
 }
 
-// plantBuildrootShims writes cc / c++ / ar / ranlib shims that
-// forward to the buildroot SDK's `<triple>-gcc` / `<triple>-g++` /
-// `<triple>-ar` / `<triple>-ranlib`, so SCons — invoked with
-// CC=cc CXX=c++ AR=ar RANLIB=ranlib — resolves them to the pinned
-// gcc 13.2.0 + glibc 2.28 cross toolchain. Ensures the buildroot
-// bundle is on disk and calls relocate-sdk.sh once when its marker
-// isn't present. Returns the shim dir to prepend to PATH.
-func (t *LibGodot) plantBuildrootShims(recipe product.LibGodotRecipe) (string, error) {
-	if recipe.BuildrootToolchain == "" {
-		return "", nil
-	}
-	sdk, err := t.ToolCatalog.GodotBuildroot.Lookup()
-	if err != nil {
-		return "", xray.New(err)
-	}
-	if err := ensureBuildrootRelocated(sdk); err != nil {
-		return "", xray.New(err)
-	}
-	sdkBin := filepath.Join(sdk, "bin")
-	dir := filepath.Join(t.BuildEnv.Host.GDRootPath, "libgodot-shim", shimSubdir(recipe))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", xray.New(err)
-	}
-	tools := map[string]string{
-		"cc":     recipe.BuildrootToolchain + "-gcc",
-		"c++":    recipe.BuildrootToolchain + "-g++",
-		"ld":     recipe.BuildrootToolchain + "-gcc",
-		"ld.lld": recipe.BuildrootToolchain + "-gcc",
-		"ar":     recipe.BuildrootToolchain + "-ar",
-		"ranlib": recipe.BuildrootToolchain + "-ranlib",
-	}
-	for name, target := range tools {
-		script := fmt.Sprintf("#!/bin/sh\nexec %q \"$@\"\n", filepath.Join(sdkBin, target))
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
-			return "", xray.New(err)
-		}
-	}
-	return dir, nil
-}
-
-// ensureBuildrootRelocated runs the SDK's `relocate-sdk.sh` once. The
-// buildroot tarball ships with absolute paths baked into its gcc
-// specs and pkg-config files; relocate-sdk.sh rewrites them to the
-// current install location. Idempotent: the script writes a marker
-// file (`.relocated`) we probe to skip subsequent runs.
-func ensureBuildrootRelocated(sdk string) error {
-	marker := filepath.Join(sdk, ".gdnext-relocated")
-	if _, err := os.Stat(marker); err == nil {
-		return nil
-	}
-	script := filepath.Join(sdk, "relocate-sdk.sh")
-	if _, err := os.Stat(script); err != nil {
-		return fmt.Errorf("buildroot SDK at %s is missing relocate-sdk.sh: %w", sdk, err)
-	}
-	fmt.Printf("==> relocating buildroot SDK at %s (one-shot)\n", sdk)
-	cmd := exec.Command("sh", script)
-	cmd.Dir = sdk
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("relocate-sdk.sh: %w", err)
-	}
-	return os.WriteFile(marker, []byte(""), 0o644)
-}
-
-// plantToolchainShims dispatches to the buildroot planter for glibc
-// recipes and to the zig planter for everything else. The buildroot
-// path also lazily ensures the SDK is on disk and relocated. Zig
-// remains the toolchain of record for musl / android / windows / mac
-// cross-compiles; buildroot only serves the linux glibc default.
+// plantToolchainShims plants zig-cc shims for any recipe carrying a
+// non-empty ZigTarget. Recipes without a ZigTarget (windows/mingw,
+// darwin, etc.) plant nothing here — those toolchains are supplied
+// directly via CC= / CXX= in ExtraSconsArgs and their compilers are
+// pre-installed on the CI runner.
 func (t *LibGodot) plantToolchainShims(recipe product.LibGodotRecipe) (string, error) {
-	if recipe.BuildrootToolchain != "" {
-		return t.plantBuildrootShims(recipe)
+	if recipe.ZigTarget == "" {
+		return "", nil
 	}
 	if _, err := t.ToolCatalog.Zig.Lookup(); err != nil {
 		return "", xray.New(err)

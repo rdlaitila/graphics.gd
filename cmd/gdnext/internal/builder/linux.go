@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -28,10 +27,12 @@ var built_musl bool
 
 // Linux drives every linux/* target: gdextension c-shared builds and
 // the single-file libgodot variant (routed here on LinkMode.LibGodot).
-// Handles both glibc (via Godot's buildroot SDK) and musl (via the
-// dlopen shim) libc variants; the choice is threaded through
-// GDNEXT_LIBGODOT_LIBC. The mallocng patch, gdextension-scrub, and
-// runtime overlay helpers below are shared across both.
+// Both libc variants (glibc and musl) use zig-cc for cross-compilation;
+// musl adds -static, the mallocng patch, the musl runtime overlay,
+// and bakes in the dlopen shim so the resulting binary borrows the
+// system ld.so at runtime. The choice is threaded through
+// BuildEnv.Target.LibC (default glibc; --libc=musl / GDNEXT_LIBGODOT_LIBC
+// opts in).
 type Linux struct {
 	BuildEnv    product.BuildEnv `do:""`
 	ToolCatalog tooling.Catalog  `do:""`
@@ -168,7 +169,7 @@ func (t *Linux) Test(args ...string) error {
 }
 
 // libgodotBuild produces the single-file linux binary that statically links libgodot + the c-archive Go build together.
-// Dispatches to the glibc (Godot buildroot SDK) or musl (zig + dlopen shim) helper based on BuildEnv.Target.LibC.
+// Dispatches to the glibc (zig-cc pinned to glibc 2.28) or musl (zig + dlopen shim) helper based on BuildEnv.Target.LibC.
 func (t *Linux) libgodotBuild(args ...string) (err error) {
 	switch t.BuildEnv.Target.LibC {
 	case product.LibCMusl:
@@ -295,13 +296,11 @@ func (t *Linux) libgodotBuildMusl(args ...string) (err error) {
 	return nil
 }
 
-// libgodotBuildGlibc produces the single-file linux binary using
-// Godot's buildroot SDK (pinned gcc 13.2.0 + glibc 2.28), links
-// libgodot.a + the Go c-archive with -static-libstdc++ so the
-// resulting binary depends only on glibc/pthread/dl/m/rt — the same
-// baseline every mainstream distro ships since 2018. Skips the musl
-// overlay, mallocng patch, and dlopen shim entirely; those are
-// musl-only concerns.
+// libgodotBuildGlibc produces the single-file linux binary via zig-cc
+// pinned to `<arch>-linux-gnu.2.28`, statically links libgodot.a + the
+// Go c-archive together plus zig's libc++, and leaves glibc/pthread/
+// dl/m/rt dynamic. Skips the musl overlay, mallocng patch, and dlopen
+// shim entirely; those are musl-only concerns.
 func (t *Linux) libgodotBuildGlibc(args ...string) (err error) {
 	env := t.BuildEnv
 	tools := t.ToolCatalog
@@ -314,24 +313,15 @@ func (t *Linux) libgodotBuildGlibc(args ...string) (err error) {
 		return nil
 	}
 	GOARCH := env.Target.GOARCH
-	sdk, err := tools.GodotBuildroot.Lookup()
+	zig, err := tools.Zig.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
-	if err := ensureBuildrootRelocated(sdk); err != nil {
-		return xray.New(err)
+	target, err := glibcZigTarget(GOARCH)
+	if err != nil {
+		return fmt.Errorf("gd build: cannot cross-compile linux/libgodot %v on %s: %w", GOARCH, env.Host.Tuple(), err)
 	}
-	var triple string
-	switch GOARCH {
-	case product.GOARCHAmd64:
-		triple = "x86_64-godot-linux-gnu"
-	case product.GOARCHArm64:
-		triple = "aarch64-godot-linux-gnu"
-	default:
-		return fmt.Errorf("gd build: cannot cross-compile linux/libgodot %v on %s", GOARCH, env.Host.Tuple())
-	}
-	gcc := filepath.Join(sdk, "bin", triple+"-gcc")
-	if err := os.Setenv(product.EnvCC, gcc); err != nil {
+	if err := os.Setenv(product.EnvCC, zig+" cc -target "+target); err != nil {
 		return xray.New(err)
 	}
 	if t.lib == "" {
@@ -343,11 +333,13 @@ func (t *Linux) libgodotBuildGlibc(args ...string) (err error) {
 	}
 	if t.out == "" {
 		t.out = filepath.Join(project.GraphicsDirectory, "linux_"+GOARCH+".libgodot.editor")
-		defer func() {
-			if err == nil {
-				t.useGodotAt(t.out)
-			}
-		}()
+		if env.Host.GOOS == product.GOOSLinux && env.Host.GOARCH == GOARCH {
+			defer func() {
+				if err == nil {
+					t.useGodotAt(t.out)
+				}
+			}()
+		}
 	}
 	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.libgodot.a", GOARCH))
 	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-o", libgo); err != nil {
@@ -358,41 +350,35 @@ func (t *Linux) libgodotBuildGlibc(args ...string) (err error) {
 `), 0o644); err != nil {
 		return xray.New(err)
 	}
-	// -static-libstdc++ / -static-libgcc so the binary doesn't need
-	// libstdc++.so.<X>+ or libgcc_s.so.1 at runtime. libc/libpthread/
-	// libdl/libm/librt stay dynamic (every glibc distro ships them).
-	//
-	// -l:libstdc++.a / -l:libgcc_eh.a live INSIDE --start-group /
-	// --end-group so ld's multi-pass scan can resolve the tangle
-	// between libgodot's per-module .a files and libstdc++ (Godot
-	// pulls hundreds of `_M_create` / vtable refs out of embree
-	// which need backtracking). `-l:libX.a` forces the static
-	// archive by exact filename; plain `-lstdc++` would resolve to
-	// the .so and defeat -static-libstdc++.
-	linkArgs := []string{
-		"-o", t.out,
-		pckStub,
-		"-static-libstdc++", "-static-libgcc",
-		"-Wl,--start-group", t.lib, libgo, "-l:libstdc++.a", "-l:libgcc_eh.a",
-	}
+	zigArgs := []string{"cc", "-target", target, pckStub, "-Wl,--start-group", t.lib, libgo}
 	cgoLDFLAGS, err := tools.Go.Output("list", "-tags", "archive", "-deps", "-f", "{{range .CgoLDFLAGS}}{{println .}}{{end}}", ".")
 	if err != nil {
 		return xray.New(err)
 	}
 	for _, flag := range strings.Split(cgoLDFLAGS, "\n") {
 		if flag = strings.TrimSpace(flag); flag != "" {
-			linkArgs = append(linkArgs, flag)
+			zigArgs = append(zigArgs, flag)
 		}
 	}
-	linkArgs = append(linkArgs, "-Wl,--end-group",
-		"-lpthread", "-ldl", "-lm", "-lrt")
-	cmd := exec.Command(gcc, linkArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	zigArgs = append(zigArgs, "-Wl,--end-group", "-lc++", "-lpthread", "-ldl", "-lm", "-lrt", "-o", t.out)
+	if err := tools.Zig.Exec(zigArgs...); err != nil {
 		return fmt.Errorf("libgodot glibc link: %w", err)
 	}
 	return nil
+}
+
+// glibcZigTarget returns the zig `-target` triple for a linux glibc
+// libgodot build. Pinned to glibc 2.28 (Ubuntu 20.04+, Debian 11+,
+// Fedora 30+, Arch, SteamOS, NixOS, Bazzite). Alpine users must opt
+// into `--libc=musl`.
+func glibcZigTarget(goarch string) (string, error) {
+	switch goarch {
+	case product.GOARCHAmd64:
+		return "x86_64-linux-gnu.2.28", nil
+	case product.GOARCHArm64:
+		return "aarch64-linux-gnu.2.28", nil
+	}
+	return "", fmt.Errorf("no glibc zig target for GOARCH=%s", goarch)
 }
 
 func (t *Linux) libgodotBuildMain(args ...string) error {
@@ -453,6 +439,68 @@ func (t *Linux) libgodotBuildMain(args ...string) error {
 }
 
 func (t *Linux) libgodotTest(args ...string) error {
+	switch t.BuildEnv.Target.LibC {
+	case product.LibCMusl:
+		return t.libgodotTestMusl(args...)
+	default:
+		return t.libgodotTestGlibc(args...)
+	}
+}
+
+// libgodotTestGlibc builds the headless test binary via zig-cc pinned
+// to `<arch>-linux-gnu.2.28`, linking libgodot + the Go c-archive test
+// binary together with zig's libc++. Mirrors libgodotBuildGlibc; the
+// only differences are the Go verb (`test -c` instead of `build`) and
+// the omission of the pck stub (tests don't embed a pack).
+func (t *Linux) libgodotTestGlibc(args ...string) error {
+	env := t.BuildEnv
+	tools := t.ToolCatalog
+	if built_musl {
+		return nil
+	}
+	defer func() { built_musl = true }()
+	os.Remove(filepath.Join(project.GraphicsDirectory, "library.gdextension"))
+	goos := os.Getenv(product.EnvGOOS)
+	os.Setenv(product.EnvGOOS, product.GOOSLinux)
+	defer os.Setenv(product.EnvGOOS, goos)
+	GOARCH := env.Target.GOARCH
+	if env.Host.GOOS != product.GOOSLinux || env.Host.GOARCH != GOARCH {
+		return fmt.Errorf("gd test: cannot run linux/libgodot %v tests on %s", GOARCH, env.Host.Tuple())
+	}
+	zig, err := tools.Zig.Lookup()
+	if err != nil {
+		return xray.New(err)
+	}
+	target, err := glibcZigTarget(GOARCH)
+	if err != nil {
+		return fmt.Errorf("gd test: %w", err)
+	}
+	if err := os.Setenv(product.EnvCC, zig+" cc -target "+target); err != nil {
+		return xray.New(err)
+	}
+	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.libgodot.a", GOARCH))
+	if err := tools.Go.Action("test", args, "-c", "-tags", "archive", "-buildmode=c-archive", "-o", libgo); err != nil {
+		return xray.New(err)
+	}
+	libgodot, err := t.libgodotArtefactPath(GOARCH, true)
+	if err != nil {
+		return xray.New(err)
+	}
+	editor := filepath.Join(project.GraphicsDirectory, "linux_"+GOARCH+".libgodot.editor")
+	zigArgs := []string{"c++", "-target", target, "-Wl,--start-group", libgodot, libgo, "-Wl,--end-group",
+		"-lc++", "-lpthread", "-ldl", "-lm", "-lrt", "-o", editor}
+	if err := tools.Zig.Exec(zigArgs...); err != nil {
+		return fmt.Errorf("libgodot glibc test link: %w", err)
+	}
+	t.useGodotAt(editor)
+	if err := os.Chdir(project.GraphicsDirectory); err != nil {
+		return xray.New(err)
+	}
+	args = append(args, "--headless")
+	return t.godotTool().Exec(args...)
+}
+
+func (t *Linux) libgodotTestMusl(args ...string) error {
 	env := t.BuildEnv
 	tools := t.ToolCatalog
 	if built_musl {

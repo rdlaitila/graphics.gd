@@ -172,13 +172,8 @@ func runnerHostGOARCH(runner string) string {
 // libgodotRunnerFor returns the GHA runner label a recipe should build
 // on, and false when the recipe has no CI-runnable host (ios/android).
 // Rules mirror LibGodot.hostCanBuild in cmd/gdnext/internal/builder.
-//
-// linux/arm64 targets stay on ubuntu-latest (amd64) because the
-// Godot buildroot SDK ships x86_64-hosted cross-toolchains — the
-// `-arm64` in the archive name is the target triple, not the host.
-// Running the SDK's ar/gcc on ubuntu-24.04-arm fails with
-// "Exec format error". zig-cc for musl cross-compiles from any
-// host too, so ubuntu-latest handles both linux libc variants.
+// Every linux libgodot recipe (glibc + musl, both arches) now
+// cross-compiles from ubuntu-latest via zig-cc.
 func libgodotRunnerFor(r product.LibGodotRecipe) (string, bool) {
 	switch r.GOOS {
 	case product.GOOSLinux:

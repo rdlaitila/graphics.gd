@@ -43,7 +43,7 @@ func NewLibGodotCommand(di do.Injector) (*LibGodotCommand, error) {
 					&cli.StringFlag{Name: "goos", Usage: "target GOOS (default: host)"},
 					&cli.StringFlag{Name: "goarch", Usage: "target GOARCH (default: host)"},
 					&cli.BoolFlag{Name: "editor", Usage: "build the editor variant (target=editor) instead of template_release"},
-					&cli.StringFlag{Name: "libc", Usage: "linux libc variant: glibc (default, Godot buildroot SDK) or musl (opt-in, uses zig + dlopen shim)"},
+					&cli.StringFlag{Name: "libc", Usage: "linux libc variant: glibc (default, zig-cc pinned to glibc 2.28) or musl (opt-in, zig + dlopen shim)"},
 				},
 				Action: shared.BindAction(t.Injector, (*LibGodotActions).build),
 			},

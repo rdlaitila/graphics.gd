@@ -22,7 +22,6 @@ type Catalog struct {
 	JDK                          *Tool
 	SCons                        *Tool
 	GodotSrc                     *Tool
-	GodotBuildroot               *Tool
 	Zig                          *Tool
 	LLVM                         *Tool
 	AndroidBuildTools            *Tool
@@ -64,7 +63,6 @@ func NewCatalog(di do.Injector) (Catalog, error) {
 		JDK:                          mk(product.ToolchainAndroidJDK),
 		SCons:                        mk(product.ToolchainSCons),
 		GodotSrc:                     mk(product.ToolchainGodotSrc),
-		GodotBuildroot:               mk(product.ToolchainGodotBuildroot),
 		Zig:                          mk(product.ToolchainZig),
 		LLVM:                         mk(product.ToolchainLLVM),
 		AndroidBuildTools:            mk(product.ToolchainAndroidBuildTools),
@@ -90,7 +88,6 @@ func NewCatalog(di do.Injector) (Catalog, error) {
 		product.ToolchainAndroidJDK.Slug:           c.JDK,
 		product.ToolchainSCons.Slug:                c.SCons,
 		product.ToolchainGodotSrc.Slug:             c.GodotSrc,
-		product.ToolchainGodotBuildroot.Slug:       c.GodotBuildroot,
 		product.ToolchainZig.Slug:                  c.Zig,
 		product.ToolchainLLVM.Slug:                 c.LLVM,
 		product.ToolchainAndroidBuildTools.Slug:    c.AndroidBuildTools,

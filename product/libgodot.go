@@ -23,9 +23,9 @@ const LibGodotRef = "4.7-stable"
 type LibGodotRecipe struct {
 	GOOS   string
 	GOARCH string
-	// LibC narrows the linux target between glibc (buildroot SDK) and
-	// musl (single-file + dlopen shim). Empty for non-linux targets
-	// where the concept doesn't apply.
+	// LibC narrows the linux target between glibc (dynamic, uses the
+	// host's ld.so at runtime) and musl (single-file + dlopen shim).
+	// Empty for non-linux targets where the concept doesn't apply.
 	LibC string
 	// Editor selects the editor build (target=editor) instead of the
 	// export-template one (target=template_release). The editor
@@ -41,16 +41,13 @@ type LibGodotRecipe struct {
 	// / ToolchainLibGodotEditor so `gdnext toolchain doctor` sees the
 	// hash landed by `gdnext libgodot install`.
 	InstallSlug string
-	// ZigTarget, when non-empty, tells the builder to plant clang/clang++
-	// shims that forward to `zig cc/c++ -target <ZigTarget>` and
-	// prepend them to PATH before invoking scons. Used by linuxMusl
-	// so upstream detect.py's forced-clang paths route through zig.
+	// ZigTarget, when non-empty, tells the builder to plant cc/c++/
+	// ld/ar/ranlib shims that forward to `zig cc/c++/ar/ranlib -target
+	// <ZigTarget>` and prepend them to PATH before invoking scons.
+	// Shim names deliberately avoid `clang`/`clang++` — Godot's
+	// linuxbsd detect.py flips use_llvm=True when CXX basename
+	// contains "clang", which appends `.llvm` to every artefact.
 	ZigTarget string
-	// BuildrootToolchain, when non-empty, tells the builder to use
-	// Godot's buildroot SDK (a pinned gcc + glibc 2.28 cross-toolchain)
-	// instead of zig. Value is the SDK's target triple prefix, e.g.
-	// "x86_64-godot-linux-gnu". Mutually exclusive with ZigTarget.
-	BuildrootToolchain string
 	// Quirks documents known-broken build cells (same shape as
 	// Platform.Quirks). Consumed by ci/matrix_libgodot to gate
 	// individual cells behind allow_fail without dropping them
@@ -96,7 +93,7 @@ func muslCC(goarch string) string {
 // declarative matrix is the full "everything we intend to publish"
 // list independent of what any single host can produce.
 var LibGodotMatrix = []LibGodotRecipe{
-	// linux/glibc via Godot's buildroot SDK — the default for
+	// linux/glibc via zig-cc pinned to glibc 2.28 — the default for
 	// `gdnext libgodot build` and `gdnext --link=libgodot`. Produces
 	// a normal glibc-dynamic .a; the resulting binary runs on any
 	// linux with glibc ≥ 2.28 (Ubuntu 20.04+, Debian 11+, Fedora 30+,
@@ -142,7 +139,7 @@ var LibGodotMatrix = []LibGodotRecipe{
 // `--libc=musl` is requested. Ships with the graphics.gd dlopen shim
 // baked into the merged archive so the static-musl binary can borrow
 // the system's glibc ld.so at runtime. See linuxGlibcRecipe for the
-// default (glibc-buildroot) variant.
+// default (glibc-zig-cc) variant.
 func linuxMuslRecipe(goarch string, editor bool) LibGodotRecipe {
 	target, _, slug := editorTag(editor)
 	installName := "libgodot.linux." + goarch + ".musl." + target + ".a"
@@ -197,32 +194,21 @@ func linuxMuslRecipe(goarch string, editor bool) LibGodotRecipe {
 }
 
 // linuxGlibcRecipe builds the default linux libgodot variant using
-// Godot's own buildroot SDK (a pinned gcc + glibc 2.28 cross-toolchain,
-// same one upstream Godot uses for its official linux releases). The
-// resulting binary runs unmodified on any linux with glibc >= 2.28
-// (2018 onwards: Ubuntu 20.04+, Debian 11+, Fedora 30+, Arch, SteamOS,
-// NixOS, Bazzite). Alpine users need `apk add gcompat`, identical to
-// upstream Godot's docs.
-//
-// Godot dlopens X11 / Wayland / xkbcommon / alsa / pulse / dbus /
-// fontconfig / speechd / udev at runtime via so_wrap (Godot default),
-// so no build-time dependency on those libs — the resulting binary
-// starts even when some are missing, degrading only the affected
-// functionality (no PulseAudio -> ALSA fallback, no libspeechd -> no TTS, etc.).
+// zig-cc pinned to `<arch>-linux-gnu.2.28` (matches the 2018 baseline
+// Godot's own buildroot SDK provides). The resulting binary runs
+// unmodified on any linux with glibc >= 2.28 (Ubuntu 20.04+, Debian 11+,
+// Fedora 30+, Arch, SteamOS, NixOS, Bazzite). Alpine users need
+// `apk add gcompat`, identical to upstream Godot's docs. Godot dlopens
+// X11/Wayland/xkbcommon/alsa/pulse/dbus/fontconfig/speechd/udev at
+// runtime via so_wrap (Godot default), so no build-time dependency
+// on those libs.
 func linuxGlibcRecipe(goarch string, editor bool) LibGodotRecipe {
 	target, _, slug := editorTag(editor)
 	installName := "libgodot.linux." + goarch + ".glibc." + target + ".a"
-	// arm64 goes through zig-cc pinned to glibc 2.28 rather than the
-	// buildroot SDK: Godot's aarch64 buildroot is a native aarch64
-	// toolchain (not amd64-hosted), so it can't cross-compile from
-	// the ubuntu-latest amd64 runner. zig-cc with target
-	// aarch64-linux-gnu.2.28 lands the same glibc baseline.
 	godotArch := "x86_64"
-	triplePrefix := "x86_64-godot-linux-gnu"
-	zigTarget := ""
+	zigTarget := "x86_64-linux-gnu.2.28"
 	if goarch == GOARCHArm64 {
 		godotArch = "arm64"
-		triplePrefix = ""
 		zigTarget = "aarch64-linux-gnu.2.28"
 	}
 	extra := []string{
@@ -231,23 +217,22 @@ func linuxGlibcRecipe(goarch string, editor bool) LibGodotRecipe {
 		"builtin_sdl=yes",
 		"CC=cc",
 		"CXX=c++",
-		"AR=ar",
-		"RANLIB=ranlib",
+		"AR=zig ar",
+		"RANLIB=zig ranlib",
 		"extra_suffix=" + LibCGlibc,
 	}
 	return LibGodotRecipe{
-		GOOS:               GOOSLinux,
-		GOARCH:             goarch,
-		LibC:               LibCGlibc,
-		Editor:             editor,
-		GodotPlatform:      "linuxbsd",
-		GodotArch:          godotArch,
-		ExtraSconsArgs:     extra,
-		BuildrootToolchain: triplePrefix,
-		ZigTarget:          zigTarget,
-		ArtefactName:       "libgodot.linuxbsd." + target + "." + godotArch + "." + LibCGlibc + ".a",
-		InstallName:        installName,
-		InstallSlug:        slug,
+		GOOS:           GOOSLinux,
+		GOARCH:         goarch,
+		LibC:           LibCGlibc,
+		Editor:         editor,
+		GodotPlatform:  "linuxbsd",
+		GodotArch:      godotArch,
+		ExtraSconsArgs: extra,
+		ZigTarget:      zigTarget,
+		ArtefactName:   "libgodot.linuxbsd." + target + "." + godotArch + "." + LibCGlibc + ".a",
+		InstallName:    installName,
+		InstallSlug:    slug,
 	}
 }
 

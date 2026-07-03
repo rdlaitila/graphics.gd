@@ -86,7 +86,7 @@ jobs:
 
   # Prime ~/gd on each distinct runner once so the parallel build
   # fan-out below restores from cache instead of every cell racing to
-  # download zig + scons + buildroot SDK independently. Cache key
+  # download zig + scons independently. Cache key
   # matches gdnext.yml so both workflows share cache slots on the
   # same runner.
   bootstrap:
@@ -132,15 +132,6 @@ jobs:
         # re-downloading + re-extracting. Host-agnostic tarball, so
         # this runs on every bootstrap runner.
         run: gdnext toolchain install godot-src
-      - name: Prime buildroot SDK (linux runners only)
-        if: runner.os == 'Linux'
-        shell: bash
-        # The glibc libgodot recipes fetch the ~120MB buildroot SDK on
-        # demand; priming it here means the 8 linux cells in the build
-        # fan-out restore it from ~/gd instead of each racing to
-        # download the same tarball. Only linux runners consume the
-        # buildroot SDK (macOS + windows targets link differently).
-        run: gdnext toolchain install godot-buildroot
       - name: Save ~/gd
         if: steps.restore-tools.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -172,9 +163,7 @@ jobs:
       # Reuse the ~/gd cache the bootstrap job primed above. Key format
       # matches gdnext.yml so both workflows can share cache slots.
       # restore-keys fallback tolerates catalog additions between the
-      # bootstrap step and this restore (e.g. a new optional tool
-      # added mid-run); the buildroot SDK is fetched on demand
-      # by `gdnext libgodot build` regardless.
+      # bootstrap step and this restore.
       - id: tools-key
         shell: bash
         run: |
