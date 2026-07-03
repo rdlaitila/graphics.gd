@@ -2,34 +2,107 @@ name: gdnext
 
 on:
   push:
-    branches: ["release", "staging", "gdnext", "gdnext-cli"]
-    paths:
-      - "cmd/gdnext/**"
-      - "examples/**"
-      - "product/**"
-      - ".github/workflows/gdnext.yml"
+    branches: ["release", "staging", "gdnext"]    
   pull_request:
-    branches: ["release"]
-    paths:
-      - "cmd/gdnext/**"
-      - "examples/**"
-      - "product/**"
-      - ".github/workflows/gdnext.yml"
+    branches: ["release"]    
   workflow_dispatch:
+    inputs:
+      filter-host:
+        description: "Comma-separated <goos>/<goarch> host tuples (empty = all)"
+        required: false
+        default: ""
+        type: string
+      filter-target:
+        description: "Comma-separated <goos>/<goarch> target tuples (empty = all)"
+        required: false
+        default: ""
+        type: string
+      filter-link:
+        description: "Comma-separated link modes (gdextension|libgodot; empty = all)"
+        required: false
+        default: ""
+        type: string
 
 # Only one run per branch at a time. A new push cancels any in-flight
 # run for the same ref so we don't burn runner-minutes on stale work.
 concurrency:
   group: gdnext-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   # Pre-job: enumerate the supported build targets from product data.
-  # `gdnext ci matrix` emits a fully-expanded include: list keyed by
+  # `gdnext ci build-matrix` emits a fully-expanded include: list keyed by
   # (os, target, example, experimental); the build job consumes it via
   # fromJSON. Adding a new row to product.PlatformMatrix (or flipping
   # its BuildHosts) lands in CI with zero workflow edits.
-  discover-targets:
+  discover-builds:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+      runners: ${{ steps.list.outputs.runners }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+      - id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install ./cmd/gdnext
+          matrix=$("$(go env GOPATH)/bin/gdnext" ci build-matrix --summary \
+            --filter-host "${{ inputs.filter-host }}" \
+            --filter-target "${{ inputs.filter-target }}" \
+            --filter-link "${{ inputs.filter-link }}")
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+          # Derive the distinct runner labels appearing in the build
+          # matrix so gdnext-checks only runs on hosts that survived
+          # the filter. jq -c keeps the output a one-line JSON array
+          # ready for fromJSON in the consuming job.
+          runners=$(echo "$matrix" | jq -c '[.include[].os] | unique')
+          echo "runners=$runners" >> $GITHUB_OUTPUT
+
+  # Pre-job: enumerate the (play-host, build-host, target, link) quads
+  # the play matrix should drive. Only emitted for Platforms whose
+  # PlayHosts is non-empty, so adding a play target lands here without
+  # workflow edits. Runs at the start alongside discover-builds —
+  # the matrix is pure product data, no build artefacts required.
+  discover-plays:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+      empty: ${{ steps.list.outputs.empty }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+      - id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install ./cmd/gdnext
+          matrix=$("$(go env GOPATH)/bin/gdnext" ci play-matrix --summary \
+            --filter-host "${{ inputs.filter-host }}" \
+            --filter-target "${{ inputs.filter-target }}" \
+            --filter-link "${{ inputs.filter-link }}")
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+          # Skip the gdnext-play job entirely when no rows exist
+          # (e.g. every play target was excluded). Otherwise GHA
+          # complains about an empty matrix.
+          count=$(echo "$matrix" | jq '.include | length')
+          if [ "$count" = "0" ]; then
+            echo "empty=true" >> $GITHUB_OUTPUT
+          else
+            echo "empty=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Pre-job: enumerate the (host, link) cells gdnext-test should
+  # drive. linux/amd64 supports both gdextension + libgodot, every
+  # other host platform is gdextension-only; this discovery honours
+  # each host platform's product.PlatformMatrix.LinkModes so a new
+  # link mode lands here without workflow edits.
+  discover-tests:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.list.outputs.matrix }}
@@ -43,17 +116,23 @@ jobs:
         run: |
           set -euo pipefail
           go install ./cmd/gdnext
-          matrix=$("$(go env GOPATH)/bin/gdnext" ci matrix --summary)
+          matrix=$("$(go env GOPATH)/bin/gdnext" ci test-matrix --summary \
+            --filter-host "${{ inputs.filter-host }}" \
+            --filter-link "${{ inputs.filter-link }}")
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
 
   # CLI smoke checks that don't depend on (target, example). Runs
-  # once per host OS instead of once per matrix cell.
+  # once per host OS the build matrix actually uses, so
+  # --filter-host=windows/amd64 skips ubuntu + macos checks instead
+  # of wasting a slot each.
   gdnext-checks:
+    needs: [discover-builds]
+    if: needs.discover-builds.outputs.runners != '[]'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ fromJSON(needs.discover-builds.outputs.runners) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -67,25 +146,50 @@ jobs:
           go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
+      # Cache ~/gd by a content-aware digest of the toolchain catalog
+      # (gdnext toolchain list --format json). Same digest on every
+      # push that didn't touch the catalog → exact restore. Bump a
+      # tool version (e.g. godot 4.7 → 4.8) and only that tool's
+      # subdir is missing on restore; `gdnext toolchain doctor --fix`
+      # in the build job covers the delta. Keyed per (runner.os,
+      # runner.arch) so ubuntu-latest (X64) and ubuntu-24.04-arm
+      # (ARM64) don't share the same slot and restore the wrong
+      # native binaries.
+      - id: tools-key
+        shell: bash
+        run: |
+          digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
+          echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
+
+      - name: Restore ~/gd (catalog digest)
+        id: restore-tools
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/gd
+          key: ${{ steps.tools-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.prefix }}
+
       - name: Build + vet + unit tests
         shell: bash
-        run: gdnext ci build-vet-test
+        run: gdnext ci check-build-vet-test
 
       - name: Help text smoke
         shell: bash
-        run: gdnext ci help-text
+        run: gdnext ci check-help-text
 
       - name: Diagnostic verbs (pre-install)
         shell: bash
-        run: gdnext ci diagnostic-verbs
+        run: gdnext ci check-diagnostic-verbs
 
       - name: Go passthrough
         shell: bash
-        run: gdnext ci go-passthrough
+        run: gdnext ci check-go-passthrough
 
       - name: Short-flag rewrite
         shell: bash
-        run: gdnext ci short-flag-rewrite
+        run: gdnext ci check-short-flag-rewrite
 
       - name: Toolchain install
         shell: bash
@@ -94,7 +198,7 @@ jobs:
         # libgodot, libgodot-editor). Strict verification is the
         # default — set GDNEXT_SKIP_CHECKSUM=1 here only to bootstrap
         # a brand-new tool whose hash hasn't landed in the catalog yet.
-        run: gdnext ci toolchain-install
+        run: gdnext ci check-toolchain-install
 
       - name: Toolchain doctor (post-install)
         shell: bash
@@ -118,27 +222,102 @@ jobs:
           retention-days: 30
 
       # Hand the freshly-installed ~/gd off to the build matrix via a
-      # per-SHA cache. The build job restores by the same key; the
-      # cache is automatically scoped to the run's commit, so any code
-      # change forces a clean install on the next push.
+      # content-aware cache. Skipped when the restore was an exact
+      # hit: there's nothing new to save and the action would refuse
+      # the put on a key collision anyway.
       - name: Cache ~/gd for the build matrix
+        if: steps.restore-tools.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/gd
-          key: ${{ runner.os }}-gdnext-${{ github.sha }}
+          key: ${{ steps.tools-key.outputs.key }}
 
-  # Per-target build matrix. The matrix is supplied by discover-targets
-  # as a fully-expanded include: list — host × target gating lives in
-  # product.Platform.BuildHosts, not in the workflow.
-  gdnext-build:
-    needs: [discover-targets, gdnext-checks]
-    # Pin the displayed name so the matrix axes (which include long
-    # artefact slugs + boolean flags) don't leak into the UI label.
-    name: gdnext-build (${{ matrix.os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.experimental && ', exp' || '' }})
+  # Per-host headless test pipeline. `gdnext test` always targets the
+  # runner's own GOOS/GOARCH (the builders refuse to cross-test), so
+  # running it once per host is sufficient — the per-(target, link)
+  # build cells would just redundantly re-test the host every time.
+  # Keyed off discover-builds.runners so the test job slots match
+  # whatever the build matrix's filter-host actually surfaced.
+  gdnext-test:
+    needs: [discover-builds, discover-tests, gdnext-checks]
+    if: needs.discover-builds.outputs.runners != '[]'
+    # Cells are (host, link). discover-tests honours each host
+    # platform's product.PlatformMatrix.LinkModes so libgodot-only
+    # hosts (today: every host except linux/amd64 is gdextension-
+    # only) don't get a libgodot cell that would just fail.
+    name: gdnext-test (${{ matrix.os }}, ${{ matrix.link }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.discover-targets.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.discover-tests.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+      - name: Install gdnext into PATH
+        shell: bash
+        run: |
+          go install ./cmd/gdnext
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - id: tools-key
+        shell: bash
+        run: |
+          digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
+          echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
+          echo "tpl_key=${{ runner.os }}-${{ runner.arch }}-gdnext-templates-${digest}" >> $GITHUB_OUTPUT
+          echo "tpl_prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-templates-" >> $GITHUB_OUTPUT
+      - name: Restore ~/gd (catalog digest)
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/gd
+          key: ${{ steps.tools-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.prefix }}
+      - name: Restore Godot export templates
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.local/share/godot/export_templates
+            ~/Library/Application Support/Godot/export_templates
+            ~/AppData/Roaming/Godot/export_templates
+          key: ${{ steps.tools-key.outputs.tpl_key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.tpl_prefix }}
+
+      - name: Stage example (canarybird)
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="${RUNNER_TEMP//\\//}/canarybird"
+          rm -rf "$tmp"
+          mkdir -p "$tmp"
+          echo "tmp=$tmp" >> $GITHUB_OUTPUT
+          gdnext ci build-stage-example --example canarybird --scratch "$tmp"
+
+      - name: Toolchain doctor
+        shell: bash
+        run: gdnext toolchain doctor --fix
+
+      - name: Headless test pipeline
+        shell: bash
+        run: gdnext ci build-test-headless --scratch "${{ steps.stage.outputs.tmp }}" --link "${{ matrix.link }}"
+
+  # Per-target build matrix. The matrix is supplied by discover-builds
+  # as a fully-expanded include: list — host × target gating lives in
+  # product.Platform.BuildHosts, not in the workflow.
+  gdnext-build:
+    needs: [discover-builds, gdnext-checks]
+    # Pin the displayed name so the matrix axes (which include long
+    # artefact slugs + boolean flags) don't leak into the UI label.
+    name: gdnext-build (${{ matrix.os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.allow_fail && ', allow-fail' || '' }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover-builds.outputs.matrix) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -146,17 +325,52 @@ jobs:
         with:
           go-version: "1.26"
 
-      - name: Restore ~/gd from the checks job
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/gd
-          key: ${{ runner.os }}-gdnext-${{ github.sha }}
-
       - name: Install gdnext into PATH
         shell: bash
         run: |
           go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      # Match the cache key the checks job wrote: digest of
+      # `gdnext toolchain list --format json`, prefix fallback for
+      # version bumps so doctor --fix only fills in what's missing.
+      - id: tools-key
+        shell: bash
+        run: |
+          digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
+          echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
+          echo "tpl_key=${{ runner.os }}-${{ runner.arch }}-gdnext-templates-${digest}" >> $GITHUB_OUTPUT
+          echo "tpl_prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-templates-" >> $GITHUB_OUTPUT
+      - name: Restore ~/gd (catalog digest)
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/gd
+          key: ${{ steps.tools-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.prefix }}
+
+      # Godot export templates live under the platform-specific user
+      # data root (~/.local/share/godot/export_templates on linux,
+      # ~/Library/Application Support/Godot/export_templates on macos,
+      # %APPDATA%\Godot\export_templates on windows). They're ~1.3 GB
+      # extracted and fetched on demand by `setup.AssertTemplate` the
+      # first time `gdnext build` runs for a given Godot version.
+      # Cache them separately from ~/gd so the checks job (which
+      # never builds) doesn't have to warm them, and so the build
+      # cells can share whatever the first cell downloads. Same
+      # digest as ~/gd keeps them aligned with the catalog.
+      - name: Restore Godot export templates
+        id: restore-templates
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.local/share/godot/export_templates
+            ~/Library/Application Support/Godot/export_templates
+            ~/AppData/Roaming/Godot/export_templates
+          key: ${{ steps.tools-key.outputs.tpl_key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.tpl_prefix }}
 
       - name: Stage example (${{ matrix.example }})
         id: stage
@@ -174,78 +388,7 @@ jobs:
           rm -rf "$tmp"
           mkdir -p "$tmp"
           echo "tmp=$tmp" >> $GITHUB_OUTPUT
-          gdnext ci stage-example --example "${{ matrix.example }}" --scratch "$tmp"
-
-      # Windows Defender opens link.exe's `<output>~` temp files for
-      # scanning as soon as they're written, which races with Go's
-      # atomic rename and surfaces as `rename darwin_arm64.dylib~
-      # darwin_arm64.dylib: Access is denied` on the windows-latest
-      # runner. Per-path Add-MpPreference alone has proven unreliable
-      # (the scanner still races the rename), so we also disable
-      # realtime monitoring outright and stop a couple of services
-      # known to hold file handles open (WSearch indexer, MsMpEng
-      # behaviour-monitoring hooks). Everything is best-effort and
-      # only runs on Windows.
-      - name: Disable Windows Defender on build dirs
-        if: runner.os == 'Windows'
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          $paths = @(
-            '${{ steps.stage.outputs.tmp }}',
-            "$env:USERPROFILE\gd",
-            "$env:USERPROFILE\go",
-            "$env:LOCALAPPDATA\go-build",
-            "$env:LOCALAPPDATA\Temp",
-            "$env:TEMP",
-            'C:\hostedtoolcache\windows\go',
-            '${{ github.workspace }}',
-            'D:\a'
-          )
-          foreach ($p in $paths) {
-            try { Add-MpPreference -ExclusionPath $p -ErrorAction Stop } catch { Write-Host "skip path $p : $_" }
-          }
-          $procs = @(
-            'link.exe','go.exe','zig.exe','compile.exe','cgo.exe',
-            'gdnext.exe','godot.exe','cc.exe','clang.exe','clang++.exe',
-            'ld.exe','asm.exe'
-          )
-          foreach ($proc in $procs) {
-            try { Add-MpPreference -ExclusionProcess $proc -ErrorAction Stop } catch { Write-Host "skip proc $proc : $_" }
-          }
-          $exts = @('dylib','so','dll','a','lib','wasm','exe','tmp')
-          foreach ($ext in $exts) {
-            try { Add-MpPreference -ExclusionExtension $ext -ErrorAction Stop } catch { Write-Host "skip ext $ext : $_" }
-          }
-          # Heavy hammer: turn the engine itself off. windows-latest
-          # ships with Tamper Protection disabled, so this is allowed.
-          try {
-            Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
-            Set-MpPreference -DisableBehaviorMonitoring $true -ErrorAction Stop
-            Set-MpPreference -DisableIOAVProtection $true -ErrorAction Stop
-            Set-MpPreference -DisableScriptScanning $true -ErrorAction Stop
-            Set-MpPreference -DisableArchiveScanning $true -ErrorAction Stop
-            Write-Host "Defender realtime/behaviour/IOAV scanning disabled"
-          } catch {
-            Write-Host "Set-MpPreference failed: $_"
-          }
-          # WSearch keeps file handles open on freshly written files
-          # while it indexes; same symptom as Defender.
-          try {
-            Stop-Service -Name WSearch -Force -ErrorAction Stop
-            Set-Service -Name WSearch -StartupType Disabled -ErrorAction Stop
-            Write-Host "WSearch indexer stopped"
-          } catch {
-            Write-Host "WSearch stop failed: $_"
-          }
-          Write-Host "--- Get-MpPreference summary ---"
-          Get-MpComputerStatus | Format-List RealTimeProtectionEnabled,BehaviorMonitorEnabled,IoavProtectionEnabled,AntivirusEnabled
-          Write-Host "--- exclusion paths ---"
-          (Get-MpPreference).ExclusionPath
-          Write-Host "--- exclusion processes ---"
-          (Get-MpPreference).ExclusionProcess
-          Write-Host "--- exclusion extensions ---"
-          (Get-MpPreference).ExclusionExtension
+          gdnext ci build-stage-example --example "${{ matrix.example }}" --scratch "$tmp"
 
       # Confirm the cache restore brought ~/gd in fully. --fix runs
       # install for whatever's missing, so a cold cache still works
@@ -257,15 +400,33 @@ jobs:
       # Build the matrix's target. (goos, goarch) is validated against
       # product.PlatformMatrix inside `gdnext ci build-target`, so a
       # typo'd target fails with a clear "unknown platform" message
-      # instead of a cryptic deeper error. Experimental targets carry
-      # continue-on-error so the job stays green when they break —
-      # the failure still shows up in the matrix UI as a yellow row.
-      - name: Build ${{ matrix.target }} [${{ matrix.link || 'default' }}]${{ matrix.experimental && ' (experimental)' || '' }}
-        continue-on-error: ${{ matrix.experimental }}
+      # instead of a cryptic deeper error. allow-fail targets (set by
+      # an experimental Status bit or a QuirkCIBuildBroken on the
+      # current host) run with continue-on-error so the job stays
+      # green when they break — GHA can't render the cell yellow, but
+      # `gdnext ci workflow-summary` tags the row `(allow-fail)`.
+      - name: Build ${{ matrix.target }} [${{ matrix.link || 'default' }}]${{ matrix.allow_fail && ' (allow-fail)' || '' }}
+        continue-on-error: ${{ matrix.allow_fail }}
         shell: bash
         run: |
           IFS=/ read -r goos goarch <<< "${{ matrix.target }}"
           gdnext ci build-target --goos "$goos" --goarch "$goarch" --link "${{ matrix.link }}" --scratch "${{ steps.stage.outputs.tmp }}"
+
+      # Persist templates exactly once per (runner.os, catalog
+      # digest): the first build cell to reach this step wins the
+      # save; the rest race-lose with no error (actions/cache treats
+      # primary-key collision as a no-op). `if: always()` so a failed
+      # build still uploads the templates it did pull \u2014 they're
+      # the expensive bit.
+      - name: Cache Godot export templates
+        if: always() && steps.restore-templates.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.local/share/godot/export_templates
+            ~/Library/Application Support/Godot/export_templates
+            ~/AppData/Roaming/Godot/export_templates
+          key: ${{ steps.tools-key.outputs.tpl_key }}
 
       - name: Tree ${{ matrix.target }} [${{ matrix.link || 'default' }}]
         if: always()
@@ -291,51 +452,14 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Headless test pipeline
-        shell: bash
-        run: gdnext ci test-headless --scratch "${{ steps.stage.outputs.tmp }}"
-
-  # Pre-job: enumerate the (play-host, build-host, target, link) quads
-  # the play matrix should drive. Only emitted for Platforms whose
-  # PlayHosts is non-empty, so adding a play target lands here without
-  # workflow edits.
-  discover-plays:
-    needs: [gdnext-build]
-    if: always()
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.list.outputs.matrix }}
-      empty: ${{ steps.list.outputs.empty }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version: "1.26"
-      - id: list
-        shell: bash
-        run: |
-          set -euo pipefail
-          go install ./cmd/gdnext
-          matrix=$("$(go env GOPATH)/bin/gdnext" ci play-matrix --summary)
-          echo "matrix=$matrix" >> $GITHUB_OUTPUT
-          # Skip the gdnext-play job entirely when no rows exist
-          # (e.g. every play target was excluded). Otherwise GHA
-          # complains about an empty matrix.
-          count=$(echo "$matrix" | jq '.include | length')
-          if [ "$count" = "0" ]; then
-            echo "empty=true" >> $GITHUB_OUTPUT
-          else
-            echo "empty=false" >> $GITHUB_OUTPUT
-          fi
-
   # Per-(play-host, build-host, target, link) drive of the produced
   # binary via the canarybird play-bot. Each cell downloads its build
   # artefact, runs `gdnext ci play-cell` against it, and surfaces the
   # bot's pass/fail report.
   gdnext-play:
-    needs: [discover-plays]
+    needs: [discover-plays, gdnext-build]
     if: ${{ always() && needs.discover-plays.outputs.empty == 'false' }}
-    name: gdnext-play (${{ matrix.os }}, ${{ matrix.build_os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}${{ matrix.experimental && ', exp' || '' }})
+    name: gdnext-play (${{ matrix.os }}, ${{ matrix.build_os }}, ${{ matrix.example }}, ${{ matrix.target }}, ${{ matrix.link }}, ${{ matrix.compat || 'native' }}${{ matrix.allow_fail && ', allow-fail' || '' }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -352,40 +476,366 @@ jobs:
           go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
+      # The matching build cell can be skipped (allow_fail target that
+      # broke) or cancelled, in which case no artefact exists for us
+      # to download. Probe via the REST API so we can short-circuit
+      # this play cell with a clear message instead of crashing the
+      # download-artifact action with `Artifact not found`.
+      - id: artefact-check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          # 100 is the per-page max; runs with <100 artefacts fit in
+          # a single page. If we ever exceed that, switch to --paginate.
+          if gh api -X GET "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+               --jq '.artifacts[].name' \
+             | grep -Fxq "${{ matrix.artifact }}"; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::play artefact ${{ matrix.artifact }} not found (build cell skipped or failed); skipping this play cell"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download play artefact (${{ matrix.artifact }})
+        if: steps.artefact-check.outputs.present == 'true'
         uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v8.0.1
         with:
           name: ${{ matrix.artifact }}
           path: scratch
 
-      # xvfb-run gives the engine a virtual display; wine lets linux
-      # runners drive windows binaries. Both are no-ops when not
-      # needed (play-cell short-circuits xvfb when $DISPLAY is set).
-      - name: Install xvfb + wine
-        if: runner.os == 'Linux'
+      # android-emu + waydroid both need aapt2 from the android build-tools
+      # that `gdnext toolchain install` lays down under $GDPATH/bin. Restore
+      # the same content-aware cache the checks/build/test jobs use,
+      # then `toolchain doctor --fix` heals any drift between the
+      # cached set and what the current catalog calls for.
+      - id: tools-key
+        if: steps.artefact-check.outputs.present == 'true' && (matrix.compat == 'android-emu' || matrix.compat == 'waydroid')
+        shell: bash
+        run: |
+          digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
+          echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
+          echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
+      - name: Restore ~/gd (catalog digest)
+        if: steps.artefact-check.outputs.present == 'true' && (matrix.compat == 'android-emu' || matrix.compat == 'waydroid')
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/gd
+          key: ${{ steps.tools-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.tools-key.outputs.prefix }}
+      - name: Toolchain doctor (android tooling)
+        if: steps.artefact-check.outputs.present == 'true' && (matrix.compat == 'android-emu' || matrix.compat == 'waydroid')
+        shell: bash
+        run: |
+          gdnext toolchain doctor --fix
+          dirname "$(gdnext toolchain path android-adb)" >> "$GITHUB_PATH"
+
+      # xvfb-run gives the engine a virtual display; wine and proton
+      # (via umu-launcher) let linux runners drive windows binaries.
+      # Compat-layer choice comes from the matrix. proton_tag is the
+      # pinned GE-Proton release for proton variants; the install step
+      # fetches the tarball when the cache misses.
+      - name: Restore Proton (${{ matrix.proton_tag }})
+        if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux' && matrix.proton_tag != ''
+        id: restore-proton
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.local/share/Steam/compatibilitytools.d/${{ matrix.proton_tag }}
+          key: ${{ runner.os }}-${{ runner.arch }}-proton-${{ matrix.proton_tag }}-v2
+
+      - name: Restore umu runtime cache
+        if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux' && matrix.proton_tag != ''
+        id: restore-umu
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.local/share/umu
+          key: ${{ runner.os }}-${{ runner.arch }}-umu-runtime-v2
+
+      - name: Install xvfb + compat layer (${{ matrix.compat || 'native' }})
+        if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends xvfb
-          if [ "${{ matrix.target }}" = "windows/amd64" ]; then
-            sudo dpkg --add-architecture i386
-            sudo apt-get update -y
-            sudo apt-get install -y --no-install-recommends wine wine64
-          fi
+          sudo apt-get update -y          
+          sudo apt-get install -y --no-install-recommends xvfb          
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          case "${{ matrix.compat }}" in
+            wine)
+              # Ubuntu noble ships Wine 9.0 which segfaults on first
+              # launch of Godot/cgo apps. Use the WineHQ stable repo
+              # (Wine 10.x) instead.
+              sudo dpkg --add-architecture i386
+              sudo mkdir -pm755 /etc/apt/keyrings
+              sudo wget -qO /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
+              sudo wget -qNP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources
+              sudo apt-get update -y
+              sudo apt-get install -y --install-recommends winehq-stable
+              ;;
+            proton|proton-8|proton-9|proton-10)
+              # umu-launcher isn't on PyPI; install the upstream
+              # ubuntu-noble .deb published with each tagged release.
+              # The .deb depends on libgl1-mesa-dri:i386 + libglx-mesa0:i386,
+              # so the i386 architecture has to be enabled before apt
+              # can resolve them.
+              sudo dpkg --add-architecture i386
+              sudo apt-get update -y
+              umu_ver="1.4.0"
+              umu_deb="python3-umu-launcher_${umu_ver}-1_amd64_ubuntu-noble.deb"
+              umu_url="https://github.com/Open-Wine-Components/umu-launcher/releases/download/${umu_ver}/${umu_deb}"
+              if ! command -v umu-run >/dev/null 2>&1; then
+                echo "::group::install umu-launcher ${umu_ver}"
+                tmp=$(mktemp -d)
+                curl -fsSL -o "$tmp/${umu_deb}" "$umu_url"
+                sudo apt-get install -y "$tmp/${umu_deb}"
+                rm -rf "$tmp"
+                echo "::endgroup::"
+              fi
+              # Fetch the pinned GE-Proton tarball only when the cache
+              # missed; otherwise the restore step already populated it.
+              compat_dir="$HOME/.local/share/Steam/compatibilitytools.d"
+              tag="${{ matrix.proton_tag }}"
+              mkdir -p "$compat_dir"
+              if [ ! -d "$compat_dir/$tag" ]; then
+                echo "::group::download $tag"
+                url="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/$tag/$tag.tar.gz"
+                tmp=$(mktemp -d)
+                curl -fsSL -o "$tmp/proton.tar.gz" "$url"
+                tar -xzf "$tmp/proton.tar.gz" -C "$compat_dir"
+                rm -rf "$tmp"
+                echo "::endgroup::"
+              else
+                echo "$tag already present (cache hit)"
+              fi
+              ;;
+            chrome|firefox)
+              # js/wasm cells run the bundle in a real browser driven
+              # by Playwright. node is already on the runner image;
+              # we install playwright into scratch/ (the same dir
+              # the bundle was staged into so the script can resolve
+              # it as a sibling node_modules), then `playwright
+              # install --with-deps <browser>` pulls the matched
+              # browser build + apt libs. We map our matrix `compat`
+              # to Playwright's browser name explicitly: `chrome`
+              # means the bundled chromium build (not Google Chrome
+              # the channel, which would apt-install a separate
+              # google-chrome-stable).
+              case "${{ matrix.compat }}" in
+                chrome) pw_browser="chromium" ;;
+                firefox) pw_browser="firefox" ;;
+              esac
+              echo "::group::install playwright + ${pw_browser}"
+              ( cd scratch && npm init -y >/dev/null && npm install --no-audit --no-fund playwright )
+              ( cd scratch && npx playwright install --with-deps "${pw_browser}" )
+              echo "::endgroup::"
+              ;;
+            waydroid)              
+              sudo apt-get install -y --no-install-recommends xvfb weston pulseaudio
+              sudo apt-get install -y --no-install-recommends curl ca-certificates
+              curl -s https://repo.waydro.id | sudo bash
+              sudo apt-get install -y --no-install-recommends waydroid "linux-modules-extra-$(uname -r)"
+              sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
+              sudo waydroid init
+              # adb-over-TCP has to be set before the container boots
+              # so adbd inside Android picks it up via init.rc props.
+              sudo waydroid prop set persist.waydroid.adb_tcp true
+              sudo systemctl enable --now waydroid-container
+              export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-$UID}"
+              mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+              # PulseAudio: the session writes a host→container bind
+              # mount for /run/user/$UID/pulse/native and LXC refuses
+              # to start the container if that path doesn't exist.
+              pulseaudio --start --exit-idle-time=-1
+              for i in $(seq 1 15); do
+                [ -S "$XDG_RUNTIME_DIR/pulse/native" ] && break
+                sleep 1
+              done
+              : > /tmp/weston.log
+              nohup weston --backend=headless-backend.so --socket=wayland-0 >> /tmp/weston.log 2>&1 &
+              weston_pid=$!
+              tail -F /tmp/weston.log 2>/dev/null &
+              weston_tail=$!
+              for i in $(seq 1 30); do
+                if [ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then
+                  break
+                fi
+                if ! kill -0 "$weston_pid" 2>/dev/null; then
+                  kill "$weston_tail" 2>/dev/null || true
+                  echo "weston exited before creating socket"
+                  exit 1
+                fi
+                sleep 1
+              done
+              export WAYLAND_DISPLAY=wayland-0
+              : > /tmp/waydroid-session.log
+              nohup waydroid session start >> /tmp/waydroid-session.log 2>&1 &
+              session_pid=$!
+              tail -F /tmp/waydroid-session.log 2>/dev/null &
+              session_tail=$!
+              ready=0
+              for i in $(seq 1 60); do
+                status=$(waydroid status 2>/dev/null || true)
+                if echo "$status" | grep -q 'Session:.*RUNNING'; then
+                  echo "$status"
+                  ready=1
+                  break
+                fi
+                if ! kill -0 "$session_pid" 2>/dev/null; then
+                  echo "waydroid session start exited before RUNNING"
+                  break
+                fi
+                sleep 5
+              done
+              kill "$session_tail" "$weston_tail" 2>/dev/null || true
+              if [ "$ready" != "1" ]; then
+                echo "::group::weston.log"; cat /tmp/weston.log || true; echo "::endgroup::"
+                echo "::group::waydroid status"; waydroid status || true; echo "::endgroup::"
+                echo "::group::waydroid-container.service"; sudo journalctl -u waydroid-container --no-pager -n 200 || true; echo "::endgroup::"
+                echo "::group::lxc-checkconfig"; sudo lxc-checkconfig 2>&1 || true; echo "::endgroup::"
+                echo "::group::lxc-info waydroid"; sudo lxc-info -n waydroid 2>&1 || true; echo "::endgroup::"
+                echo "::group::lxc container config"; sudo cat /var/lib/waydroid/lxc/waydroid/config 2>/dev/null || true; echo "::endgroup::"
+                echo "::group::lxc log"; sudo find /var/lib/waydroid /var/log -maxdepth 4 -name 'waydroid*.log' -o -name 'lxc*.log' 2>/dev/null | xargs -r -I{} sh -c 'echo "--- {} ---"; sudo cat "{}"'; echo "::endgroup::"
+                echo "::group::apparmor status"; sudo aa-status 2>&1 | head -40 || true; echo "::endgroup::"
+                echo "::group::cgroup layout"; mount | grep -E 'cgroup|bpf'; echo; stat -fc '%T' /sys/fs/cgroup; echo "::endgroup::"
+                exit 1
+              fi
+              # Resolve the container's veth IP. `waydroid status`
+              # reports UNKNOWN until Android init has progressed far
+              # enough; the LXC bridge already has a DHCP lease, so
+              # ask dnsmasq's leases file instead.
+              ip=""
+              for i in $(seq 1 60); do
+                ip=$(awk '{print $3}' /var/lib/misc/dnsmasq.waydroid0.leases 2>/dev/null | head -1)
+                if [ -n "$ip" ]; then break; fi
+                ip=$(waydroid status 2>/dev/null | awk '/IP address/{print $3; exit}')
+                case "$ip" in 192.168.*) break;; *) ip=""; sleep 2;; esac
+              done
+              echo "container IP: ${ip:-<unresolved>}"
+              # Pre-authorise the host's adb key inside the container
+              # so the first `adb connect` doesn't land on a prompt
+              # that nobody is around to tap. `waydroid shell` uses
+              # the LXC console (no adb auth needed), so it's the
+              # right hammer for seeding /data/misc/adb/adb_keys
+              # before adbd starts handing out auth challenges.
+              mkdir -p "$HOME/.android"
+              if [ ! -f "$HOME/.android/adbkey.pub" ]; then
+                adb keygen "$HOME/.android/adbkey"
+              fi
+              adb start-server >/dev/null 2>&1 || true
+              pubkey=$(cat "$HOME/.android/adbkey.pub")
+              sudo waydroid shell -- sh -c "mkdir -p /data/misc/adb && echo '$pubkey' > /data/misc/adb/adb_keys && chmod 640 /data/misc/adb/adb_keys && chown shell:shell /data/misc/adb/adb_keys" || true
+              sudo waydroid shell -- setprop ctl.restart adbd || true
+              # Give adbd a moment to come back up under the new key.
+              sleep 2
+              # adb endpoints to try in order: direct container IP,
+              # then 127.0.0.1:5555 (adbd inside the container may
+              # be exposed via Waydroid's port forward).
+              candidates=""
+              [ -n "$ip" ] && candidates="${ip}:5555 "
+              candidates="${candidates}127.0.0.1:5555"
+              serial=""
+              for endpoint in $candidates; do
+                if adb connect "$endpoint" 2>&1 | grep -qiE 'connected|already'; then
+                  if adb -s "$endpoint" wait-for-device 2>/dev/null; then
+                    serial="$endpoint"
+                    break
+                  fi
+                fi
+              done
+              if [ -z "$serial" ]; then
+                echo "no adb endpoint reachable; tried: $candidates"
+                adb devices
+                exit 1
+              fi
+              # Wait for Android init to finish before play-cell tries
+              # to install. sys.boot_completed flips to 1 only after
+              # PackageManagerService is up.
+              for i in $(seq 1 60); do
+                bc=$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+                [ "$bc" = "1" ] && break
+                sleep 5
+              done
+              adb -s "$serial" shell getprop sys.boot_completed
+              adb devices
+              echo "GDNEXT_WAYDROID_ADB=${serial}" >> "$GITHUB_ENV"
+              ;;
+          esac
 
-      - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] (built on ${{ matrix.build_os }})
-        continue-on-error: ${{ matrix.experimental }}
+      - name: Save Proton (${{ matrix.proton_tag }})
+        if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux' && matrix.proton_tag != '' && steps.restore-proton.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.local/share/Steam/compatibilitytools.d/${{ matrix.proton_tag }}
+          key: ${{ runner.os }}-${{ runner.arch }}-proton-${{ matrix.proton_tag }}-v2
+
+      # android-emu cells need the emulator-runner. x86_64 guests use
+      # KVM on the host (relaxed via the udev rule below); arm64 guests
+      # fall back to TCG because the ubuntu-24.04-arm runner's /dev/kvm
+      # rejects open() with EINVAL.
+      - name: Enable KVM
+        if: steps.artefact-check.outputs.present == 'true' && matrix.compat == 'android-emu' && matrix.target != 'android/arm64'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Compute screenshot artefact name
+        if: steps.artefact-check.outputs.present == 'true'
+        shell: bash
+        run: |
+          SHOT_NAME="shot-${{ matrix.os }}-${{ matrix.artifact }}${{ matrix.compat && format('-{0}', matrix.compat) || '' }}"
+          echo "SHOT_NAME=$SHOT_NAME" >> "$GITHUB_ENV"
+          echo "SHOT_PATH=scratch/${SHOT_NAME}.png" >> "$GITHUB_ENV"
+
+      - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=android-emu (built on ${{ matrix.build_os }})
+        if: steps.artefact-check.outputs.present == 'true' && matrix.compat == 'android-emu'
+        continue-on-error: ${{ matrix.allow_fail }}
+        uses: reactivecircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
+        with:
+          api-level: 34
+          # arch follows the target: android/amd64 boots x86_64 (KVM-fast),
+          # android/arm64 boots arm64-v8a on the ubuntu-24.04-arm runner.
+          arch: ${{ matrix.target == 'android/arm64' && 'arm64-v8a' || 'x86_64' }}
+          target: google_apis
+          force-avd-creation: false
+          # `-no-accel` only on arm64: GitHub's ubuntu-24.04-arm exposes
+          # /dev/kvm but the emulator's KVM init fails with EINVAL on
+          # those hosts, so fall back to TCG. arm64-on-arm64 means TCG
+          # still executes native instructions, only the hypervisor
+          # fast-path is lost.
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot ${{ matrix.target == 'android/arm64' && '-no-accel' || '' }}
+          disable-animations: true
+          script: |
+            adb shell settings put system accelerometer_rotation 0
+            adb shell settings put system user_rotation 0
+            gdnext ci play-cell --scratch scratch --example "${{ matrix.example }}" --target "${{ matrix.target }}" --link "${{ matrix.link }}" --compat android-emu --build-host "${{ matrix.build_os }}" --screenshot "${{ env.SHOT_PATH }}"
+
+      - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=${{ matrix.compat || 'native' }} (built on ${{ matrix.build_os }})
+        if: steps.artefact-check.outputs.present == 'true' && matrix.compat != 'android-emu'
+        continue-on-error: ${{ matrix.allow_fail }}
         shell: bash
         run: |
           gdnext ci play-cell \
             --scratch scratch \
             --example "${{ matrix.example }}" \
             --target "${{ matrix.target }}" \
-            --link "${{ matrix.link }}"
+            --link "${{ matrix.link }}" \
+            --compat "${{ matrix.compat }}" \
+            --build-host "${{ matrix.build_os }}" \
+            --screenshot "${SHOT_PATH}"
+
+      - name: Save umu runtime cache
+        if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux' && matrix.proton_tag != '' && always() && steps.restore-umu.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.local/share/umu
+          key: ${{ runner.os }}-${{ runner.arch }}-umu-runtime-v2
 
       - name: Show play report
-        if: always()
+        if: steps.artefact-check.outputs.present == 'true' && always()
         shell: bash
         run: |
           if [ -f scratch/play-report.json ]; then
@@ -396,18 +846,12 @@ jobs:
             echo "no play-report.json"
           fi
 
-      # Per-cell screenshot grabbed by the playbot at game-over. The
-      # artefact name encodes both the play host (`matrix.os`) and the
-      # build artefact (which already carries build host + example +
-      # target + link) so every distinct cell uploads to its own slot.
-      # Without `matrix.os` in the name, multiple play hosts driving
-      # the same build artefact would overwrite each other's image.
       - name: Upload play screenshot
-        if: always() && hashFiles('scratch/play-screenshot.png') != ''
+        if: steps.artefact-check.outputs.present == 'true' && always() && hashFiles(env.SHOT_PATH) != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: shot-${{ matrix.os }}-${{ matrix.artifact }}
-          path: scratch/play-screenshot.png
+          name: ${{ env.SHOT_NAME }}
+          path: ${{ env.SHOT_PATH }}
           if-no-files-found: warn
           retention-days: 7
 
@@ -416,7 +860,7 @@ jobs:
   # success / failure history is visible at a glance from the UI.
   summary:
     name: Workflow summary
-    needs: [discover-targets, gdnext-checks, gdnext-build, discover-plays, gdnext-play]
+    needs: [discover-builds, gdnext-checks, gdnext-test, gdnext-build, discover-plays, gdnext-play]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -432,13 +876,17 @@ jobs:
         run: |
           go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-      # Pull every play-cell's screenshot into shots/<artefact>/play-screenshot.png
-      # so the summary verb can inline them in a markdown grid.
       - name: Download play screenshots
         uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v8.0.1
         with:
           pattern: shot-*
           path: shots
+          merge-multiple: true
+      - name: Tree Play Screenshots
+        shell: bash
+        run: |
+          mkdir -p shots
+          find shots \( -type f -o -type l \) | sort || true
       - name: Render workflow summary
         env:
           GH_TOKEN: ${{ github.token }}
