@@ -254,12 +254,12 @@ func OutputBytesCapture(name string, args ...string) ([]byte, error) {
 }
 
 // ProbeCombined runs a --version / -dumpversion style probe with
-// stdout+stderr captured together. Used by resolvers that need to
-// check whether an on-disk binary matches an expected version string.
-// Announces like every other exec so the log shows the probe alongside
-// the real work that follows.
+// stdout+stderr captured together. Silent by default; announces only
+// under GDNEXT_DEBUG so bulk resolver walks don't drown the log.
 func ProbeCombined(name string, args ...string) ([]byte, error) {
-	Announce("", nil, name, args)
+	if debugTrace {
+		Announce("", nil, name, args)
+	}
 	c := exec.Command(name, args...)
 	c.Stdin = nil
 	return c.CombinedOutput()
