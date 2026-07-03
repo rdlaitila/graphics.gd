@@ -948,10 +948,16 @@ var (
 		DownloadOS:     map[string]string{"linux": "linux", "windows": "windows", "darwin": "darwin"},
 		DownloadEXT:    map[string]string{"linux": "a", "windows": "a", "darwin": "a"},
 		IsLibrary:      true,
-		// Checksums cleared for the -4 release: linux glibc now builds
-		// through zig-cc (was buildroot), so amd64/glibc content
-		// changes. Rebuild via libgodot.yml with GDNEXT_SKIP_CHECKSUM=1
-		// on first run, then paste the sidecar hashes back here.
+		KnownChecksums: []string{
+			"sha256:f89dd6e536fd71744bb4dc58e056fe4265cce27cb2267a75074d2667e319255d", // linux/amd64/glibc
+			"sha256:06322b154645c65e4c0268a47a9f7b6077cd102c6404d88a4c0cbd49b8a97773", // linux/arm64/glibc
+			"sha256:40b17ba2915fb3147043deefaa51eedad9a50e519de04b4e1d5063d184879cef", // linux/amd64/musl
+			"sha256:7eed4d0824e00fd6c83719a1a9905fb9f8b1dbae822b5b7b7435b11e7bc8bf2c", // linux/arm64/musl
+			"sha256:675f93e87ab93e6301de721994f5df5f3fe55f02f52eb8aeb9acdea98ebc20d0", // windows/amd64
+			"sha256:343261304f294b9232923814022f8a2767323d3dc8a481f07a0dae14eb3cb1e3", // windows/arm64
+			"sha256:8b02ce6b5734a24cddf9d2367201c96a5e380594e9f817d0d98886e9ad58dc78", // darwin/amd64
+			"sha256:3f62d9ed1afac11175f431eecd5ff4655a2b5b8986ecb14fd61306d4420889fa", // darwin/arm64
+		},
 	}
 	ToolchainLibGodotEditor = Toolchain{
 		Slug:           "libgodot-editor",
@@ -963,6 +969,16 @@ var (
 		DownloadOS:     map[string]string{"linux": "linux", "windows": "windows", "darwin": "darwin"},
 		DownloadEXT:    map[string]string{"linux": "a", "windows": "a", "darwin": "a"},
 		IsLibrary:      true,
+		KnownChecksums: []string{
+			"sha256:5862bdf88a96b821790bf37a327d8db7b2f864cafb1cc5de683edae2bbfa8c76", // linux/amd64/glibc
+			"sha256:88cf68f2759f01c837a17db79930edf714ab02feb986f48045c08976896fe80e", // linux/arm64/glibc
+			"sha256:5407c82a9d3cc531cbad7a12c046810c1ebc39aff29d050e032d536b9361d068", // linux/amd64/musl
+			"sha256:eb3d44d8aaf0c5f09617fc26e2b0475774f5ebb61cfab3748dfbf31bde534b53", // linux/arm64/musl
+			"sha256:3107f2cfe9e15aeeec0d722a287623823a83c2583db7ba4252aa16a4c9c6da59", // windows/amd64
+			"sha256:8343e6b1fcfadfb82a1f3db900d63e2db096e3e396d50efc7d58e93470b1666e", // windows/arm64
+			"sha256:a36d718c247ac2fe0989e92b3859e1ffff9e547b6c18bd95c51b878d83d7ed5c", // darwin/amd64
+			"sha256:e85ce91ec11e0df4500ab1f7a73e63db22b740eb679b883eee7019fece09d0e7", // darwin/arm64
+		},
 	}
 	ToolchainLDD = Toolchain{
 		Slug:           "ldd",
