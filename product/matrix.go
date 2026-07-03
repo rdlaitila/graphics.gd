@@ -256,6 +256,7 @@ var PlayMatrix = []PlayHost{
 	PlayLinuxAmd64Waydroid,
 	PlayLinuxArm64AndroidEmu,
 	PlayWindowsAmd64,
+	PlayWindowsArm64,
 	PlayDarwinAmd64,
 	PlayDarwinArm64,
 	PlayDarwinArm64Rosetta,
@@ -333,6 +334,10 @@ var (
 		GOOS:   GOOSWindows,
 		GOARCH: GOARCHAmd64,
 	}
+	PlayWindowsArm64 = PlayHost{
+		GOOS:   GOOSWindows,
+		GOARCH: GOARCHArm64,
+	}
 	PlayDarwinAmd64 = PlayHost{
 		GOOS:   GOOSDarwin,
 		GOARCH: GOARCHAmd64,
@@ -406,6 +411,7 @@ var (
 		LinkModes:  GDExtension,
 		BuildHosts: BuildHosts,
 		PlayHosts: []PlayHost{
+			PlayWindowsAmd64,
 			//PlayLinuxAmd64Proton,
 			//PlayLinuxAmd64Wine,
 			//PlayLinuxAmd64Proton10,
@@ -424,6 +430,7 @@ var (
 		Status:     Supported,
 		LinkModes:  GDExtension,
 		BuildHosts: BuildHosts,
+		PlayHosts:  []PlayHost{PlayWindowsArm64},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
 	}
