@@ -256,7 +256,9 @@ var PlayMatrix = []PlayHost{
 	PlayLinuxAmd64Waydroid,
 	PlayLinuxArm64AndroidEmu,
 	PlayWindowsAmd64,
+	PlayDarwinAmd64,
 	PlayDarwinArm64,
+	PlayDarwinArm64Rosetta,
 }
 
 var (
@@ -331,9 +333,21 @@ var (
 		GOOS:   GOOSWindows,
 		GOARCH: GOARCHAmd64,
 	}
+	PlayDarwinAmd64 = PlayHost{
+		GOOS:   GOOSDarwin,
+		GOARCH: GOARCHAmd64,
+	}
 	PlayDarwinArm64 = PlayHost{
 		GOOS:   GOOSDarwin,
 		GOARCH: GOARCHArm64,
+	}
+	// PlayDarwinArm64Rosetta drives an amd64 target on an arm64 mac
+	// runner via `arch -x86_64`; exercises the amd64 slice of the
+	// universal .app under Rosetta 2.
+	PlayDarwinArm64Rosetta = PlayHost{
+		GOOS:        GOOSDarwin,
+		GOARCH:      GOARCHArm64,
+		CompatLayer: "rosetta",
 	}
 )
 
@@ -423,6 +437,7 @@ var (
 		Status:     Supported | Quirky,
 		LinkModes:  GDExtension,
 		BuildHosts: BuildHosts,
+		PlayHosts:  []PlayHost{PlayDarwinAmd64, PlayDarwinArm64Rosetta},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"metal", "opengl3", "gl_compatibility"},
 		Notes:      "exports as a universal .app alongside arm64",
@@ -436,6 +451,7 @@ var (
 		Status:     Supported | Quirky,
 		LinkModes:  GDExtension,
 		BuildHosts: BuildHosts,
+		PlayHosts:  []PlayHost{PlayDarwinArm64},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"metal", "opengl3", "gl_compatibility"},
 		Notes:      "produces a universal .app; lipo + codesign need a darwin host",

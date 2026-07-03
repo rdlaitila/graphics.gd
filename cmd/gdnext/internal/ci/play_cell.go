@@ -227,6 +227,8 @@ func releaseBinary(scratch, example string, plat target, mode product.LinkMode) 
 		return mustExecutable(filepath.Join(scratch, "releases", "linux", plat.GOARCH, example))
 	case product.GOOSWindows:
 		return mustExecutable(filepath.Join(scratch, "releases", "windows", plat.GOARCH, example+".exe"))
+	case product.GOOSDarwin:
+		return mustExecutable(filepath.Join(scratch, "releases", "darwin", "universal", example+".app", "Contents", "MacOS", example))
 	default:
 		return "", fmt.Errorf("no play recipe for %s/%s (link=%s)", plat.GOOS, plat.GOARCH, mode)
 	}
@@ -281,6 +283,11 @@ func launchCommand(bin string, plat target, mode product.LinkMode, compat string
 		// stands up a persistent Xvfb and puts DISPLAY into c.Env
 		// instead so it survives the re-exec.
 		return []string{umu, bin}, nil
+	case "rosetta":
+		if hostGOOS != product.GOOSDarwin {
+			return nil, fmt.Errorf("compat=rosetta only runs on darwin hosts (got %s)", hostGOOS)
+		}
+		return []string{"arch", "-x86_64", bin}, nil
 	default:
 		return nil, fmt.Errorf("unknown --compat %q", compat)
 	}

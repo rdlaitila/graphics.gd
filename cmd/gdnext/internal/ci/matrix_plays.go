@@ -238,7 +238,8 @@ func runnerFor(host product.PlayHost) (string, bool) {
 // playOnlyRunners labels hosts that are valid play targets but not
 // CI build targets. Keyed by the canonical "<goos>/<goarch>" tuple.
 var playOnlyRunners = map[string]string{
-	product.Tuple(product.GOOSLinux, product.GOARCHArm64): "ubuntu-24.04-arm",
+	product.Tuple(product.GOOSLinux, product.GOARCHArm64):   "ubuntu-24.04-arm",
+	product.Tuple(product.GOOSDarwin, product.GOARCHAmd64): "macos-15-intel",
 }
 
 // ArtifactName is the canonical upload/download name for a build
