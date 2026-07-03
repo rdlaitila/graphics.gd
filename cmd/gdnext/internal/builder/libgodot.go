@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
@@ -64,14 +64,12 @@ func (t *LibGodot) Build(recipe product.LibGodotRecipe) (string, error) {
 		return "", xray.New(err)
 	}
 	args := recipe.SconsArgs()
-	fmt.Printf("==> libgodot build %s/%s editor=%v\n    src=%s\n    scons %s\n",
-		recipe.GOOS, recipe.GOARCH, recipe.Editor, src, strings.Join(args, " "))
-	cmd := exec.Command(scons, args...)
-	cmd.Dir = src
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = env
-	if err := cmd.Run(); err != nil {
+	shared.Announce("", nil, "libgodot build", []string{
+		fmt.Sprintf("%s/%s", recipe.GOOS, recipe.GOARCH),
+		fmt.Sprintf("editor=%v", recipe.Editor),
+		fmt.Sprintf("src=%s", src),
+	})
+	if err := shared.RunInEnvStdin(src, env, true, nil, scons, args...); err != nil {
 		return "", fmt.Errorf("libgodot build: scons: %w", err)
 	}
 	artefact, err := findArtefact(filepath.Join(src, "bin"), recipe)
@@ -195,11 +193,7 @@ func (t *LibGodot) mergeArchives(src, topLevel string, recipe product.LibGodotRe
 	}
 	fmt.Fprintln(&script, "save")
 	fmt.Fprintln(&script, "end")
-	cmd := exec.Command(zig, "ar", "-M")
-	cmd.Stdin = strings.NewReader(script.String())
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := shared.RunStdin(strings.NewReader(script.String()), zig, "ar", "-M"); err != nil {
 		return "", fmt.Errorf("ar -M merge: %w", err)
 	}
 	fmt.Printf("==> merged %d archives into %s\n", len(members), topLevel)
@@ -369,10 +363,7 @@ func fileSize(path string) int64 {
 }
 
 func runShim(prog string, args ...string) error {
-	cmd := exec.Command(prog, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return shared.Run(prog, args...)
 }
 
 // findArtefact locates the .a SCons dropped for this recipe. Godot's

@@ -3,15 +3,13 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
-	"graphics.gd/cmd/gdnext/internal/shared"
 )
 
 // AndroidCommand wires `gdnext android`. Runtime state lives on
@@ -125,17 +123,13 @@ func (t *AndroidActions) androidLogcat(_ context.Context, cmd *cli.Command) erro
 	}
 	args := []string{"logcat"}
 	if pkg := cmd.String("package"); pkg != "" {
-		out, err := exec.Command(adb, "shell", "pidof", pkg).Output()
+		out, err := shared.OutputBytes(adb, "shell", "pidof", pkg)
 		if err != nil {
 			return fmt.Errorf("could not resolve pid of %s: %w", pkg, err)
 		}
 		args = append(args, "--pid="+string(out))
 	}
-	c := exec.Command(adb, args...)
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	c.Stdin = os.Stdin
-	return c.Run()
+	return shared.RunInteractive(adb, args...)
 }
 
 // androidApkSign is the action handler for the `gdnext android apk sign` subcommand

@@ -13,13 +13,12 @@ import (
 	"runtime"
 	"strings"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
 
 	"github.com/schollz/progressbar/v3"
 	"runtime.link/api/xray"
 )
-
-var debug = os.Getenv(product.EnvDebugCmd) != ""
 
 // Mode controls how Lookup and LookupPlatform resolve a missing toolchain.
 // Passing it explicitly at the callsite keeps the behaviour local instead
@@ -149,14 +148,7 @@ func (exe Tool) Exec(args ...string) error {
 		return xray.New(err)
 	}
 	name, args := exe.invocation(path, args)
-	cmd := exec.Command(name, args...)
-	if debug {
-		fmt.Println(name, strings.Join(args, " "))
-	}
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	return shared.RunInteractive(name, args...)
 }
 
 func (exe Tool) Action(name string, suffix_args []string, args ...string) error {
@@ -180,14 +172,7 @@ func (exe Tool) Action(name string, suffix_args []string, args ...string) error 
 	}
 	args = append(append([]string{name}, args...), suffix...)
 	cmdName, cmdArgs := exe.invocation(path, args)
-	cmd := exec.Command(cmdName, cmdArgs...)
-	if debug {
-		fmt.Println(cmdName, strings.Join(cmdArgs, " "))
-	}
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	return shared.RunInteractive(cmdName, cmdArgs...)
 }
 
 func (exe Tool) Output(args ...string) (string, error) {
@@ -196,14 +181,7 @@ func (exe Tool) Output(args ...string) (string, error) {
 		return "", err
 	}
 	name, args := exe.invocation(path, args)
-	if debug {
-		fmt.Println(name, strings.Join(args, " "))
-	}
-	out, err := exec.Command(name, args...).Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
+	return shared.Output(name, args...)
 }
 
 func (exe Tool) CombinedOutput(args ...string) (string, error) {
@@ -212,14 +190,7 @@ func (exe Tool) CombinedOutput(args ...string) (string, error) {
 		return "", err
 	}
 	name, args := exe.invocation(path, args)
-	if debug {
-		fmt.Println(name, strings.Join(args, " "))
-	}
-	out, err := exec.Command(name, args...).CombinedOutput()
-	if debug {
-		fmt.Println(string(out))
-	}
-	return strings.TrimSpace(string(out)), err
+	return shared.OutputCombined(name, args...)
 }
 
 // Lookup resolves the toolchain to a runnable path. Pass ModeFind to skip
@@ -380,7 +351,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 			return exe.PathToCommand(), nil
 		}
 		probeName, probeArgs := exe.invocation(exe_path, exe.VersionFlags)
-		version, err := exec.Command(probeName, probeArgs...).CombinedOutput()
+		version, err := shared.ProbeCombined(probeName, probeArgs...)
 		version = bytes.TrimSpace(version)
 		if err == nil {
 			if (exe.Version != "" && string(version) == exe.Version) || (exe.VersionPrefix != "" && strings.HasPrefix(string(version), exe.VersionPrefix)) {
@@ -418,7 +389,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 		// the artefact, never on $PATH directly.
 		if !exe.JavaJar {
 			if path, err := exec.LookPath(name); err == nil {
-				version, _ := exec.Command(path, exe.VersionFlags...).CombinedOutput()
+				version, _ := shared.ProbeCombined(path, exe.VersionFlags...)
 				if (exe.Version != "" && string(version) == exe.Version) || (exe.VersionPrefix != "" && strings.HasPrefix(string(version), exe.VersionPrefix)) || (exe.Version == "" && exe.VersionPrefix == "") {
 					exe.Path = path
 					if exe.IsApp {

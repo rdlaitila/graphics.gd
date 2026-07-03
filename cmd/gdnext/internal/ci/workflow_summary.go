@@ -292,7 +292,7 @@ func fetchRuns(repo, workflow string, n int, branch string) ([]ghRun, error) {
 	if branch != "" {
 		args = append(args, "-f", "branch="+branch)
 	}
-	out, err := exec.Command("gh", args...).Output()
+	out, err := shared.OutputBytesCapture("gh", args...)
 	if err != nil {
 		return nil, ghError(err)
 	}
@@ -309,11 +309,11 @@ func fetchRuns(repo, workflow string, n int, branch string) ([]ghRun, error) {
 }
 
 func fetchJobs(repo string, runID int64) ([]ghJob, error) {
-	out, err := exec.Command("gh", "api",
+	out, err := shared.OutputBytesCapture("gh", "api",
 		fmt.Sprintf("repos/%s/actions/runs/%d/jobs", repo, runID),
 		"-X", "GET",
 		"-F", "per_page=100",
-	).Output()
+	)
 	if err != nil {
 		return nil, ghError(err)
 	}
@@ -329,10 +329,10 @@ func fetchJobs(repo string, runID int64) ([]ghJob, error) {
 // fetchJobLog returns the raw text log for one GHA job. The API
 // redirects to a signed URL; `gh api` follows it transparently.
 func fetchJobLog(repo string, jobID int64) (string, error) {
-	out, err := exec.Command("gh", "api",
+	out, err := shared.OutputBytesCapture("gh", "api",
 		fmt.Sprintf("repos/%s/actions/jobs/%d/logs", repo, jobID),
 		"-X", "GET",
-	).Output()
+	)
 	if err != nil {
 		return "", ghError(err)
 	}

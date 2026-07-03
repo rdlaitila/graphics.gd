@@ -7,9 +7,10 @@ package projmod
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"graphics.gd/cmd/gdnext/internal/shared"
 )
 
 // FindProjectGoMod walks up from the current working directory looking for a
@@ -57,9 +58,5 @@ func EnsureGoToolGd(goPath, dir, goModPath string) {
 	if strings.Contains(string(data), "graphics.gd/cmd/gd") {
 		return
 	}
-	cmd := exec.Command(goPath, "get", "-tool", "graphics.gd/cmd/gd")
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Run()
+	_ = shared.RunIn(dir, goPath, "get", "-tool", "graphics.gd/cmd/gd")
 }

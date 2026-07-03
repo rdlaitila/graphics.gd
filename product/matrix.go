@@ -77,7 +77,6 @@ var EnvMatrix = []string{
 	EnvDisplay,
 	EnvXDGDataHome,
 	EnvSSLKeyLogFile,
-	EnvDebugCmd,
 	EnvPort,
 	EnvRunnerOS,
 	EnvGitHubRefName,
@@ -88,6 +87,7 @@ var EnvMatrix = []string{
 	EnvGDToolchain,
 	EnvVerbose,
 	EnvAABSign,
+	EnvDebug,
 	EnvSkipChecksum,
 	EnvAndroidPreset,
 	EnvWaydroidADB,
@@ -115,7 +115,6 @@ var (
 	EnvXDGDataHome   = "XDG_DATA_HOME"
 	EnvSSLKeyLogFile = "SSLKEYLOGFILE"
 	// CI runner --------------------------------------------------------
-	EnvDebugCmd        = "DEBUG_CMD"
 	EnvPort            = "PORT"
 	EnvRunnerOS        = "RUNNER_OS"
 	EnvGitHubRefName   = "GITHUB_REF_NAME"
@@ -127,6 +126,7 @@ var (
 	EnvGDToolchain    = "GDTOOLCHAIN"
 	EnvVerbose        = "GD_VERBOSE"
 	EnvAABSign        = "GDNEXT_AAB_SIGN"
+	EnvDebug          = "GDNEXT_DEBUG"
 	EnvSkipChecksum   = "GDNEXT_SKIP_CHECKSUM"
 	EnvAndroidPreset  = "GD_ANDROID_PRESET"
 	EnvWaydroidADB    = "GDNEXT_WAYDROID_ADB"

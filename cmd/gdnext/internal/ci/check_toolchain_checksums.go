@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -112,10 +111,10 @@ func pickChecksumRun(repo, workflow, branch string, override int64, scan int) (g
 
 // fetchRunByID retrieves a single run via the GitHub API.
 func fetchRunByID(repo string, runID int64) (ghRun, error) {
-	out, err := exec.Command("gh", "api",
+	out, err := shared.OutputBytesCapture("gh", "api",
 		fmt.Sprintf("repos/%s/actions/runs/%d", repo, runID),
 		"-X", "GET",
-	).Output()
+	)
 	if err != nil {
 		return ghRun{}, ghError(err)
 	}

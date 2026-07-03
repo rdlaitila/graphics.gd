@@ -22,7 +22,6 @@ func main() {
 		println("hi")
 		return
 	}
-	dumpEnv("main entry")
 	debugf("==> canarybird main: registering CanaryBird and entering scene tree")
 	classdb.Register[CanaryBird]()
 	startup.LoadingScene()

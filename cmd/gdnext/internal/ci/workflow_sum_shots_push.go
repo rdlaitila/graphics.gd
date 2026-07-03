@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"graphics.gd/cmd/gdnext/internal/shared"
 )
 
 // pushedShot is one row from a pushShotsToBranch round-trip. When
@@ -400,6 +402,7 @@ func ghCall(repo, method, path string, body any, into any) error {
 		// `gh api --input -` reads JSON body from stdin.
 		args = append(args, "--input", "-")
 	}
+	shared.Announce("", nil, "gh", args)
 	cmd := exec.Command("gh", args...)
 	if len(stdin) > 0 {
 		cmd.Stdin = bytes.NewReader(stdin)

@@ -5,15 +5,14 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
-	"graphics.gd/cmd/gdnext/internal/shared"
 )
 
 // DocCommand wires `gdnext doc`. Runtime state lives on *DocActions.
@@ -93,7 +92,7 @@ func (t *DocActions) findGdDocMatches(query string) ([]gdDocMatch, error) {
 	if err != nil {
 		return nil, err
 	}
-	modRoot, err := exec.Command(goPath, "list", "-m", "-f", "{{.Dir}}", "graphics.gd").Output()
+	modRoot, err := shared.OutputBytes(goPath, "list", "-m", "-f", "{{.Dir}}", "graphics.gd")
 	if err != nil {
 		return nil, fmt.Errorf("could not find graphics.gd module: %w", err)
 	}

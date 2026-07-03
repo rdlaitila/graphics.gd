@@ -29,12 +29,12 @@ import (
 	"hash/crc32"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"graphics.gd/cmd/gdnext/internal/project"
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
@@ -139,9 +139,7 @@ func (t *MetaQuest) Run(args ...string) error {
 		return xray.New(err)
 	}
 
-	install := exec.Command(adb, "install", "-r", apk)
-	install.Stdout, install.Stderr = os.Stdout, os.Stderr
-	if err := install.Run(); err != nil {
+	if err := shared.Run(adb, "install", "-r", apk); err != nil {
 		fmt.Println("Quest not recognized? Enable Developer Mode in the Meta Horizon app and accept USB debugging on the headset.")
 		return xray.New(err)
 	}
@@ -155,12 +153,10 @@ func (t *MetaQuest) Run(args ...string) error {
 		return xray.New(err)
 	}
 	pkg := strings.TrimSpace(pkgOut)
-	_ = exec.Command(adb, "logcat", "-c").Run()
-	launch := exec.Command(adb, "shell", "am", "start", "-a", "android.intent.action.MAIN",
+	_ = shared.Run(adb, "logcat", "-c")
+	if err := shared.Run(adb, "shell", "am", "start", "-a", "android.intent.action.MAIN",
 		"-c", "org.khronos.openxr.intent.category.IMMERSIVE_HMD",
-		"-n", pkg+"/com.godot.game.GodotApp")
-	launch.Stdout, launch.Stderr = os.Stdout, os.Stderr
-	if err := launch.Run(); err != nil {
+		"-n", pkg+"/com.godot.game.GodotApp"); err != nil {
 		return xray.New(err)
 	}
 	// Filter logcat to just this app's process. The desktop-Android
@@ -169,7 +165,7 @@ func (t *MetaQuest) Run(args ...string) error {
 	// Horizon-OS / OpenXR runtime chatter.
 	var pid []byte
 	for range 10 {
-		out, err := exec.Command(adb, "shell", "pidof", pkg).Output()
+		out, err := shared.OutputBytes(adb, "shell", "pidof", pkg)
 		if err == nil {
 			if trimmed := bytes.TrimSpace(out); len(trimmed) > 0 {
 				pid = trimmed
@@ -180,16 +176,11 @@ func (t *MetaQuest) Run(args ...string) error {
 	}
 	if len(pid) == 0 {
 		fmt.Fprintf(os.Stderr, "%s did not start. Recent device error logs:\n", pkg)
-		dump := exec.Command(adb, "logcat", "-d", "-t", "200", "*:E")
-		dump.Stdout = os.Stderr
-		dump.Stderr = os.Stderr
-		_ = dump.Run()
+		_ = shared.Run(adb, "logcat", "-d", "-t", "200", "*:E")
 		return fmt.Errorf("gd run: %s failed to launch", pkg)
 	}
 	fmt.Println("PID=", string(pid))
-	tail := exec.Command(adb, "logcat", "--pid="+string(pid))
-	tail.Stdout, tail.Stderr = os.Stdout, os.Stderr
-	return tail.Run()
+	return shared.Run(adb, "logcat", "--pid="+string(pid))
 }
 
 // Pre-compiled Meta Quest assets. We could fetch the AARs from

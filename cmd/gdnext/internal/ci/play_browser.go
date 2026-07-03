@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
 )
 
@@ -83,16 +84,18 @@ func runBrowserPlay(opts browserPlayOpts) error {
 		opts.target, opts.link, opts.compat, buildHostOrLocal(opts.buildHost), opts.compat, url)
 	runCtx, cancel := contextWithTimeout(opts.timeout)
 	defer cancel()
-	c := exec.CommandContext(runCtx, node, scriptPath,
+	nodeArgs := []string{scriptPath,
 		"--url", url,
 		"--browser", opts.compat,
 		"--report", opts.reportPath,
 		"--screenshot", opts.screenshotPath,
-		"--timeout", strconv.Itoa(int(opts.timeout/time.Millisecond)),
-	)
-	if os.Getenv(product.EnvPlayHeaded) != "" {
-		c.Args = append(c.Args, "--headed")
+		"--timeout", strconv.Itoa(int(opts.timeout / time.Millisecond)),
 	}
+	if os.Getenv(product.EnvPlayHeaded) != "" {
+		nodeArgs = append(nodeArgs, "--headed")
+	}
+	shared.Announce("", nil, node, nodeArgs)
+	c := exec.CommandContext(runCtx, node, nodeArgs...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	return c.Run()

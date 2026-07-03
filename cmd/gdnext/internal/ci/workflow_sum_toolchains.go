@@ -6,9 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os/exec"
 	"sort"
 	"strings"
+
+	"graphics.gd/cmd/gdnext/internal/shared"
 )
 
 // doctorAuditRow mirrors cli.DoctorAuditRow's JSON shape so the
@@ -105,10 +106,10 @@ func toolchainKey(r doctorAuditRow) string {
 // the given run via gh api, downloads each via the archive_download_url,
 // reads `toolchain-audit.json` from the zip, and merges rows.
 func fetchAuditArtifacts(repo string, runID int64) []doctorAuditRow {
-	out, err := exec.Command("gh", "api",
+	out, err := shared.OutputBytesCapture("gh", "api",
 		fmt.Sprintf("repos/%s/actions/runs/%d/artifacts", repo, runID),
 		"-X", "GET", "-F", "per_page=100",
-	).Output()
+	)
 	if err != nil {
 		return nil
 	}
@@ -142,7 +143,7 @@ func downloadAuditArtifact(downloadURL string) ([]doctorAuditRow, error) {
 	// gh api accepts the full path after the host; strip the
 	// "https://api.github.com" prefix.
 	path := strings.TrimPrefix(downloadURL, "https://api.github.com/")
-	body, err := exec.Command("gh", "api", path, "-X", "GET").Output()
+	body, err := shared.OutputBytesCapture("gh", "api", path, "-X", "GET")
 	if err != nil {
 		return nil, ghError(err)
 	}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
 )
 
@@ -186,7 +187,7 @@ func androidAPKPath(scratch, target string) (string, error) {
 // androidPackageName runs `aapt2 dump packagename` to read the
 // package id off the APK manifest.
 func androidPackageName(aapt, apk string) (string, error) {
-	out, err := exec.Command(aapt, "dump", "packagename", apk).Output()
+	out, err := shared.OutputBytes(aapt, "dump", "packagename", apk)
 	if err != nil {
 		return "", fmt.Errorf("aapt dump packagename: %w", err)
 	}
@@ -209,7 +210,7 @@ func findAapt() (string, error) {
 		return p, nil
 	}
 	for _, slug := range []string{"android-aapt2", "android-aapt"} {
-		out, err := exec.Command("gdnext", "toolchain", "path", slug).Output()
+		out, err := shared.OutputBytes("gdnext", "toolchain", "path", slug)
 		if err != nil {
 			continue
 		}
@@ -295,12 +296,18 @@ type adbDevice struct {
 	serial string
 }
 
-// cmd builds an *exec.Cmd that runs `adb [-s serial] args...`.
+// cmd builds an *exec.Cmd that runs `adb [-s serial] args...` and
+// announces the invocation via shared.Announce so every adb call is
+// visible in the CI log alongside other exec sites. Callers are
+// expected to consume the *exec.Cmd immediately (Run / Output / with
+// Stdin wired) — the announce banner fires once at construction.
 func (d adbDevice) cmd(args ...string) *exec.Cmd {
-	if d.serial == "" {
-		return exec.Command(d.bin, args...)
+	full := args
+	if d.serial != "" {
+		full = append([]string{"-s", d.serial}, args...)
 	}
-	return exec.Command(d.bin, append([]string{"-s", d.serial}, args...)...)
+	shared.Announce("", nil, d.bin, full)
+	return exec.Command(d.bin, full...)
 }
 
 // label returns a short fragment to splice into log lines that
@@ -327,7 +334,7 @@ func selectAdbDevice(adb, compat string) (adbDevice, error) {
 		if addr == "" {
 			addr = "127.0.0.1:5555"
 		}
-		if out, err := exec.Command(adb, "connect", addr).CombinedOutput(); err != nil {
+		if out, err := shared.OutputCombined(adb, "connect", addr); err != nil {
 			return adbDevice{}, fmt.Errorf("adb connect %s: %w\n%s", addr, err, out)
 		} else {
 			fmt.Fprintf(os.Stderr, "adb connect %s: %s", addr, out)

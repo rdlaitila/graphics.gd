@@ -5,24 +5,14 @@ import (
 	"os"
 	"sort"
 	"strings"
-
-	"graphics.gd/classdb/Engine"
 )
 
-// debugf prints a single line to both the Go stdout (so CI logs see it
-// even before the engine is initialised, and so it shows up under
-// "Show play report" before any Godot output) and the engine print
-// stream (so the in-engine console / editor output shows it too).
-// Use sparingly — every call is a duplicated line in CI logs.
+// debugf prints a debug line to stdout, prefixed with "DEBUG: ". It is
+// used for logging from the Go side of canarybird, which is not visible
+// in the engine console.
 func debugf(format string, args ...any) {
 	line := fmt.Sprintf(format, args...)
-	fmt.Println("GO: " + line)
-	// Engine.Print only works after the engine has booted enough for
-	// classdb to be live. Wrapping in recover keeps a too-early call
-	// from panicking out of init code, which would lose the more
-	// useful Go-stdout line we just printed.
-	defer func() { _ = recover() }()
-	Engine.Print("GD: " + line)
+	fmt.Println("DEBUG: " + line)
 }
 
 // dumpEnv prints every environment variable to stdout (sorted), tagged

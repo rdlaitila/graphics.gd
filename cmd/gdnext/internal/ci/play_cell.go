@@ -147,7 +147,8 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("==> play %s [%s] compat=%s build-host=%s: %s\n", target, mode, compatOrNative(compat), buildHostOrLocal(buildHost), strings.Join(argv, " "))
+		fmt.Printf("==> play %s [%s] compat=%s build-host=%s\n", target, mode, compatOrNative(compat), buildHostOrLocal(buildHost))
+		shared.Announce("", nil, argv[0], argv[1:])
 		ctx, cancel := contextWithTimeout(timeout)
 		defer cancel()
 		c := exec.CommandContext(ctx, argv[0], argv[1:]...)

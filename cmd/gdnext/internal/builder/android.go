@@ -14,7 +14,6 @@ import (
 	"io"
 	"math/big"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -166,8 +165,8 @@ func (t *Android) Build(args ...string) error {
 			// x86_64-linux-android target.
 			liblog := filepath.Join(ANDROID_SDK, "usr", "lib", "liblog.so")
 			liblogSrc := filepath.Join(ANDROID_SDK, "usr", "lib", "liblog.c")
-			if err := exec.Command(zig, "cc", "-target", "x86_64-linux-android", "-shared", "-nostdlib",
-				"-Wl,-soname,liblog.so", "-o", liblog, liblogSrc).Run(); err != nil {
+			if err := shared.Run(zig, "cc", "-target", "x86_64-linux-android", "-shared", "-nostdlib",
+				"-Wl,-soname,liblog.so", "-o", liblog, liblogSrc); err != nil {
 				return xray.New(fmt.Errorf("build liblog stub for amd64: %w", err))
 			}
 			if err := os.Setenv(product.EnvCC, zig+" cc -target x86_64-linux-android -nostdlib -I"+ANDROID_SDK+"/usr/include -L"+ANDROID_SDK+"/usr/lib"); err != nil {
@@ -223,10 +222,7 @@ func (t *Android) Run(args ...string) error {
 		return xray.New(err)
 	}
 	//  adb shell monkey -p com.example.original -c android.intent.category.LAUNCHER 1; adb logcat --pid=$(adb shell pidof com.example.original) > dump.txt
-	cmd := exec.Command(adb, "install", apkPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := shared.Run(adb, "install", apkPath); err != nil {
 		fmt.Println("Device not recognized? Make sure developer mode is enabled:")
 		fmt.Println("	(go to Settings > About Phone, find the Build Number, and tap it 7 times quickly).")
 		fmt.Println("Also make sure to unlock your device and accept any USB debugging prompts!")
@@ -242,16 +238,13 @@ func (t *Android) Run(args ...string) error {
 	}
 	packageName := strings.TrimSpace(pkgOut)
 	// Clear the log buffer so any post-launch dump only shows this run's output.
-	_ = exec.Command(adb, "logcat", "-c").Run()
-	cmd = exec.Command(adb, "shell", "monkey", "-p", packageName, "-c", "android.intent.category.LAUNCHER", "1")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	_ = shared.Run(adb, "logcat", "-c")
+	if err := shared.Run(adb, "shell", "monkey", "-p", packageName, "-c", "android.intent.category.LAUNCHER", "1"); err != nil {
 		return xray.New(err)
 	}
 	var pid []byte
 	for range 10 {
-		out, err := exec.Command(adb, "shell", "pidof", packageName).Output()
+		out, err := shared.OutputBytes(adb, "shell", "pidof", packageName)
 		if err == nil {
 			if trimmed := bytes.TrimSpace(out); len(trimmed) > 0 {
 				pid = trimmed
@@ -262,17 +255,11 @@ func (t *Android) Run(args ...string) error {
 	}
 	if len(pid) == 0 {
 		fmt.Fprintf(os.Stderr, "%s did not start. Recent device error logs:\n", packageName)
-		dump := exec.Command(adb, "logcat", "-d", "-t", "200", "*:E")
-		dump.Stdout = os.Stderr
-		dump.Stderr = os.Stderr
-		_ = dump.Run()
+		_ = shared.Run(adb, "logcat", "-d", "-t", "200", "*:E")
 		return fmt.Errorf("gd run: %s failed to launch", packageName)
 	}
 	fmt.Println("PID=", string(pid))
-	cmd = exec.Command(adb, "logcat", "--pid="+string(pid))
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := shared.Run(adb, "logcat", "--pid="+string(pid)); err != nil {
 		return xray.New(err)
 	}
 	return nil
