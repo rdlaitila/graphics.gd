@@ -487,9 +487,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          # 100 is the per-page max; runs with <100 artefacts fit in
-          # a single page. If we ever exceed that, switch to --paginate.
-          if gh api -X GET "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+          # --paginate walks every page so runs with more than 100
+          # artefacts (default page size 30) don't silently miss the
+          # oldest ones — a filtered dispatch stays under 30, but
+          # a full-matrix run pushes past that with all the shot-*
+          # artefacts uploaded after each play cell.
+          if gh api --paginate -X GET "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" \
                --jq '.artifacts[].name' \
              | grep -Fxq "${{ matrix.artifact }}"; then
             echo "present=true" >> "$GITHUB_OUTPUT"
