@@ -33,7 +33,13 @@ func collectPlays(asc []runWithJobs) []playRow {
 			link, exp := parseLinkExp(axes[4:])
 			compat := ""
 			if len(axes) >= 6 {
-				if c := axes[5]; c != "true" && c != "false" && c != "allow-fail" {
+				// Job names carry the compat axis as its display value
+				// (`${{ matrix.compat || 'native' }}` in the yml), but
+				// the artefact name convention treats native as empty
+				// — ScreenshotArtifactName drops the suffix when compat
+				// is "". Normalise here so shotGridRows can key the
+				// play-row-to-shot lookup on Compat directly.
+				if c := axes[5]; c != "true" && c != "false" && c != "allow-fail" && c != "native" {
 					compat = c
 				}
 			}
