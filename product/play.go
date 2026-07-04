@@ -3,7 +3,7 @@ package product
 import "encoding/json"
 
 // PlayReport is the generic envelope every example's play-bot writes
-// to $GDNEXT_PLAY_RESULT and `gdnext ci play-cell` reads back.
+// to $GD_PLAY_RESULT and `gdnext ci play-cell` reads back.
 // GameData and HudData stay opaque so example-specific fields can
 // evolve without forcing a driver update; the driver only gates on
 // Success.
@@ -15,7 +15,7 @@ type PlayReport struct {
 
 // PlayHUDColumn is one column in the bottom-spanning provenance table
 // the example overlays when driven by `gdnext ci play-cell`. The
-// driver writes a []PlayHUDColumn to $GDNEXT_PLAY_HUD as JSON; the
+// driver writes a []PlayHUDColumn to $GD_PLAY_HUD as JSON; the
 // example mirrors it back into PlayReport.HudData.
 type PlayHUDColumn struct {
 	Name  string `json:"name"`

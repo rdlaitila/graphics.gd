@@ -62,8 +62,8 @@ var (
 )
 
 // EnvMatrix is the canonical, ordered list of every environment
-// variable gdnext reads from or writes to. Standard go/toolchain
-// vars come first, then CI runner vars, then gdnext-owned vars,
+// variable the CLI reads from or writes to. Standard go/toolchain
+// vars come first, then CI runner vars, then CLI-owned vars,
 // then example/runtime-driven vars.
 var EnvMatrix = []string{
 	EnvGOOS,
@@ -121,24 +121,24 @@ var (
 	EnvGitHubRunID     = "GITHUB_RUN_ID"
 	EnvGitHubSHA       = "GITHUB_SHA"
 	EnvGitHubWorkspace = "GITHUB_WORKSPACE"
-	// gdnext + product -------------------------------------------------
+	// CLI + product ----------------------------------------------------
 	EnvGDPath         = "GDPATH"
 	EnvGDToolchain    = "GDTOOLCHAIN"
 	EnvVerbose        = "GD_VERBOSE"
-	EnvAABSign        = "GDNEXT_AAB_SIGN"
-	EnvDebug          = "GDNEXT_DEBUG"
-	EnvSkipChecksum   = "GDNEXT_SKIP_CHECKSUM"
+	EnvAABSign        = "GD_AAB_SIGN"
+	EnvDebug          = "GD_DEBUG"
+	EnvSkipChecksum   = "GD_SKIP_CHECKSUM"
 	EnvAndroidPreset  = "GD_ANDROID_PRESET"
-	EnvWaydroidADB    = "GDNEXT_WAYDROID_ADB"
+	EnvWaydroidADB    = "GD_WAYDROID_ADB"
 	EnvGraphicsGDRoot = "GRAPHICS_GD_ROOT"
-	EnvLibGodotLibC   = "GDNEXT_LIBGODOT_LIBC"
+	EnvLibGodotLibC   = "GD_LIBGODOT_LIBC"
 	// Runtime contract with the example / play-bot ---------------------
 	EnvRunningInsideGodot = "RUNNING_INSIDE_GODOT"
-	EnvPlay               = "GDNEXT_PLAY"
-	EnvPlayResult         = "GDNEXT_PLAY_RESULT"
-	EnvPlayScreenshot     = "GDNEXT_PLAY_SCREENSHOT"
-	EnvPlayHUD            = "GDNEXT_PLAY_HUD"
-	EnvPlayHeaded         = "GDNEXT_PLAY_HEADED"
+	EnvPlay               = "GD_PLAY"
+	EnvPlayResult         = "GD_PLAY_RESULT"
+	EnvPlayScreenshot     = "GD_PLAY_SCREENSHOT"
+	EnvPlayHUD            = "GD_PLAY_HUD"
+	EnvPlayHeaded         = "GD_PLAY_HEADED"
 )
 
 // GOOSArchDefaults maps each GOOS to its default GOARCH, used when the target
@@ -357,7 +357,7 @@ var (
 )
 
 // PlatformMatrix is the canonical, ordered list of every (GOOS, GOARCH) pair
-// graphics.gd supports as either a host (where gdnext runs) or a build
+// graphics.gd supports as either a host (where the CLI runs) or a build
 // target (where the engine + a graphics.gd app can run).
 var PlatformMatrix = []Platform{
 	PlatformLinuxAmd64,
@@ -940,7 +940,7 @@ var (
 		VersionFlags:  []string{"--version"},
 		VersionPrefix: "upx 5.0.2",
 		RequiredFor:   "minifying builds",
-		// Optional: opt-in minifier, not required by any gdnext build target.
+		// Optional: opt-in minifier, not required by any first-party build target.
 		AvailableHosts: []BuildHost{HostLinuxAmd64, HostWindowsAmd64}, // no darwin packaging upstream
 		DownloadHint:   "https://github.com/upx/upx/releases/latest",
 		Downloads: map[string]map[string]string{
@@ -960,7 +960,7 @@ var (
 		VersionPrefix:  "Description:\n  Velopack CLI 0.0.1298,",
 		RequiredFor:    "self-updating-bundles",
 		AvailableHosts: HostMatrix,
-		// Optional: not required by any gdnext build target. Used only when
+		// Optional: not required by any first-party build target. Used only when
 		// the user explicitly wants self-updating windows bundles.
 	}
 	ToolchainLibGodot = Toolchain{

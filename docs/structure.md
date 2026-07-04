@@ -3,8 +3,10 @@
 Top-level layout. Each subdirectory may have a `Readme.md` or doc comments
 covering its internals.
 
-- `cmd/` — executables (`gd` CLI, `gdnext` CLI). The CI driver lives
-  inside `gdnext` as `gdnext ci <verb>`; see `cmd/gdnext/internal/ci/`.
+- `cmd/` — executables. `cmd/gd/` is the original CLI (in production);
+  `cmd/gdnext/` is the next-generation rebuild (see [cli.md](cli.md)).
+  The CI driver lives inside the next-gen CLI as `gdnext ci <verb>`;
+  see `cmd/gdnext/internal/ci/`.
 - `product/` — canonical product metadata database. Pure data + lookup helpers; no `graphics.gd` imports allowed.
 - `classdb/` — generated Godot class bindings.
 - `variant/` — pure-Go vector/math types + variant glue.

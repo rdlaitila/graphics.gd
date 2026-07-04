@@ -62,9 +62,9 @@
 //#define DLOPEN_DEBUG 0
 
 /* Env-gated diagnostic logging on every silent-return path in the shim.
- * Enable at runtime with GDNEXT_SHIM_DEBUG=1. gdnext-only patch on top of
+ * Enable at runtime with GD_SHIM_DEBUG=1. gdnext-only patch on top of
  * the upstream startup/internal/dlopen/dlopen.c snapshot. */
-#define SHIM_DEBUG_ENV "GDNEXT_SHIM_DEBUG"
+#define SHIM_DEBUG_ENV "GD_SHIM_DEBUG"
 #define SHIM_LOG(...) do { \
   if (getenv(SHIM_DEBUG_ENV)) { \
     fprintf(stderr, "[shim] " __VA_ARGS__); \
@@ -583,8 +583,8 @@ static void elf_exec(const char *file, char **envp) {
    * gracefully handles a missing AT_SYSINFO_EHDR by disabling vDSO
    * shortcuts and using direct syscalls -- slightly slower for gettime()
    * calls in the helper's initialization, negligible for our use. Set
-   * GDNEXT_SHIM_WITH_VDSO=1 to re-enable if a specific host benefits. */
-  if (getenv("GDNEXT_SHIM_WITH_VDSO")) {
+   * GD_SHIM_WITH_VDSO=1 to re-enable if a specific host benefits. */
+  if (getenv("GD_SHIM_WITH_VDSO")) {
     PUSH_HOST_AUXV(AT_SYSINFO_EHDR);
   }
   PUSH_HOST_AUXV(AT_HWCAP);
@@ -773,7 +773,7 @@ static bool foreign_compile(char exe[PATH_MAX]) {
   /* Two staging paths for the pre-compiled glibc helper:
    *   - memfd_create + /proc/self/fd/N (default). Zero filesystem writes.
    *   - real file under $TMPDIR/.musl_dlopen_helper/helper (opt-in via
-   *     GDNEXT_SHIM_HELPER_ON_DISK=1). Escape hatch for kernels/loaders
+   *     GD_SHIM_HELPER_ON_DISK=1). Escape hatch for kernels/loaders
    *     that mishandle memfd-backed executables in in-process elf_exec
    *     (some distrobox/podman + glibc combos have shown SIGSEGV inside
    *     ld.so when the interpreter is loaded against a memfd-identified
@@ -783,7 +783,7 @@ static bool foreign_compile(char exe[PATH_MAX]) {
              "(gdnext libgodot builder generated a zero-byte helper)");
     return false;
   }
-  const char *on_disk = getenv("GDNEXT_SHIM_HELPER_ON_DISK");
+  const char *on_disk = getenv("GD_SHIM_HELPER_ON_DISK");
   if (on_disk && on_disk[0] && on_disk[0] != '0') {
     my_strlcpy(exe, get_tmp_dir(), PATH_MAX);
     my_strlcat(exe, "/.musl_dlopen_helper", PATH_MAX);

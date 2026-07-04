@@ -65,7 +65,7 @@ func NewToolchainCommand(di do.Injector) (*ToolchainCommand, error) {
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:  "skip-checksum",
-						Usage: "skip product.Toolchain.KnownChecksums verification after download (sets GDNEXT_SKIP_CHECKSUM=1)",
+						Usage: "skip product.Toolchain.KnownChecksums verification after download (sets GD_SKIP_CHECKSUM=1)",
 					},
 					&cli.BoolFlag{
 						Name:  "force",

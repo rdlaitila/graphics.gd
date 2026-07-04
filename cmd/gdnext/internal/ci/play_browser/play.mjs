@@ -2,7 +2,7 @@
 // play.mjs drives one (target=js/wasm, compat=chrome|firefox) cell
 // for `gdnext ci play-cell`. Invoked with --url --browser --report
 // --screenshot --timeout (ms). Captures the wasm play-bot's
-// `GDNEXT_PLAY_RESULT:<base64>` console line, writes the decoded
+// `GD_PLAY_RESULT:<base64>` console line, writes the decoded
 // JSON to --report, and takes a page.screenshot() to --screenshot.
 //
 // Exits 0 on success; 1 if the report line never arrives within the
@@ -61,7 +61,7 @@ const page = await context.newPage();
 // report (or an early null-function abort).
 let reportB64 = null;
 let firstPageError = null;
-const reportPrefix = "GDNEXT_PLAY_RESULT:";
+const reportPrefix = "GD_PLAY_RESULT:";
 const reportPromise = new Promise((resolve) => {
 	page.on("console", (msg) => {
 		const text = msg.text();
@@ -94,7 +94,7 @@ const crashPromise = new Promise((_, reject) => {
 await page.goto(args.url, { waitUntil: "load", timeout: timeoutMs });
 
 const timeoutPromise = new Promise((_, reject) =>
-	setTimeout(() => reject(new Error(`timeout: no GDNEXT_PLAY_RESULT within ${timeoutMs}ms`)), timeoutMs)
+	setTimeout(() => reject(new Error(`timeout: no GD_PLAY_RESULT within ${timeoutMs}ms`)), timeoutMs)
 );
 
 let exitCode = 0;

@@ -1,8 +1,13 @@
 # Catalog
 
+> Command invocations in this doc (`gdnext platform ...`, `gdnext toolchain ...`)
+> refer to the next-generation CLI at [`cmd/gdnext/`](../cmd/gdnext/), which is
+> being rebuilt alongside the original `gd` CLI. See [cli.md](cli.md) for
+> the CLI overview.
+
 The `product/` package is graphics.gd's catalog: the declarative
 source of truth for the platforms, hosts, link modes, and toolchains
-the project supports. Every other layer — gdnext, the CI driver,
+the project supports. Every other layer — the CLI, the CI driver,
 builders, downstream tooling, this repo's docs — reads from
 `product.PlatformMatrix`, `HostMatrix`, `ToolchainMatrix`, etc.
 rather than hard-coding its own list.
@@ -107,7 +112,7 @@ across CLIs and APIs (matching `go env`, Docker, buildx).
 
 The `Kind` bitmask classifies what graphics.gd does *to* a platform:
 
-- `Host` — gdnext itself runs on this platform. Reflected in
+- `Host` — the CLI itself runs on this platform. Reflected in
   `HostMatrix` (the list of platforms with a CI runner).
 - `Target` — graphics.gd can build for this platform.
 
@@ -231,7 +236,7 @@ report or PR description when discussing a specific row.
 
 Filters by `Kind`. Mutually exclusive.
 
-- `--hosts` — rows that can run gdnext (i.e. rows in `HostMatrix`).
+- `--hosts` — rows that can run the CLI (i.e. rows in `HostMatrix`).
 - `--targets` — rows graphics.gd can build for.
 
 Example:

@@ -36,7 +36,7 @@ var externalFilesDir = func() string {
 	return "/sdcard/Android/data/" + pkg + "/files"
 }()
 
-var driverFile = filepath.Join(externalFilesDir, "gdnext-play.json")
+var driverFile = filepath.Join(externalFilesDir, "gd-play.json")
 
 var driverEnv = func() map[string]string {
 	if externalFilesDir == "" {
@@ -66,7 +66,7 @@ func writePlayReport(data []byte) {
 	if externalFilesDir == "" {
 		return
 	}
-	storeBytes(filepath.Join(externalFilesDir, "gdnext-play-report.json"), data, "play report")
+	storeBytes(filepath.Join(externalFilesDir, "gd-play-report.json"), data, "play report")
 }
 
 // writePlayScreenshotFromViewport captures the engine viewport and
@@ -80,7 +80,7 @@ func writePlayScreenshotFromViewport() {
 		panic("play screenshot requested but engine main loop is not a SceneTree")
 	}
 	png := tree.Root().AsViewport().GetTexture().AsTexture2D().GetImage().SavePngToBuffer()
-	storeBytes(filepath.Join(externalFilesDir, "gdnext-play-screenshot.png"), png, "play screenshot")
+	storeBytes(filepath.Join(externalFilesDir, "gd-play-screenshot.png"), png, "play screenshot")
 }
 
 // storeBytes writes data to path via FileAccess. Go's io subsystem

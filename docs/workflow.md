@@ -1,5 +1,12 @@
 # Workflow
 
+> Command invocations (`gdnext ci ...`, `gdnext toolchain ...`) and the
+> workflow filename (`.github/workflows/gdnext.yml`) in this doc refer to
+> the next-generation CLI at [`cmd/gdnext/`](../cmd/gdnext/), not the
+> original `gd` CLI. See [cli.md](cli.md) for the CLI overview. Job
+> names (`gdnext-checks`, `gdnext-build`, `gdnext-play`, ...) are the
+> literal names used in `.github/workflows/gdnext.yml`.
+
 The graphics.gd CI lives in [.github/workflows/gdnext.yml](../.github/workflows/gdnext.yml).
 Almost every step is a thin wrapper around a `gdnext ci <verb>` call;
 the actual work — building, testing, driving the engine, rendering

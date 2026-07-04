@@ -810,7 +810,7 @@ func sha256File(path string) (int64, string, error) {
 
 // verifyChecksum accepts a download when one of the following holds:
 //
-//   - GDNEXT_SKIP_CHECKSUM=1 (or `--skip-checksum`) is set. The
+//   - GD_SKIP_CHECKSUM=1 (or `--skip-checksum`) is set. The
 //     sidecar is still written on success, pinning the freshly-seen
 //     hash so future installs verify against it without the escape
 //     hatch. This is the bootstrap path for a brand-new tool whose
@@ -836,9 +836,9 @@ func verifyChecksum(got string, catalogKnown []string, sidecarPath string) error
 		return nil
 	}
 	if len(catalogKnown) == 0 && os.IsNotExist(sidecarErr) {
-		return fmt.Errorf("no catalog KnownChecksums entries and no sidecar at %s; got %s. Pass --skip-checksum (or set GDNEXT_SKIP_CHECKSUM=1) once to accept this download — the sidecar will be written and pin the hash for future installs", sidecarPath, got)
+		return fmt.Errorf("no catalog KnownChecksums entries and no sidecar at %s; got %s. Pass --skip-checksum (or set GD_SKIP_CHECKSUM=1) once to accept this download — the sidecar will be written and pin the hash for future installs", sidecarPath, got)
 	}
-	return fmt.Errorf("got %s, no match in %d catalog entry/entries or sidecar %s (override with GDNEXT_SKIP_CHECKSUM=1 or --skip-checksum)", got, len(catalogKnown), sidecarPath)
+	return fmt.Errorf("got %s, no match in %d catalog entry/entries or sidecar %s (override with GD_SKIP_CHECKSUM=1 or --skip-checksum)", got, len(catalogKnown), sidecarPath)
 }
 
 // sidecarPathFor returns <Host.GDChecksumsPath>/<slug>-<goos>-<goarch>[-<libc>].sha256.

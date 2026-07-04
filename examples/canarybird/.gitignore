@@ -9,7 +9,7 @@
 # `gdnext build` output.
 /releases/
 
-# Files gdnext + Godot auto-generate inside graphics/ on every build.
+# Files the CLI + Godot auto-generate inside graphics/ on every build.
 # The committed tree includes project.godot, main.tscn, and
 # export_presets.cfg (the last is committed so CI builds use the same
 # preset names + export paths as a local `gdnext build`); everything

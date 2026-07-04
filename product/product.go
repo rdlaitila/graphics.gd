@@ -13,8 +13,8 @@ import (
 
 // Status is a bitmask of support attributes graphics.gd advertises for
 // a matrix entry (platform row, toolchain row, future rows). Supported
-// is the headline bit — when set, gdnext covers the entry in CI and we
-// treat regressions as bugs. The other bits are modifiers that describe
+// is the headline bit — when set, CI covers the entry and we treat
+// regressions as bugs. The other bits are modifiers that describe
 // *how* it is supported (or why it isn't):
 //
 //   - Supported | Stable        rock-solid, no known issues

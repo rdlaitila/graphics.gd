@@ -1,9 +1,13 @@
 # Toolchains
 
-`gdnext toolchain ...` is gdnext's package manager for the external
+> Command invocations in this doc (`gdnext toolchain ...`) refer to
+> the next-generation CLI at [`cmd/gdnext/`](../cmd/gdnext/), not the
+> original `gd` CLI. See [cli.md](cli.md) for the CLI overview.
+
+`gdnext toolchain ...` is the CLI's package manager for the external
 programs it drives — godot, go, zig, llvm, the android tooling,
 libgodot, etc. This doc covers when to reach for each verb, what
-gdnext owns vs what your system owns, and how the supply-chain
+the CLI owns vs what your system owns, and how the supply-chain
 verification works.
 
 Specific tools and versions live in `product.ToolchainMatrix`. This
@@ -18,8 +22,8 @@ in the catalog today."
     - [GDPath layout](#gdpath-layout)
     - [Checksums](#checksums)
   - [Verbs](#verbs)
-    - [`list` — what gdnext could manage](#list--what-gdnext-could-manage)
-    - [`doctor` — what gdnext sees on this host](#doctor--what-gdnext-sees-on-this-host)
+    - [`list` — what the CLI could manage](#list--what-the-cli-could-manage)
+    - [`doctor` — what the CLI sees on this host](#doctor--what-the-cli-sees-on-this-host)
     - [`install` — fetch into GDPath](#install--fetch-into-gdpath)
     - [`uninstall` — drop gd-managed installs](#uninstall--drop-gd-managed-installs)
     - [`path` — print the resolved binary](#path--print-the-resolved-binary)
@@ -27,8 +31,8 @@ in the catalog today."
     - [First-time setup on a fresh machine](#first-time-setup-on-a-fresh-machine)
     - [Upgrading a tool the catalog pinned to a new version](#upgrading-a-tool-the-catalog-pinned-to-a-new-version)
     - [I prefer my system's `<tool>`](#i-prefer-my-systems-tool)
-    - [I want gdnext's version even though my system has one](#i-want-gdnexts-version-even-though-my-system-has-one)
-    - [Removing everything gdnext installed](#removing-everything-gdnext-installed)
+    - [I want the CLI's version even though my system has one](#i-want-the-clis-version-even-though-my-system-has-one)
+    - [Removing everything the CLI installed](#removing-everything-the-cli-installed)
     - [A download failed checksum verification](#a-download-failed-checksum-verification)
     - [Seeding `KnownChecksums` from CI](#seeding-knownchecksums-from-ci)
   - [Development](#development)
@@ -48,11 +52,11 @@ toolchain system exists to make every required binary explicit and
 reproducible:
 
 - **One pinned version per tool.** The catalog (`product.ToolchainMatrix`)
-  is the single source of truth for what gdnext was tested against.
+  is the single source of truth for what the CLI was tested against.
 - **Coexist with system installs.** When you already have a tool
-  installed via your package manager, gdnext uses it and stays out of
-  its way. When you don't, gdnext installs into `$GDPATH` and owns
-  its lifecycle. No silent overwrites.
+  installed via your package manager, the CLI uses it and stays out
+  of its way. When you don't, the CLI installs into `$GDPATH` and
+  owns its lifecycle. No silent overwrites.
 - **Reproducible CI.** The same `gdnext toolchain install` walk runs
   locally and in CI, so a green build matrix matches what
   contributors have on disk.
@@ -73,7 +77,7 @@ each install:
 A download passes when **either** source matches the observed hash.
 With neither source available, the install **fails by default** —
 contributors can't accidentally consume an unverified artefact.
-`--skip-checksum` / `GDNEXT_SKIP_CHECKSUM=1` is the bootstrap escape
+`--skip-checksum` / `GD_SKIP_CHECKSUM=1` is the bootstrap escape
 hatch and is opt-in per run; it never persists. A mismatch leaves
 the failed download on disk for inspection (path + URL + hash in the
 error) rather than retrying or falling back silently.
@@ -88,13 +92,13 @@ maintainer workflow.
 
 Every resolved toolchain is one of two kinds:
 
-- **gd-managed**: gdnext downloaded it and the binary lives under
-  `$GDPATH` (default `~/gd`). gdnext owns its lifecycle — upgrades,
+- **gd-managed**: the CLI downloaded it and the binary lives under
+  `$GDPATH` (default `~/gd`). The CLI owns its lifecycle — upgrades,
   reinstalls, and removals.
 - **user-managed**: the binary lives somewhere else, usually because
   the user installed it via their system package manager (homebrew,
-  apt, the Go installer, ...). gdnext finds it on `$PATH` and uses it
-  but refuses to remove or overwrite it without an explicit opt-in.
+  apt, the Go installer, ...). The CLI finds it on `$PATH` and uses
+  it but refuses to remove or overwrite it without an explicit opt-in.
 
 Classification is runtime, not catalog: a tool is gd-managed iff its
 resolved path is under `BuildHost.GDRootPath`. Every output surface
@@ -131,7 +135,7 @@ Every download is verified against a union of two sources:
 A download passes when **either** source matches. When neither has a
 hash to compare against (empty `KnownChecksums` AND no sidecar on
 disk) the install fails by default. `--skip-checksum` (or
-`GDNEXT_SKIP_CHECKSUM=1`) is the bootstrap escape hatch: it accepts
+`GD_SKIP_CHECKSUM=1`) is the bootstrap escape hatch: it accepts
 the download and writes the sidecar so future installs verify against
 the freshly-seen hash.
 
@@ -140,7 +144,7 @@ for inspection; the error reports the path, source URL, and offending hash.
 
 ## Verbs
 
-### `list` — what gdnext could manage
+### `list` — what the CLI could manage
 
 Pure catalog view. No host probing, no downloads. Use it to see every
 tool the catalog declares plus its pinned version and which hosts it
@@ -172,7 +176,7 @@ libgodot-editor  -                       libgodot editor (musl host today)      
 ldd              -                       musl detection                                       linux/amd64
 ```
 
-### `doctor` — what gdnext sees on this host
+### `doctor` — what the CLI sees on this host
 
 Per-tool status table for every job the current host needs. Reports
 `gd` vs `user` management, status, the resolved path, and the short
@@ -299,7 +303,7 @@ Summary: 0 installed, 10 already gd-managed, 2 already user-managed, 0 skipped (
 ```
 
 `--force` never touches user-managed tools in **bulk** mode — that
-would silently overwrite system installs. To install gdnext's pinned
+would silently overwrite system installs. To install the CLI's pinned
 copy of a system-managed tool, name the slug explicitly with `--force`.
 
 ### `uninstall` — drop gd-managed installs
@@ -410,7 +414,7 @@ If you've never seeded `KnownChecksums` in your fork of the catalog,
 the first run will fail strict verification. Bootstrap once:
 
 ```
-GDNEXT_SKIP_CHECKSUM=1 gdnext toolchain install
+GD_SKIP_CHECKSUM=1 gdnext toolchain install
 ```
 
 That writes sidecars for every artefact. Subsequent runs without the
@@ -430,21 +434,21 @@ is set), and rewrites the sidecar.
 
 ### I prefer my system's `<tool>`
 
-Just install it via your package manager. gdnext finds it on `$PATH`
+Just install it via your package manager. The CLI finds it on `$PATH`
 and treats it as user-managed. `doctor` will show `MANAGED=user` and
 no sha256. `install` will skip it.
 
-### I want gdnext's version even though my system has one
+### I want the CLI's version even though my system has one
 
 ```
 gdnext toolchain install <slug> --force
 ```
 
-This pulls the pinned copy into `$GDPATH/bin/<slug>`. Because gdnext
+This pulls the pinned copy into `$GDPATH/bin/<slug>`. Because the CLI
 checks `$GDPATH` before `$PATH` during lookup, the new copy wins on
 subsequent invocations. Your system copy is untouched.
 
-### Removing everything gdnext installed
+### Removing everything the CLI installed
 
 ```
 gdnext toolchain uninstall --all
@@ -479,7 +483,7 @@ per job. To lock the catalog to a known-good run:
    trusted branch).
 2. For each `(slug, goos, goarch)` row, copy the `sha256` value into
    the matching `product.Toolchain.KnownChecksums` slice.
-3. Drop the `GDNEXT_SKIP_CHECKSUM=1` env var from the workflow's
+3. Drop the `GD_SKIP_CHECKSUM=1` env var from the workflow's
    install step. Subsequent runs will verify against the catalog.
 
 After seeding, the workflow can run without the bootstrap escape
@@ -508,7 +512,7 @@ in the tooling package — add or extend a `Toolchain` field instead.
 1. Edit `Version` on the matching `Toolchain<Name>` value in
    `product/matrix.go`. If upstream's URL template changed, update
    `DownloadURL` / `DownloadOS` / `DownloadARCH` / `Unzip` to match.
-2. Rebuild gdnext and harvest the new hash locally:
+2. Rebuild the CLI and harvest the new hash locally:
 
    ```
    go -C cmd/gdnext build -o /tmp/gdnext .

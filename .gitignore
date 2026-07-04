@@ -34,7 +34,7 @@ graphics
 # actual build outputs.
 !examples/
 !examples/**
-# Re-include the gdnext embed template — `//go:embed graphics/...` in
+# Re-include the CLI's embed template — `//go:embed graphics/...` in
 # cmd/gdnext/internal/project/project.go must compile on a fresh
 # checkout, so the template files (including the .godot/ stub) must be
 # tracked.

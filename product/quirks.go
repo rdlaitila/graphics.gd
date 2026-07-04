@@ -113,15 +113,15 @@ var QuirkWebWasmGDExtensionPlayBroken = Quirk{
 		"4.7 web export template is compiled without GDExtension. Any " +
 		"graphics.gd runtime call that crosses the extension boundary " +
 		"resolves to a null function pointer and crashes the page before " +
-		"the play-bot can emit its GDNEXT_PLAY_RESULT line. Upstream's own " +
+		"the play-bot can emit its GD_PLAY_RESULT line. Upstream's own " +
 		"web tests sidestep this by linking via libgodot (statically " +
 		"embedding the engine in library.wasm), but no libgodot.web.wasm " +
-		"artefact is published at release.graphics.gd yet, so gdnext build " +
+		"artefact is published at release.graphics.gd yet, so the CLI's build path " +
 		"can't take that route.",
 	Result: []string{
 		"the (js/wasm, chrome) and (js/wasm, firefox) play cells are omitted from the play matrix",
 		"the js/wasm build itself stays green",
-		"cells turn green automatically once the upstream Godot web template ships with GDExtension support, or once a libgodot.web.wasm artefact is published and gdnext build is taught to use it",
+		"cells turn green automatically once the upstream Godot web template ships with GDExtension support, or once a libgodot.web.wasm artefact is published and the CLI's build path is taught to use it",
 	},
 	Refs: []string{
 		"https://github.com/godotengine/godot/issues/100789",
@@ -177,9 +177,9 @@ var QuirkAndroidAmd64EmuShaderUniformsCap = Quirk{
 
 // QuirkLinuxAmd64LibGodotPlayEnvLoss marks libgodot-linked plays on
 // linux/amd64 as broken: the libgodot bootstrap calls unsetenv() on
-// the GDNEXT_PLAY_RESULT entry between execve and the Go user-package
+// the GD_PLAY_RESULT entry between execve and the Go user-package
 // init, so the example never sees the report path and the driver's
-// readReport(reportPath) fails. The other GDNEXT_PLAY_* entries
+// readReport(reportPath) fails. The other GD_PLAY_* entries
 // (PLAY, SCREENSHOT, HUD) survive — confirmed by emitting
 // os.Environ() snapshots from package init and from finish(); only
 // the *_RESULT name is consistently dropped, regardless of c.Env
@@ -189,13 +189,13 @@ var QuirkAndroidAmd64EmuShaderUniformsCap = Quirk{
 // or the example is taught to read the report path via a non-env
 // channel (e.g. a stdin envelope like the android driver uses).
 var QuirkLinuxAmd64LibGodotPlayEnvLoss = Quirk{
-	Title:     "linux/amd64 libgodot play: GDNEXT_PLAY_RESULT is unsetenv'd by libgodot init before the example reads it",
+	Title:     "linux/amd64 libgodot play: GD_PLAY_RESULT is unsetenv'd by libgodot init before the example reads it",
 	Scope:     QuirkCIPlayBroken,
 	Hosts:     []string{Tuple(GOOSLinux, GOARCHAmd64)},
 	LinkModes: []LinkMode{LibGodot},
-	Reason: "Driver injects GDNEXT_PLAY_RESULT into c.Env alongside " +
+	Reason: "Driver injects GD_PLAY_RESULT into c.Env alongside " +
 		"PLAY, SCREENSHOT, and HUD (verified by logging every " +
-		"GDNEXT_-prefixed c.Env entry pre-exec). In the child process, " +
+		"GD_-prefixed c.Env entry pre-exec). In the child process, " +
 		"os.Environ() at Go user-package init time shows PLAY, " +
 		"SCREENSHOT, and HUD survived but RESULT is gone — not empty, " +
 		"absent from the environ block entirely. Tested workarounds " +

@@ -158,7 +158,7 @@ func TestGoStdoutCapture(t *testing.T) {
 }
 
 // TestGoStderrCapture mirrors TestGoStdoutCapture for os.Stderr.
-// gdnext + the Godot host hand it back to the spawning shell on
+// The CLI + the Godot host hand it back to the spawning shell on
 // most platforms; the engine on android routes it to logcat. Either
 // way the file descriptor has to accept a write.
 func TestGoStderrCapture(t *testing.T) {

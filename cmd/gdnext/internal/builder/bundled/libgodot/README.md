@@ -33,10 +33,10 @@ prefix makes that provenance explicit at a glance.
 
 ## gdnext-only patches on top of the upstream snapshot
 
-1. `SHIM_LOG` / `SHIM_LOG_ERRNO` macros gated on `GDNEXT_SHIM_DEBUG=1`,
+1. `SHIM_LOG` / `SHIM_LOG_ERRNO` macros gated on `GD_SHIM_DEBUG=1`,
    wired at every silent-return path in `foreign_compile`, `foreign_setup`,
    `elf_load`, `elf_exec`, and `dlopen`. When a shim boot fails, run the
-   resulting binary with `GDNEXT_SHIM_DEBUG=1 ./yourprog` to surface why.
+   resulting binary with `GD_SHIM_DEBUG=1 ./yourprog` to surface why.
 2. Bazzite/Fedora Atomic MDWE fix in `elf_map`: file-backed pages are
    mapped directly with their final ELF protection (no RW→RX transition
    via mprotect) so systemd's `MemoryDenyWriteExecute=yes` /

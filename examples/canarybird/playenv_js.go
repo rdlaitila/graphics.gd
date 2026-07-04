@@ -17,23 +17,23 @@ import (
 // support, so every bridge call resolves to a null function and
 // kills the page. syscall/js is part of Go's runtime and routes
 // through wasm_exec.js, which works regardless of engine flags.
-func playRequested() bool { return jsQueryParam("gdnext_play") != "" }
+func playRequested() bool { return jsQueryParam("gd_play") != "" }
 
 // playEnv hydrates the env names the playbot otherwise reads from
-// os.Getenv. Values arrive via URL query params; GDNEXT_PLAY_HUD is
+// os.Getenv. Values arrive via URL query params; GD_PLAY_HUD is
 // base64-encoded (RawURL) to avoid percent-escape ambiguity.
 func playEnv(name string) string {
 	switch name {
 	case product.EnvPlay:
-		return jsQueryParam("gdnext_play")
+		return jsQueryParam("gd_play")
 	case product.EnvPlayHUD:
-		raw := jsQueryParam("gdnext_play_hud")
+		raw := jsQueryParam("gd_play_hud")
 		if raw == "" {
 			return ""
 		}
 		decoded, err := base64.RawURLEncoding.DecodeString(raw)
 		if err != nil {
-			panic(fmt.Errorf("decode gdnext_play_hud: %w", err))
+			panic(fmt.Errorf("decode gd_play_hud: %w", err))
 		}
 		return string(decoded)
 	}

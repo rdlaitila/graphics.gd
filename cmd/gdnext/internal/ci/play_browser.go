@@ -40,7 +40,7 @@ type browserPlayOpts struct {
 // scratch/releases/js/wasm/ bundle (with the COEP/COOP headers the
 // wasm runtime needs), then drives a headless browser via the
 // embedded Playwright script. The script captures a tagged
-// `GDNEXT_PLAY_RESULT:<base64>` console line out of the page,
+// `GD_PLAY_RESULT:<base64>` console line out of the page,
 // decodes it to opts.reportPath, and writes a page.screenshot() to
 // opts.screenshotPath. From the caller's perspective the contract
 // is identical to the native exec path.
@@ -74,7 +74,7 @@ func runBrowserPlay(opts browserPlayOpts) error {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 	hudB64 := base64.RawURLEncoding.EncodeToString([]byte(opts.hud))
-	url := fmt.Sprintf("http://127.0.0.1:%d/index.html?gdnext_play=active&gdnext_play_hud=%s", port, hudB64)
+	url := fmt.Sprintf("http://127.0.0.1:%d/index.html?gd_play=active&gd_play_hud=%s", port, hudB64)
 	scriptPath := filepath.Join(opts.scratch, ".play_browser.mjs")
 	if err := os.WriteFile(scriptPath, playBrowserScript, 0644); err != nil {
 		return fmt.Errorf("browser play: stage script: %w", err)

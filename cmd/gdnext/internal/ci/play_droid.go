@@ -75,23 +75,23 @@ func runAndroidPlay(opts androidPlayOpts) error {
 	defer func() { _ = dev.cmd("uninstall", pkg).Run() }()
 	// Stage the driver envelope under the app's external-files dir
 	// before launch. Android's activity boot strips host env vars,
-	// so playenv_android.go reads gdnext-play.json instead of
-	// $GDNEXT_*. /sdcard/Android/data/<pkg>/files/ is the one path
+	// so playenv_android.go reads gd-play.json instead of
+	// $GD_*. /sdcard/Android/data/<pkg>/files/ is the one path
 	// adb can push/pull from AND the app uid can read+write to: the
 	// external-files dir is shell:ext_data_rw 660 with the app uid
 	// in the supplementary group. /data/local/tmp blocks app reads,
 	// /data/data/<pkg>/files blocks adb reads, /sdcard hits it
 	// from both sides.
 	deviceDir := "/sdcard/Android/data/" + pkg + "/files"
-	devicePlayJSON := deviceDir + "/gdnext-play.json"
-	deviceReport := deviceDir + "/gdnext-play-report.json"
-	deviceScreenshot := deviceDir + "/gdnext-play-screenshot.png"
+	devicePlayJSON := deviceDir + "/gd-play.json"
+	deviceReport := deviceDir + "/gd-play-report.json"
+	deviceScreenshot := deviceDir + "/gd-play-screenshot.png"
 	envelope := map[string]string{
 		product.EnvPlay:    "active",
 		product.EnvPlayHUD: opts.hud,
 	}
 	envelopeBytes, _ := json.Marshal(envelope)
-	envelopePath := filepath.Join(os.TempDir(), "gdnext-play.json")
+	envelopePath := filepath.Join(os.TempDir(), "gd-play.json")
 	if err := os.WriteFile(envelopePath, envelopeBytes, 0644); err != nil {
 		return fmt.Errorf("write driver envelope %s: %w", envelopePath, err)
 	}
@@ -324,7 +324,7 @@ func (d adbDevice) label() string {
 // android-emu: empty serial, relies on the implicit single device
 // the emulator-runner action exposes. waydroid: connects
 // to the Waydroid container endpoint (defaults to 127.0.0.1:5555;
-// override via GDNEXT_WAYDROID_ADB).
+// override via GD_WAYDROID_ADB).
 func selectAdbDevice(adb, compat string) (adbDevice, error) {
 	switch compat {
 	case "android-emu":

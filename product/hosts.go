@@ -8,8 +8,8 @@ import (
 	"github.com/samber/lo"
 )
 
-// BuildHost is the machine gdnext is running on: OS, arch, and the
-// resolved gdnext/godot directory paths.
+// BuildHost is the machine the CLI is running on: OS, arch, and the
+// resolved gd/godot directory paths.
 type BuildHost struct {
 	GOOS   string
 	GOARCH string
@@ -55,14 +55,14 @@ type PlayHost struct {
 // Tuple returns the play host as "goos/goarch".
 func (t PlayHost) Tuple() string { return Tuple(t.GOOS, t.GOARCH) }
 
-// BuildEnv pairs the host gdnext is running on with the target a build
-// is producing for.
+// BuildEnv pairs the host the CLI is running on with the target a
+// build is producing for.
 type BuildEnv struct {
 	Host   BuildHost
 	Target TargetHost
 }
 
-// ManageType labels who owns a toolchain on disk: GDManaged (gdnext
+// ManageType labels who owns a toolchain on disk: GDManaged (the CLI
 // downloaded it under GDRootPath and can be trusted to keep it up to
 // date), or UserManaged (the user supplied it via $PATH or an
 // existing install). Resolved at Lookup time by inspecting Tool.Path.
@@ -102,7 +102,7 @@ func FindBuildEnv(targetGOOS, targetGOARCH, targetLibC, targetLinkMode string) (
 	}
 	if env.Host.GOOS == "" {
 		return env, fmt.Errorf(
-			"host '%s' is not a supported gdnext host (see gdnext platform)",
+			"host '%s' is not a supported build host (see `gdnext platform`)",
 			Tuple(runtime.GOOS, runtime.GOARCH),
 		)
 	}

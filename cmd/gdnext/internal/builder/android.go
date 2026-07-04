@@ -503,12 +503,12 @@ func (t *Android) BuildMain(_ ...string) error {
 	// Console submission. Default to skip so iterative builds (and
 	// every non-Play-Console install: adb, waydroid, sideload) don't
 	// block on a passphrase prompt nobody asked for. Opt in by
-	// setting GDNEXT_AAB_SIGN=1 — and only then require a TTY.
+	// setting GD_AAB_SIGN=1 — and only then require a TTY.
 	if os.Getenv(product.EnvAABSign) == "" {
 		return nil
 	}
 	if !term.IsTerminal(int(syscall.Stdin)) {
-		fmt.Println("\nGDNEXT_AAB_SIGN is set but stdin is not a TTY \u2014 skipping AAB upload-key signing; sign with your own keystore before uploading to Play Console")
+		fmt.Println("\nGD_AAB_SIGN is set but stdin is not a TTY \u2014 skipping AAB upload-key signing; sign with your own keystore before uploading to Play Console")
 		return nil
 	}
 	fmt.Println("\nFor the .aab to be elligible for upload to Play Console, gd can sign it with an Upload Key derived from a passphrase.")

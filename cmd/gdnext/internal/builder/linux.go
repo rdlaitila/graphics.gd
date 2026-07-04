@@ -31,7 +31,7 @@ var built_musl bool
 // musl adds -static, the mallocng patch, the musl runtime overlay,
 // and bakes in the dlopen shim so the resulting binary borrows the
 // system ld.so at runtime. The choice is threaded through
-// BuildEnv.Target.LibC (default glibc; --libc=musl / GDNEXT_LIBGODOT_LIBC
+// BuildEnv.Target.LibC (default glibc; --libc=musl / GD_LIBGODOT_LIBC
 // opts in).
 type Linux struct {
 	BuildEnv    product.BuildEnv `do:""`

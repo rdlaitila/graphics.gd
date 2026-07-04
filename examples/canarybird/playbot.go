@@ -19,7 +19,7 @@ import (
 )
 
 // playBot scripts canarybird from a fixed flap schedule when
-// GDNEXT_PLAY is set. Combined with the game's seeded RNG and a
+// GD_PLAY is set. Combined with the game's seeded RNG and a
 // pinned 60 fps cap, the run is deterministic across hosts.
 type playBot struct {
 	game          *CanaryBird
@@ -118,7 +118,7 @@ func (t *playBot) finish(crashed bool) {
 // viewport with build/CI provenance and returns the fully-populated
 // column slice (Godot Version prepended) so the play report can
 // archive the same HUD next to the game data. Columns come from
-// $GDNEXT_PLAY_HUD on native builds and from the URL query string on
+// $GD_PLAY_HUD on native builds and from the URL query string on
 // WASM (see play_env.go / play_env_js.go). Returns nil when the env
 // is empty so the overlay doesn't leak into local runs.
 func mountDebugOverlay(game *CanaryBird) []product.PlayHUDColumn {

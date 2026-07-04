@@ -6,7 +6,7 @@ const LibGodotRef = "4.7-stable"
 
 // LibGodotRecipe is one row of the libgodot build matrix: a
 // (target GOOS, target GOARCH, editor) tuple plus the SCons + naming
-// bits gdnext needs to drive Godot's build for it.
+// bits the CLI needs to drive Godot's build for it.
 //
 // GodotPlatform / GodotArch translate the graphics.gd tuple into the
 // tokens Godot's `platform=` / `arch=` scons variables want (Godot
@@ -149,7 +149,7 @@ func linuxMuslRecipe(goarch string, editor bool) LibGodotRecipe {
 	}
 	// so_wrap stays ON (Godot default): X11/Wayland/xkbcommon/
 	// alsa/pulse/dbus/fontconfig/speechd/udev get dlopen'd at
-	// runtime rather than linked directly. The gdnext builder bakes
+	// runtime rather than linked directly. The CLI's builder bakes
 	// a dlopen shim (bundled copy of startup/internal/dlopen) into
 	// the merged archive, so the static-musl binary can borrow the
 	// system's glibc ld.so to resolve those .so.

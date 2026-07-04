@@ -56,8 +56,8 @@ const (
 
 // CanaryBird is the entire game packed into one Node3D extension. It owns
 // the bird, the cloud pool, the lights, the camera, and the HUD; building
-// every node from Go demonstrates the classdb code path that all the
-// gdnext build targets must support.
+// every node from Go demonstrates the classdb code path that every
+// graphics.gd build target must support.
 type CanaryBird struct {
 	Node3D.Extension[CanaryBird] `gd:"CanaryBird"`
 	Tweeted                      Signal.Solo[int]

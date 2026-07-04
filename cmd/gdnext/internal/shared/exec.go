@@ -13,14 +13,14 @@ import (
 	"graphics.gd/product"
 )
 
-// debugTrace is true when GDNEXT_DEBUG is set. Resolved once at package
+// debugTrace is true when GD_DEBUG is set. Resolved once at package
 // init so per-call cost stays at a single boolean read.
 var debugTrace = os.Getenv(product.EnvDebug) != ""
 
 // Announce prints a copy-pasteable banner for the command about to
 // run. Extra env entries render as `KEY=val ...` before the command,
 // matching the shell prefix syntax. When dir is non-empty a
-// `directory:` trailer is appended. GDNEXT_DEBUG=1 additionally
+// `directory:` trailer is appended. GD_DEBUG=1 additionally
 // appends the Go call site chain up to the first frame outside shared.
 func Announce(dir string, extraEnv []string, name string, args []string) {
 	var b strings.Builder
@@ -255,7 +255,7 @@ func OutputBytesCapture(name string, args ...string) ([]byte, error) {
 
 // ProbeCombined runs a --version / -dumpversion style probe with
 // stdout+stderr captured together. Silent by default; announces only
-// under GDNEXT_DEBUG so bulk resolver walks don't drown the log.
+// under GD_DEBUG so bulk resolver walks don't drown the log.
 func ProbeCombined(name string, args ...string) ([]byte, error) {
 	if debugTrace {
 		Announce("", nil, name, args)

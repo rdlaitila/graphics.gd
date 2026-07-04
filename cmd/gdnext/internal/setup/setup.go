@@ -108,7 +108,7 @@ func ForBuild(di do.Injector, testing bool, extraArgs []string) (builder.Builder
 
 // muslBuildClosure returns a build_godot closure that, on a musl host,
 // links the libgodot single-file linux template via the Linux builder
-// with GDNEXT_LIBGODOT_LIBC forced to musl (regardless of the outer
+// with GD_LIBGODOT_LIBC forced to musl (regardless of the outer
 // caller's link/libc selection, since a musl host can't run a glibc
 // binary and must always rebuild godot itself for the musl variant).
 func muslBuildClosure(di do.Injector) func() error {

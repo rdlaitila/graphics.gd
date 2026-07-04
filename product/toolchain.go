@@ -6,8 +6,8 @@ import (
 
 // Toolchain is the declarative record for one external program graphics.gd's
 // build pipeline can drive (compiler, linker, packager, signer, ...). It
-// names the tool, the version gdnext was built against, where to fetch it
-// from per host, what build targets need it (Required), and which hosts
+// names the tool, the version graphics.gd was built against, where to fetch
+// it from per host, what build targets need it (Required), and which hosts
 // can obtain it (Available).
 //
 // Toolchain itself is pure data — the runtime state (cached install path,

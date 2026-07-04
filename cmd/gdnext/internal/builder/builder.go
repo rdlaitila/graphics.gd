@@ -45,7 +45,7 @@ var Provides = do.Package(
 // For returns the Builder responsible for env. Dispatch is per-GOOS;
 // the selected builder is responsible for branching on LinkMode
 // internally (linux, e.g., folds libgodot single-file builds into
-// its own methods by branching on LinkMode + GDNEXT_LIBGODOT_LIBC).
+// its own methods by branching on LinkMode + GD_LIBGODOT_LIBC).
 func For(di do.Injector, env product.BuildEnv) (Builder, error) {
 	switch env.Target.GOOS {
 	case product.GOOSLinux:

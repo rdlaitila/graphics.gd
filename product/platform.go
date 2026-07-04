@@ -7,7 +7,7 @@ import (
 )
 
 // Platform is one row in the graphics.gd support matrix: a canonical
-// (GOOS, GOARCH) pair together with the metadata gdnext + downstream
+// (GOOS, GOARCH) pair together with the metadata the CLI + downstream
 // tooling needs to reason about it.
 type Platform struct {
 	XMLName    xml.Name    `json:"-"                     xml:"platform"                     yaml:"-"`
@@ -32,7 +32,7 @@ type Kind uint8
 const (
 	// Target means graphics.gd can build for this platform.
 	Target Kind = 1 << iota
-	// Host means gdnext itself can run on this platform (the build
+	// Host means the CLI itself can run on this platform (the build
 	// driver, not the produced artefact).
 	Host
 )
@@ -153,7 +153,7 @@ func Targets() []Platform {
 	return out
 }
 
-// Hosts returns the subset of Matrix where gdnext can run.
+// Hosts returns the subset of Matrix where the CLI can run.
 func Hosts() []Platform {
 	out := make([]Platform, 0, len(PlatformMatrix))
 	for _, platform := range PlatformMatrix {

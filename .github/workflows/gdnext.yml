@@ -196,7 +196,7 @@ jobs:
         # KnownChecksums is now seeded in product.Toolchain for every
         # tool CI downloads (godot, zig, llvm, the android tooling,
         # libgodot, libgodot-editor). Strict verification is the
-        # default — set GDNEXT_SKIP_CHECKSUM=1 here only to bootstrap
+        # default — set GD_SKIP_CHECKSUM=1 here only to bootstrap
         # a brand-new tool whose hash hasn't landed in the catalog yet.
         run: gdnext ci check-toolchain-install
 
@@ -767,7 +767,7 @@ jobs:
               done
               adb -s "$serial" shell getprop sys.boot_completed
               adb devices
-              echo "GDNEXT_WAYDROID_ADB=${serial}" >> "$GITHUB_ENV"
+              echo "GD_WAYDROID_ADB=${serial}" >> "$GITHUB_ENV"
               ;;
           esac
 

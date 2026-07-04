@@ -27,15 +27,15 @@ func editorSetup() {
 	if GDPATH == "" && HOME != "" {
 		GDPATH = filepath.Join(HOME, "gd")
 	}
-	// When gdnext has laid down its own JDK / Android SDK under
+	// When the CLI has laid down its own JDK / Android SDK under
 	// $(GDPATH)/android, point Godot's android exporter at them
-	// directly. Legacy `gd` users (no $(GDPATH)/android tree) fall
+	// directly. Older setups without a $(GDPATH)/android tree fall
 	// back to the original behaviour below.
 	if GDPATH != "" {
-		if javaSDK := gdNextJavaSDKPath(GDPATH); javaSDK != "" {
+		if javaSDK := gdJavaSDKPath(GDPATH); javaSDK != "" {
 			settings.SetSetting("export/android/java_sdk_path", javaSDK)
 		}
-		if androidSDK := gdNextAndroidSDKPath(GDPATH); androidSDK != "" {
+		if androidSDK := gdAndroidSDKPath(GDPATH); androidSDK != "" {
 			settings.SetSetting("export/android/android_sdk_path", androidSDK)
 		}
 	}
@@ -49,10 +49,10 @@ func editorSetup() {
 	}
 }
 
-// gdNextJavaSDKPath returns the gdnext-managed JDK directory Godot's
-// android exporter expects in java_sdk_path, or "" when no managed JDK
-// is installed yet. Layout: $(GDPATH)/android/jdk/<version>/[Contents/Home]/bin/java.
-func gdNextJavaSDKPath(GDPATH string) string {
+// gdJavaSDKPath returns the gd-managed JDK directory Godot's android
+// exporter expects in java_sdk_path, or "" when no managed JDK is
+// installed yet. Layout: $(GDPATH)/android/jdk/<version>/[Contents/Home]/bin/java.
+func gdJavaSDKPath(GDPATH string) string {
 	jdkRoot := filepath.Join(GDPATH, "android", "jdk")
 	entries, err := os.ReadDir(jdkRoot)
 	if err != nil {
@@ -77,10 +77,10 @@ func gdNextJavaSDKPath(GDPATH string) string {
 	return ""
 }
 
-// gdNextAndroidSDKPath returns $(GDPATH)/android/sdk when it contains
-// the platform-tools/adb gdnext lays down there, or "" when no managed
+// gdAndroidSDKPath returns $(GDPATH)/android/sdk when it contains the
+// platform-tools/adb the CLI lays down there, or "" when no managed
 // SDK is installed yet.
-func gdNextAndroidSDKPath(GDPATH string) string {
+func gdAndroidSDKPath(GDPATH string) string {
 	root := filepath.Join(GDPATH, "android", "sdk")
 	adb := "platform-tools/adb"
 	if runtime.GOOS == "windows" {

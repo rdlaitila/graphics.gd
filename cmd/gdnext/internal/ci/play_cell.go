@@ -152,7 +152,7 @@ func (t *PlayCellActions) action(_ context.Context, cmd *cli.Command) error {
 		ctx, cancel := contextWithTimeout(timeout)
 		defer cancel()
 		c := exec.CommandContext(ctx, argv[0], argv[1:]...)
-		// GDNEXT_PLAY_* paths must be translated to Z:\... form for
+		// GD_PLAY_* paths must be translated to Z:\... form for
 		// wine/proton so the windows binary can find the host file
 		// (see winePath). Native cells keep the linux path as-is.
 		childResult := reportPath
@@ -402,7 +402,7 @@ func protonDumpLog(logDir string) {
 // so /tmp/foo becomes Z:\tmp\foo and points at the same host inode.
 // Godot compiled for windows treats a bare leading '/' as a rooted
 // path on the current drive (C:), which under Proton lives inside
-// the prefix and doesn't map to the host — hence the GDNEXT_PLAY_*
+// the prefix and doesn't map to the host — hence the GD_PLAY_*
 // paths only ever work when translated here.
 func winePath(hostPath string) string {
 	return "Z:" + strings.ReplaceAll(hostPath, "/", `\`)
@@ -522,7 +522,7 @@ func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 }
 
 // hudColumn mirrors the struct the canarybird example parses out of
-// $GDNEXT_PLAY_HUD; ordering is preserved so the HUD's column layout
+// $GD_PLAY_HUD; ordering is preserved so the HUD's column layout
 // matches the slice order built by buildPlayHUD.
 type hudColumn = product.PlayHUDColumn
 
