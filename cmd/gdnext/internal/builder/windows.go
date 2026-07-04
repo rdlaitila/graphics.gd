@@ -19,7 +19,6 @@ type Windows struct {
 	ToolCatalog tooling.Catalog  `do:""`
 }
 
-// NewWindows constructs the Windows builder via DI.
 func NewWindows(di do.Injector) (*Windows, error) {
 	return do.InvokeStruct[*Windows](di)
 }

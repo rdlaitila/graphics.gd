@@ -1,3 +1,9 @@
+// Package builder hosts the per-platform Builder implementations
+// (Linux, Windows, MacOS, IOS, Android, MetaQuest, Browser, LibGodot).
+// Each implementation is a DI struct resolved via samber/do; the
+// `NewX` constructors are pure wiring registered in Provides and
+// consumed by For, which dispatches to the right builder for a
+// given BuildEnv.
 package builder
 
 import (

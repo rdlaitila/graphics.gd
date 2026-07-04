@@ -12,19 +12,16 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// ProjectCommand wires `gdnext project`. Runtime state lives on
-// *ProjectActions.
+// ProjectCommand wires `gdnext project`.
 type ProjectCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// ProjectActions carries the runtime state.
 type ProjectActions struct {
 	ToolCatalog tooling.Catalog `do:""`
 }
 
-// NewProjectCommand constructs the `gdnext project` subcommand
 func NewProjectCommand(di do.Injector) (*ProjectCommand, error) {
 	t := do.MustInvokeStruct[*ProjectCommand](di)
 	t.Command = &cli.Command{
@@ -51,7 +48,6 @@ func NewProjectCommand(di do.Injector) (*ProjectCommand, error) {
 	return t, nil
 }
 
-// NewProjectActions resolves the runtime state for project.
 func NewProjectActions(di do.Injector) (*ProjectActions, error) {
 	return do.InvokeStruct[*ProjectActions](di)
 }

@@ -10,16 +10,13 @@ import (
 )
 
 // ShortFlagRewriteCommand wires `gdnext ci check-short-flag-rewrite`.
-// Runtime state lives on *ShortFlagRewriteActions.
 type ShortFlagRewriteCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// ShortFlagRewriteActions carries the runtime state.
 type ShortFlagRewriteActions struct{}
 
-// NewShortFlagRewriteCommand constructs the short-flag-rewrite subcommand.
 func NewShortFlagRewriteCommand(di do.Injector) (*ShortFlagRewriteCommand, error) {
 	t := do.MustInvokeStruct[*ShortFlagRewriteCommand](di)
 	t.Command = &cli.Command{
@@ -30,7 +27,6 @@ func NewShortFlagRewriteCommand(di do.Injector) (*ShortFlagRewriteCommand, error
 	return t, nil
 }
 
-// NewShortFlagRewriteActions resolves the runtime state.
 func NewShortFlagRewriteActions(di do.Injector) (*ShortFlagRewriteActions, error) {
 	return do.InvokeStruct[*ShortFlagRewriteActions](di)
 }

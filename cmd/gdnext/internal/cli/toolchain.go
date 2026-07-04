@@ -19,20 +19,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ToolchainCommand wires `gdnext toolchain`. Runtime state lives on
-// *ToolchainActions.
+// ToolchainCommand wires `gdnext toolchain`.
 type ToolchainCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// ToolchainActions carries the runtime state.
 type ToolchainActions struct {
 	BuildEnv    product.BuildEnv `do:""`
 	ToolCatalog tooling.Catalog  `do:""`
 }
 
-// NewToolchainCommand constructs the `gdnext toolchain` subcommand
 func NewToolchainCommand(di do.Injector) (*ToolchainCommand, error) {
 	t := do.MustInvokeStruct[*ToolchainCommand](di)
 	t.Command = &cli.Command{
@@ -116,7 +113,6 @@ func NewToolchainCommand(di do.Injector) (*ToolchainCommand, error) {
 	return t, nil
 }
 
-// NewToolchainActions resolves the runtime state for toolchain.
 func NewToolchainActions(di do.Injector) (*ToolchainActions, error) {
 	return do.InvokeStruct[*ToolchainActions](di)
 }

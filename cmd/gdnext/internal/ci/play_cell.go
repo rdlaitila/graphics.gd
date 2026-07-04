@@ -18,19 +18,16 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// PlayCellCommand wires `gdnext ci play-cell`. Runtime state lives
-// on *PlayCellActions.
+// PlayCellCommand wires `gdnext ci play-cell`.
 type PlayCellCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// PlayCellActions carries the runtime state.
 type PlayCellActions struct{}
 
 type target struct{ GOOS, GOARCH string }
 
-// NewPlayCellCommand constructs the play-cell subcommand.
 func NewPlayCellCommand(di do.Injector) (*PlayCellCommand, error) {
 	t := do.MustInvokeStruct[*PlayCellCommand](di)
 	t.Command = &cli.Command{
@@ -53,7 +50,6 @@ func NewPlayCellCommand(di do.Injector) (*PlayCellCommand, error) {
 	return t, nil
 }
 
-// NewPlayCellActions resolves the runtime state.
 func NewPlayCellActions(di do.Injector) (*PlayCellActions, error) {
 	return do.InvokeStruct[*PlayCellActions](di)
 }

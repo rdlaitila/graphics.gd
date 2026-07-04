@@ -12,19 +12,16 @@ import (
 	"graphics.gd/cmd/gdnext/internal/shared"
 )
 
-// VersionCommand wires `gdnext version`. Runtime state lives on
-// *VersionActions.
+// VersionCommand wires `gdnext version`.
 type VersionCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// VersionActions carries the runtime state.
 type VersionActions struct {
 	ToolCatalog tooling.Catalog `do:""`
 }
 
-// NewVersionCommand constructs the `gdnext version` subcommand
 func NewVersionCommand(di do.Injector) (*VersionCommand, error) {
 	t := do.MustInvokeStruct[*VersionCommand](di)
 	t.Command = &cli.Command{
@@ -35,7 +32,6 @@ func NewVersionCommand(di do.Injector) (*VersionCommand, error) {
 	return t, nil
 }
 
-// NewVersionActions resolves the runtime state for version.
 func NewVersionActions(di do.Injector) (*VersionActions, error) {
 	return do.InvokeStruct[*VersionActions](di)
 }

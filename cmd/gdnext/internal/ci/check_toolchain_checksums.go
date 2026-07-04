@@ -29,10 +29,8 @@ type ToolchainChecksumsCommand struct {
 	Injector do.Injector `do:""`
 }
 
-// ToolchainChecksumsActions carries the runtime state.
 type ToolchainChecksumsActions struct{}
 
-// NewToolchainChecksumsCommand constructs the toolchain-checksums subcommand.
 func NewToolchainChecksumsCommand(di do.Injector) (*ToolchainChecksumsCommand, error) {
 	t := do.MustInvokeStruct[*ToolchainChecksumsCommand](di)
 	t.Command = &cli.Command{
@@ -51,7 +49,6 @@ func NewToolchainChecksumsCommand(di do.Injector) (*ToolchainChecksumsCommand, e
 	return t, nil
 }
 
-// NewToolchainChecksumsActions resolves the runtime state.
 func NewToolchainChecksumsActions(di do.Injector) (*ToolchainChecksumsActions, error) {
 	return do.InvokeStruct[*ToolchainChecksumsActions](di)
 }

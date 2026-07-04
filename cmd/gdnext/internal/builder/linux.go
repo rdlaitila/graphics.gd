@@ -41,7 +41,6 @@ type Linux struct {
 	godot       *tooling.Tool
 }
 
-// NewLinux constructs the Linux builder via DI.
 func NewLinux(di do.Injector) (*Linux, error) {
 	return do.InvokeStruct[*Linux](di)
 }

@@ -13,17 +13,14 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// MacosCommand wires `gdnext macos`. Runtime state lives on
-// *MacosActions.
+// MacosCommand wires `gdnext macos`.
 type MacosCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// MacosActions carries the runtime state.
 type MacosActions struct{}
 
-// NewMacosCommand constructs the `gdnext macos` subcommand
 func NewMacosCommand(di do.Injector) (*MacosCommand, error) {
 	t := do.MustInvokeStruct[*MacosCommand](di)
 	t.Command = &cli.Command{
@@ -47,7 +44,6 @@ func NewMacosCommand(di do.Injector) (*MacosCommand, error) {
 	return t, nil
 }
 
-// NewMacosActions resolves the runtime state for macos.
 func NewMacosActions(di do.Injector) (*MacosActions, error) {
 	return do.InvokeStruct[*MacosActions](di)
 }

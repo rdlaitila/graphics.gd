@@ -17,18 +17,16 @@ import (
 	"runtime.link/api/xray"
 )
 
-// WebCommand wires `gdnext web`. Runtime state lives on *WebActions.
+// WebCommand wires `gdnext web`.
 type WebCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// WebActions carries the runtime state for the wasm dev server.
 type WebActions struct {
 	ToolCatalog tooling.Catalog `do:""`
 }
 
-// NewWebCommand constructs the `gdnext web` subcommand
 func NewWebCommand(di do.Injector) (*WebCommand, error) {
 	t := do.MustInvokeStruct[*WebCommand](di)
 	t.Command = &cli.Command{
@@ -54,7 +52,6 @@ func NewWebCommand(di do.Injector) (*WebCommand, error) {
 	return t, nil
 }
 
-// NewWebActions resolves the runtime state for web.
 func NewWebActions(di do.Injector) (*WebActions, error) {
 	return do.InvokeStruct[*WebActions](di)
 }

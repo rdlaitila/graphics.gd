@@ -1,3 +1,17 @@
+// Package cli hosts the urfave/cli/v3 command tree wired into the
+// gdnext binary. Every top-level verb (`build`, `run`, `test`,
+// `toolchain`, ...) lives in its own `<verb>.go` file and follows
+// the same two-struct DI shape:
+//
+//   - `XCommand` holds the *cli.Command built at startup (flags,
+//     subcommands, Action bindings). Only startup-time state.
+//   - `XActions` holds the per-invocation state (BuildEnv, catalog,
+//     ...) resolved lazily via `shared.BindAction` when an Action
+//     fires — after the Before hook has finalised the BuildEnv.
+//
+// `NewXCommand` + `NewXActions` are DI constructors registered in
+// `Provides` and consumed by samber/do. They exist purely as wiring;
+// no caller invokes them directly.
 package cli
 
 import (
@@ -16,10 +30,7 @@ import (
 	"runtime.link/api/xray"
 )
 
-// RootCommand wires the urfave Command tree at startup. It holds only
-// build-time state (the Injector). All runtime / per-invocation state
-// lives on the per-verb *XxxActions structs that bindAction lazily
-// resolves when an Action fires
+// RootCommand wires the root urfave command tree.
 type RootCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
@@ -71,7 +82,6 @@ var Provides = do.Package(
 	do.Lazy(NewLibGodotActions),
 )
 
-// NewRootCommand constructs the root command for gdnext
 func NewRootCommand(di do.Injector) (*RootCommand, error) {
 	t := do.MustInvokeStruct[*RootCommand](di)
 	t.Command = &cli.Command{
@@ -89,7 +99,6 @@ func NewRootCommand(di do.Injector) (*RootCommand, error) {
 	return t, nil
 }
 
-// NewRootActions resolves the runtime state for the root verb.
 func NewRootActions(di do.Injector) (*RootActions, error) {
 	return do.InvokeStruct[*RootActions](di)
 }

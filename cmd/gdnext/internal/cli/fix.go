@@ -29,13 +29,12 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// FixCommand wires `gdnext fix`. Runtime state lives on *FixActions.
+// FixCommand wires `gdnext fix`.
 type FixCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// FixActions carries the runtime state.
 type FixActions struct{}
 
 type pkgsImporter []*packages.Package
@@ -43,7 +42,6 @@ type pkgsImporter []*packages.Package
 //go:embed deprecated.txt
 var fixes string
 
-// NewFixCommand constructs the `gdnext fix` subcommand
 func NewFixCommand(di do.Injector) (*FixCommand, error) {
 	t := do.MustInvokeStruct[*FixCommand](di)
 	t.Command = &cli.Command{
@@ -54,7 +52,6 @@ func NewFixCommand(di do.Injector) (*FixCommand, error) {
 	return t, nil
 }
 
-// NewFixActions resolves the runtime state for fix.
 func NewFixActions(di do.Injector) (*FixActions, error) {
 	return do.InvokeStruct[*FixActions](di)
 }

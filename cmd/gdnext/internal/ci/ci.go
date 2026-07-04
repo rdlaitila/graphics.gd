@@ -5,6 +5,12 @@
 // injection plumbing (BuildEnv, ToolCatalog, builders) the rest of
 // the CLI uses.
 //
+// Verbs follow the same two-struct DI shape as cmd/gdnext/internal/cli:
+// `XCommand` holds the *cli.Command built at startup, `XActions` holds
+// per-invocation state resolved lazily by shared.BindAction. The
+// `NewXCommand` + `NewXActions` constructors are DI wiring registered
+// in Provides; no caller invokes them directly.
+//
 // Verbs that need to drive `gdnext` itself still shell out via the
 // helpers in helpers.go — that keeps each step independent and lets
 // failures surface with the same diagnostics a human would see.

@@ -21,10 +21,8 @@ type QuirksCommand struct {
 	Injector do.Injector `do:""`
 }
 
-// QuirksActions carries the runtime state.
 type QuirksActions struct{}
 
-// NewQuirksCommand constructs the `gdnext quirks` subcommand.
 func NewQuirksCommand(di do.Injector) (*QuirksCommand, error) {
 	t := do.MustInvokeStruct[*QuirksCommand](di)
 	t.Command = &cli.Command{
@@ -48,7 +46,6 @@ func NewQuirksCommand(di do.Injector) (*QuirksCommand, error) {
 	return t, nil
 }
 
-// NewQuirksActions resolves the runtime state.
 func NewQuirksActions(di do.Injector) (*QuirksActions, error) {
 	return do.InvokeStruct[*QuirksActions](di)
 }

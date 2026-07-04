@@ -13,13 +13,11 @@ import (
 )
 
 // ToolchainInstallCommand wires `gdnext ci check-toolchain-install`.
-// Runtime state lives on *ToolchainInstallActions.
 type ToolchainInstallCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// ToolchainInstallActions carries the runtime state.
 type ToolchainInstallActions struct{}
 
 // installSkip is the small set of slugs the install round-trip can't
@@ -44,7 +42,6 @@ var optionalInstall = map[string]bool{
 	"vpk": true,
 }
 
-// NewToolchainInstallCommand constructs the toolchain-install subcommand.
 func NewToolchainInstallCommand(di do.Injector) (*ToolchainInstallCommand, error) {
 	t := do.MustInvokeStruct[*ToolchainInstallCommand](di)
 	t.Command = &cli.Command{
@@ -55,7 +52,6 @@ func NewToolchainInstallCommand(di do.Injector) (*ToolchainInstallCommand, error
 	return t, nil
 }
 
-// NewToolchainInstallActions resolves the runtime state.
 func NewToolchainInstallActions(di do.Injector) (*ToolchainInstallActions, error) {
 	return do.InvokeStruct[*ToolchainInstallActions](di)
 }

@@ -44,16 +44,6 @@ const (
 	ModeForceInstall
 )
 
-// GDTOOLCHAIN=local will disable automatic toolchain downloads.
-//
-// Deprecated: prefer Mode arg on Lookup / LookupPlatform. The env var is
-// still honoured for backwards compatibility with scripts and NixOS users.
-//
-// Note: GOTOOLCHAIN is reserved by the Go toolchain itself (and is set
-// to "local" by actions/setup-go to pin the runtime Go version); we
-// must not piggy-back on it for gdnext's download gating because that
-// would surprise CI users who only meant to pin go.
-
 // Tool wraps a product.Toolchain record with the mutable runtime
 // state gdnext needs to drive it: the resolved BuildHost (so
 // LookupPlatform can resolve GD*Path / UserHomeRoot without
@@ -79,17 +69,17 @@ type Tool struct {
 // "user owns it until proven otherwise" default. Callers pass the
 // resolved path explicitly because library tools' Path field is a
 // scalar shared across every target-fanned Lookup.
-func (exe Tool) ManagedByPath(path string) product.ManageType {
-	if path == "" || exe.Host.GDRootPath == "" {
+func (t Tool) ManagedByPath(path string) product.ManageType {
+	if path == "" || t.Host.GDRootPath == "" {
 		return product.UserManaged
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		abs = path
 	}
-	root, err := filepath.Abs(exe.Host.GDRootPath)
+	root, err := filepath.Abs(t.Host.GDRootPath)
 	if err != nil {
-		root = exe.Host.GDRootPath
+		root = t.Host.GDRootPath
 	}
 	if rel, err := filepath.Rel(root, abs); err == nil && !strings.HasPrefix(rel, "..") {
 		return product.GDManaged
@@ -97,14 +87,14 @@ func (exe Tool) ManagedByPath(path string) product.ManageType {
 	return product.UserManaged
 }
 
-func (exe Tool) PathToCommand() string {
-	if exe.Path == "" {
+func (t Tool) PathToCommand() string {
+	if t.Path == "" {
 		panic("toolchain.PathToCommand: toolchain not yet looked up")
 	}
-	if exe.IsApp && runtime.GOOS == product.GOOSDarwin {
-		return filepath.Join(exe.Path, "Contents", "MacOS", exe.Name)
+	if t.IsApp && runtime.GOOS == product.GOOSDarwin {
+		return filepath.Join(t.Path, "Contents", "MacOS", t.Name)
 	}
-	return exe.Path
+	return t.Path
 }
 
 // invocation returns the (command, args) pair to actually exec for
@@ -114,14 +104,14 @@ func (exe Tool) PathToCommand() string {
 // every exec site goes through this helper so the wrapping only
 // lives in one place. Lookup is not re-run here; the caller is
 // expected to have already resolved the path.
-func (exe Tool) invocation(path string, args []string) (string, []string) {
-	if exe.JavaJar {
+func (t Tool) invocation(path string, args []string) (string, []string) {
+	if t.JavaJar {
 		return "java", append([]string{"-jar", path}, args...)
 	}
 	return path, args
 }
 
-func (exe Tool) Exec(args ...string) error {
+func (t Tool) Exec(args ...string) error {
 	var converted []string
 	for _, arg := range args {
 		// Only the key portion (before "=") participates in the
@@ -133,7 +123,7 @@ func (exe Tool) Exec(args ...string) error {
 		if i := strings.Index(arg, "="); i >= 0 {
 			key = arg[:i]
 		}
-		if newarg, ok := exe.ConvertArguments[key]; ok {
+		if newarg, ok := t.ConvertArguments[key]; ok {
 			if newarg == "" {
 				continue
 			}
@@ -143,67 +133,67 @@ func (exe Tool) Exec(args ...string) error {
 		}
 	}
 	args = converted
-	path, err := exe.Lookup()
+	path, err := t.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
-	name, args := exe.invocation(path, args)
+	name, args := t.invocation(path, args)
 	return shared.RunInteractive(name, args...)
 }
 
-func (exe Tool) Action(name string, suffix_args []string, args ...string) error {
+func (t Tool) Action(name string, suffix_args []string, args ...string) error {
 	var suffix = make([]string, 0, len(suffix_args))
 	for _, arg := range suffix_args {
 		suffix = append(suffix, arg)
 	}
 	for i, arg := range args {
-		if newarg, ok := exe.ConvertArguments[arg]; ok {
+		if newarg, ok := t.ConvertArguments[arg]; ok {
 			args[i] = newarg
 		}
 	}
 	for i, arg := range suffix {
-		if newarg, ok := exe.ConvertArguments[arg]; ok {
+		if newarg, ok := t.ConvertArguments[arg]; ok {
 			suffix[i] = newarg
 		}
 	}
-	path, err := exe.Lookup()
+	path, err := t.Lookup()
 	if err != nil {
 		return xray.New(err)
 	}
 	args = append(append([]string{name}, args...), suffix...)
-	cmdName, cmdArgs := exe.invocation(path, args)
+	cmdName, cmdArgs := t.invocation(path, args)
 	return shared.RunInteractive(cmdName, cmdArgs...)
 }
 
-func (exe Tool) Output(args ...string) (string, error) {
-	path, err := exe.Lookup()
+func (t Tool) Output(args ...string) (string, error) {
+	path, err := t.Lookup()
 	if err != nil {
 		return "", err
 	}
-	name, args := exe.invocation(path, args)
+	name, args := t.invocation(path, args)
 	return shared.Output(name, args...)
 }
 
-func (exe Tool) CombinedOutput(args ...string) (string, error) {
-	path, err := exe.Lookup()
+func (t Tool) CombinedOutput(args ...string) (string, error) {
+	path, err := t.Lookup()
 	if err != nil {
 		return "", err
 	}
-	name, args := exe.invocation(path, args)
+	name, args := t.invocation(path, args)
 	return shared.OutputCombined(name, args...)
 }
 
 // Lookup resolves the toolchain to a runnable path. Pass ModeFind to skip
 // the download step (diagnostic / dry-run); pass nothing or ModeInstall to
 // auto-download when missing.
-func (exe *Tool) Lookup(mode ...Mode) (string, error) {
-	return exe.LookupPlatform(runtime.GOOS, runtime.GOARCH, "", mode...)
+func (t *Tool) Lookup(mode ...Mode) (string, error) {
+	return t.LookupPlatform(runtime.GOOS, runtime.GOARCH, "", mode...)
 }
 
 // LookupPlatform resolves the toolchain for the given (goos, goarch, libc) target.
 // libc is only meaningful for linux libgodot-style artefacts that fan out
 // between glibc and musl; pass "" for every other tool and target.
-func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string, error) {
+func (t *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string, error) {
 	m := ModeInstall
 	if len(mode) > 0 {
 		m = mode[0]
@@ -215,11 +205,11 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 	// would trick a later linux/arm64 Lookup into returning the
 	// amd64 path. Non-library binaries are host-native (one path
 	// per host) and safe to cache.
-	if exe.Path != "" && !exe.IsLibrary {
-		return exe.Path, nil
+	if t.Path != "" && !t.IsLibrary {
+		return t.Path, nil
 	}
-	if exe.Host.GDRootPath == "" {
-		return "", fmt.Errorf("tooling.Tool.LookupPlatform: %s has no Host populated (construct via tooling.NewCatalog from a resolved BuildEnv)", exe.Slug)
+	if t.Host.GDRootPath == "" {
+		return "", fmt.Errorf("tooling.Tool.LookupPlatform: %s has no Host populated (construct via tooling.NewCatalog from a resolved BuildEnv)", t.Slug)
 	}
 	// Materialise prerequisite bundles before resolving the binary
 	// path. Tools that live inside a multi-binary archive (apksigner
@@ -237,40 +227,40 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 	// the consumer is target-keyed (android.jar fans out over
 	// android/metaquest tuples but pulls from one host bundle).
 	var bundleInstallDir string
-	bundleGOOS, bundleGOARCH := exe.Host.GOOS, exe.Host.GOARCH
-	for _, slug := range exe.RequiresBundles {
+	bundleGOOS, bundleGOARCH := t.Host.GOOS, t.Host.GOARCH
+	for _, slug := range t.RequiresBundles {
 		bundle, ok := product.FindToolchainBySlug(slug)
 		if !ok {
-			return "", fmt.Errorf("toolchain %s requires bundle %q, but no such slug is registered in product.ToolchainMatrix", exe.Slug, slug)
+			return "", fmt.Errorf("toolchain %s requires bundle %q, but no such slug is registered in product.ToolchainMatrix", t.Slug, slug)
 		}
-		bundleTool := &Tool{Toolchain: bundle, Host: exe.Host}
+		bundleTool := &Tool{Toolchain: bundle, Host: t.Host}
 		if m != ModeFind {
 			if _, err := bundleTool.LookupPlatform(bundleGOOS, bundleGOARCH, "", m); err != nil {
-				return "", fmt.Errorf("toolchain %s: required bundle %s: %w", exe.Slug, slug, err)
+				return "", fmt.Errorf("toolchain %s: required bundle %s: %w", t.Slug, slug, err)
 			}
 		}
 		if bundleInstallDir == "" {
 			bundleInstallDir = bundleTool.installDirFor(bundleGOOS, bundleGOARCH)
 		}
 	}
-	HOME := exe.Host.UserHomeRoot
-	GDPATH := exe.Host.GDRootPath
-	GDBin := exe.Host.GDBinPath
-	GDLib := exe.Host.GDLibPath
-	ARCH := exe.DownloadARCH[GOARCH]
+	HOME := t.Host.UserHomeRoot
+	GDPATH := t.Host.GDRootPath
+	GDBin := t.Host.GDBinPath
+	GDLib := t.Host.GDLibPath
+	ARCH := t.DownloadARCH[GOARCH]
 	if ARCH == "" {
 		ARCH = "$(MISSING)"
 	}
-	OS := strings.ReplaceAll(exe.DownloadOS[GOOS], "$(ARCH)", ARCH)
+	OS := strings.ReplaceAll(t.DownloadOS[GOOS], "$(ARCH)", ARCH)
 	if OS == "" {
 		OS = "$(MISSING)"
 	}
-	EXT, ok := exe.DownloadEXT[GOOS]
+	EXT, ok := t.DownloadEXT[GOOS]
 	if !ok {
 		EXT = "$(MISSING)"
 	}
 	var MaybeUniversal = GOARCH
-	if GOOS == product.GOOSDarwin && exe.DarwinUniversal {
+	if GOOS == product.GOOSDarwin && t.DarwinUniversal {
 		MaybeUniversal = "universal"
 	}
 	var LIBC = LibC
@@ -279,7 +269,7 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 		LIBC_DOT = "." + LibC
 	}
 	var variables = strings.NewReplacer(
-		"$(VERSION)", exe.Version,
+		"$(VERSION)", t.Version,
 		"$(ARCH)", ARCH,
 		"$(OS)", OS,
 		"$(GOARCH)", MaybeUniversal,
@@ -291,10 +281,10 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 		"$(LIBC_DOT)", LIBC_DOT,
 	)
 	var install_dir = GDBin
-	if exe.IsLibrary {
+	if t.IsLibrary {
 		install_dir = GDLib
 	}
-	if dir, ok := exe.Installations[GOOS]; ok {
+	if dir, ok := t.Installations[GOOS]; ok {
 		install_dir = variables.Replace(dir)
 	} else if bundleInstallDir != "" {
 		install_dir = bundleInstallDir
@@ -306,25 +296,25 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 	// condition. Install fetches the archive and ExtractArchive
 	// strips the upstream top-level dir so contents land directly
 	// under install_dir.
-	if exe.IsBundle {
-		return exe.lookupBundle(install_dir, GOOS, GOARCH, m, variables)
+	if t.IsBundle {
+		return t.lookupBundle(install_dir, GOOS, GOARCH, m, variables)
 	}
-	var name = variables.Replace(exe.Name)
+	var name = variables.Replace(t.Name)
 	var install_path = filepath.Join(install_dir, name)
 	// .exe is for executables we drop into GDBin on a Windows host;
 	// libraries carry their own extension via $(EXT) (e.g. .a, .lib)
 	// and must never get a host-driven suffix tacked on.
-	if runtime.GOOS == product.GOOSWindows && !exe.IsLibrary {
+	if runtime.GOOS == product.GOOSWindows && !t.IsLibrary {
 		install_path += ".exe"
 	}
-	if exe.IsApp && runtime.GOOS == product.GOOSDarwin {
+	if t.IsApp && runtime.GOOS == product.GOOSDarwin {
 		install_path += ".app"
 	}
 	// Bundle-sourced wrappers on Windows: android build-tools ships
 	// apksigner / sdkmanager / lint as `.bat`, not `.exe`. When the
 	// initial probe misses, try the windows wrapper extensions so the
 	// resolver doesn't fall through to "no download URL".
-	if runtime.GOOS == product.GOOSWindows && !exe.IsLibrary && bundleInstallDir != "" {
+	if runtime.GOOS == product.GOOSWindows && !t.IsLibrary && bundleInstallDir != "" {
 		if _, err := os.Stat(install_path); err != nil {
 			base := strings.TrimSuffix(install_path, ".exe")
 			for _, ext := range []string{".bat", ".cmd"} {
@@ -339,32 +329,32 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 	// ModeForceInstall skips this branch entirely so --force always
 	// re-downloads.
 	if _, err := os.Stat(install_path); err == nil && m != ModeForceInstall {
-		if exe.IsLibrary {
+		if t.IsLibrary {
 			return install_path, nil
 		}
 		var exe_path = install_path
-		if exe.IsApp && runtime.GOOS == product.GOOSDarwin {
+		if t.IsApp && runtime.GOOS == product.GOOSDarwin {
 			exe_path = filepath.Join(install_path, "Contents", "MacOS", name)
 		}
-		if exe.Name == "godot" && os.Getenv(product.EnvRunningInsideGodot) != "" {
-			exe.Path = install_path
-			return exe.PathToCommand(), nil
+		if t.Name == "godot" && os.Getenv(product.EnvRunningInsideGodot) != "" {
+			t.Path = install_path
+			return t.PathToCommand(), nil
 		}
-		probeName, probeArgs := exe.invocation(exe_path, exe.VersionFlags)
+		probeName, probeArgs := t.invocation(exe_path, t.VersionFlags)
 		version, err := shared.ProbeCombined(probeName, probeArgs...)
 		version = bytes.TrimSpace(version)
 		if err == nil {
-			if (exe.Version != "" && string(version) == exe.Version) || (exe.VersionPrefix != "" && strings.HasPrefix(string(version), exe.VersionPrefix)) {
-				exe.Path = install_path
-				return exe.PathToCommand(), nil
+			if (t.Version != "" && string(version) == t.Version) || (t.VersionPrefix != "" && strings.HasPrefix(string(version), t.VersionPrefix)) {
+				t.Path = install_path
+				return t.PathToCommand(), nil
 			}
 		}
 		// Mode==Find is lookup-only: trust the file at install_path
 		// even when the version probe disagrees (some tools print
 		// per-host wrappers that defeat the prefix check).
 		if m == ModeFind {
-			exe.Path = install_path
-			return exe.PathToCommand(), nil
+			t.Path = install_path
+			return t.PathToCommand(), nil
 		}
 	}
 	// some users (ie. NixOS) don't want things to be automatically installed, they
@@ -375,50 +365,50 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 		if err != nil {
 			return "", fmt.Errorf(
 				"'%v' %s not found in $PATH (required for %v) and automatic-downloads are disabled, please install it, ie. %v",
-				name, exe.Version, exe.RequiredFor, exe.DownloadHint,
+				name, t.Version, t.RequiredFor, t.DownloadHint,
 			)
 		}
-		exe.Path = path
-		return exe.PathToCommand(), nil
+		t.Path = path
+		return t.PathToCommand(), nil
 	}
-	if !exe.IsLibrary && m != ModeForceInstall {
+	if !t.IsLibrary && m != ModeForceInstall {
 		// if the expected version of the tool is already installed in $PATH, then we can
 		// just use it. ModeForceInstall skips this branch so --force
 		// always downloads into GDPATH rather than adopting the user's
 		// system copy. JavaJar tools skip this entirely — the jar is
 		// the artefact, never on $PATH directly.
-		if !exe.JavaJar {
+		if !t.JavaJar {
 			if path, err := exec.LookPath(name); err == nil {
-				version, _ := shared.ProbeCombined(path, exe.VersionFlags...)
-				if (exe.Version != "" && string(version) == exe.Version) || (exe.VersionPrefix != "" && strings.HasPrefix(string(version), exe.VersionPrefix)) || (exe.Version == "" && exe.VersionPrefix == "") {
-					exe.Path = path
-					if exe.IsApp {
-						exe.IsApp = false
+				version, _ := shared.ProbeCombined(path, t.VersionFlags...)
+				if (t.Version != "" && string(version) == t.Version) || (t.VersionPrefix != "" && strings.HasPrefix(string(version), t.VersionPrefix)) || (t.Version == "" && t.VersionPrefix == "") {
+					t.Path = path
+					if t.IsApp {
+						t.IsApp = false
 					}
-					if err := exe.ensureBinSymlink(path, GDBin, EXT); err != nil {
+					if err := t.ensureBinSymlink(path, GDBin, EXT); err != nil {
 						return "", xray.New(err)
 					}
-					return exe.PathToCommand(), nil
+					return t.PathToCommand(), nil
 				}
 			}
 		}
 	}
 	// attempt to automatically download and install the toolchain.
-	url, ok := exe.Downloads[GOOS][GOARCH]
+	url, ok := t.Downloads[GOOS][GOARCH]
 	if !ok {
-		url = variables.Replace(exe.DownloadURL)
+		url = variables.Replace(t.DownloadURL)
 	}
 	if url == "" || strings.Contains(url, "$(MISSING)") {
 		return "", fmt.Errorf(
 			"'%v' %s not found in $PATH (required for %v) and no automatic-download is available, please install it, ie. %v",
-			name, exe.Version, exe.RequiredFor, exe.DownloadHint,
+			name, t.Version, t.RequiredFor, t.DownloadHint,
 		)
 	}
 	if err := os.MkdirAll(install_dir, 0755); err != nil {
 		return "", xray.New(err)
 	}
 	var dest = install_path
-	dest += "." + exe.Version + ".download"
+	dest += "." + t.Version + ".download"
 	// A leftover .download from a previous run is only useful as a
 	// resume cursor for an interrupted in-flight download. When the
 	// caller asked for --force or --skip-checksum they're explicitly
@@ -459,18 +449,18 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 		case 416:
 			contentRange := resp.Header.Get("Content-Range")
 			if contentRange != fmt.Sprintf("bytes */%d", stat.Size()) {
-				return fmt.Errorf("unable to resume download of '%v' (required for %v), please delete %v and try again\nGET %s HTTP status: %v", name, exe.RequiredFor, dest, url, resp.StatusCode)
+				return fmt.Errorf("unable to resume download of '%v' (required for %v), please delete %v and try again\nGET %s HTTP status: %v", name, t.RequiredFor, dest, url, resp.StatusCode)
 			}
 		default:
 			return fmt.Errorf(
 				"unable to download '%v' (required for %v) and not found in $PATH, please install it, ie. %v\nGET %s HTTP status: %v",
-				name, exe.RequiredFor, exe.DownloadHint, url, resp.StatusCode,
+				name, t.RequiredFor, t.DownloadHint, url, resp.StatusCode,
 			)
 		}
 		if resp.StatusCode != 416 {
 			bar := progressbar.DefaultBytes(
 				resp.ContentLength,
-				fmt.Sprintf("gd: downloading %s v%s", name, exe.Version),
+				fmt.Sprintf("gd: downloading %s v%s", name, t.Version),
 			)
 			if _, err := io.Copy(io.MultiWriter(out, bar), resp.Body); err != nil {
 				_ = bar.Close()
@@ -498,8 +488,8 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 		return "", xray.New(err)
 	}
 	downloadHash := "sha256:" + dlHash
-	sidecarPath := sidecarPathFor(exe.Host, exe.Slug, GOOS, GOARCH, LibC)
-	if err := verifyChecksum(downloadHash, exe.KnownChecksums, sidecarPath); err != nil {
+	sidecarPath := sidecarPathFor(t.Host, t.Slug, GOOS, GOARCH, LibC)
+	if err := verifyChecksum(downloadHash, t.KnownChecksums, sidecarPath); err != nil {
 		// Leave dest in place so the user can inspect what was
 		// served before deciding whether to retry, allow-list, or
 		// rotate the catalog entry.
@@ -508,13 +498,13 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 	if err := writeSidecar(sidecarPath, downloadHash, dlSize); err != nil {
 		return "", xray.New(err)
 	}
-	var unzip = variables.Replace(exe.Unzip)
-	if exe.IsApp && runtime.GOOS == product.GOOSDarwin {
+	var unzip = variables.Replace(t.Unzip)
+	if t.IsApp && runtime.GOOS == product.GOOSDarwin {
 		unzip = ""
 	}
 	switch {
 	case strings.HasSuffix(url, ".zip"):
-		if err := ExtractArchive(dest, install_dir, "zip", unzip, runtime.GOOS != product.GOOSDarwin || !exe.IsApp); err != nil {
+		if err := ExtractArchive(dest, install_dir, "zip", unzip, runtime.GOOS != product.GOOSDarwin || !t.IsApp); err != nil {
 			return "", xray.New(err)
 		}
 		if err := os.Remove(dest); err != nil {
@@ -544,11 +534,11 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 			return "", xray.New(err)
 		}
 	}
-	if exe.IsLibrary {
+	if t.IsLibrary {
 		return install_path, nil
 	}
-	exe.Path = install_path
-	return exe.PathToCommand(), nil
+	t.Path = install_path
+	return t.PathToCommand(), nil
 }
 
 // installDirFor returns the resolved install_dir for this toolchain on the
@@ -556,38 +546,38 @@ func (exe *Tool) LookupPlatform(GOOS, GOARCH, LibC string, mode ...Mode) (string
 // that declare RequiresBundles so they can inherit their bundle's path
 // (versioned by the bundle's Version field) instead of duplicating it in
 // their own Installations map.
-func (exe *Tool) installDirFor(GOOS, GOARCH string) string {
-	GDPATH := exe.Host.GDRootPath
-	GDBin := exe.Host.GDBinPath
-	GDLib := exe.Host.GDLibPath
-	ARCH := exe.DownloadARCH[GOARCH]
+func (t *Tool) installDirFor(GOOS, GOARCH string) string {
+	GDPATH := t.Host.GDRootPath
+	GDBin := t.Host.GDBinPath
+	GDLib := t.Host.GDLibPath
+	ARCH := t.DownloadARCH[GOARCH]
 	if ARCH == "" {
 		ARCH = "$(MISSING)"
 	}
-	OS := strings.ReplaceAll(exe.DownloadOS[GOOS], "$(ARCH)", ARCH)
+	OS := strings.ReplaceAll(t.DownloadOS[GOOS], "$(ARCH)", ARCH)
 	if OS == "" {
 		OS = "$(MISSING)"
 	}
 	MaybeUniversal := GOARCH
-	if GOOS == product.GOOSDarwin && exe.DarwinUniversal {
+	if GOOS == product.GOOSDarwin && t.DarwinUniversal {
 		MaybeUniversal = "universal"
 	}
 	variables := strings.NewReplacer(
-		"$(VERSION)", exe.Version,
+		"$(VERSION)", t.Version,
 		"$(ARCH)", ARCH,
 		"$(OS)", OS,
 		"$(GOARCH)", MaybeUniversal,
 		"$(GOOS)", GOOS,
-		"$(HOME)", exe.Host.UserHomeRoot,
+		"$(HOME)", t.Host.UserHomeRoot,
 		"$(GDPATH)", GDPATH,
 		"$(LIBC)", "",
 		"$(LIBC_DOT)", "",
 	)
 	install_dir := GDBin
-	if exe.IsLibrary {
+	if t.IsLibrary {
 		install_dir = GDLib
 	}
-	if dir, ok := exe.Installations[GOOS]; ok {
+	if dir, ok := t.Installations[GOOS]; ok {
 		install_dir = variables.Replace(dir)
 	}
 	return install_dir
@@ -600,11 +590,11 @@ func (exe *Tool) installDirFor(GOOS, GOARCH string) string {
 // $(GDPATH)/bin/java) expect to find under GDBin. No-op when
 // AddBinSymlink is false, when target already points where we want,
 // or when target equals source (would create a self-loop).
-func (exe *Tool) ensureBinSymlink(realPath, gdBin, ext string) error {
-	if !exe.AddBinSymlink || realPath == "" || gdBin == "" {
+func (t *Tool) ensureBinSymlink(realPath, gdBin, ext string) error {
+	if !t.AddBinSymlink || realPath == "" || gdBin == "" {
 		return nil
 	}
-	linkPath := filepath.Join(gdBin, exe.Name+ext)
+	linkPath := filepath.Join(gdBin, t.Name+ext)
 	if linkPath == realPath {
 		return nil
 	}
@@ -626,22 +616,22 @@ func (exe *Tool) ensureBinSymlink(realPath, gdBin, ext string) error {
 // per-file paths inside (e.g. install_dir+"/lib/apksigner.jar"). No
 // version probe — the sidecar carries the archive hash and the
 // install_dir contents are what they are.
-func (exe *Tool) lookupBundle(install_dir, GOOS, GOARCH string, m Mode, variables *strings.Replacer) (string, error) {
+func (t *Tool) lookupBundle(install_dir, GOOS, GOARCH string, m Mode, variables *strings.Replacer) (string, error) {
 	if dirNonEmpty(install_dir) && m != ModeForceInstall {
-		exe.Path = install_dir
+		t.Path = install_dir
 		return install_dir, nil
 	}
 	if m == ModeFind || os.Getenv(product.EnvGDToolchain) == "local" {
 		return "", fmt.Errorf("bundle %q not installed at %s (required for %s) and automatic-downloads are disabled, ie. %s",
-			exe.Slug, install_dir, exe.RequiredFor, exe.DownloadHint)
+			t.Slug, install_dir, t.RequiredFor, t.DownloadHint)
 	}
-	url, ok := exe.Downloads[GOOS][GOARCH]
+	url, ok := t.Downloads[GOOS][GOARCH]
 	if !ok {
-		url = variables.Replace(exe.DownloadURL)
+		url = variables.Replace(t.DownloadURL)
 	}
 	if url == "" || strings.Contains(url, "$(MISSING)") {
 		return "", fmt.Errorf("bundle %q has no download URL for %s/%s (required for %s), ie. %s",
-			exe.Slug, GOOS, GOARCH, exe.RequiredFor, exe.DownloadHint)
+			t.Slug, GOOS, GOARCH, t.RequiredFor, t.DownloadHint)
 	}
 	if err := os.MkdirAll(install_dir, 0755); err != nil {
 		return "", xray.New(err)
@@ -653,7 +643,7 @@ func (exe *Tool) lookupBundle(install_dir, GOOS, GOARCH string, m Mode, variable
 	if m == ModeForceInstall || os.Getenv(product.EnvSkipChecksum) != "" {
 		_ = os.Remove(dest)
 	}
-	if err := downloadResumable(url, dest, exe.Name, exe.Version); err != nil {
+	if err := downloadResumable(url, dest, t.Name, t.Version); err != nil {
 		return "", xray.New(err)
 	}
 	dlSize, dlHash, err := sha256File(dest)
@@ -661,9 +651,9 @@ func (exe *Tool) lookupBundle(install_dir, GOOS, GOARCH string, m Mode, variable
 		return "", xray.New(err)
 	}
 	downloadHash := "sha256:" + dlHash
-	sidecarPath := sidecarPathFor(exe.Host, exe.Slug, GOOS, GOARCH, "")
-	if err := verifyChecksum(downloadHash, exe.KnownChecksums, sidecarPath); err != nil {
-		return "", xray.New(fmt.Errorf("checksum verification failed for %s (downloaded from %s, kept at %s): %w", exe.Slug, url, dest, err))
+	sidecarPath := sidecarPathFor(t.Host, t.Slug, GOOS, GOARCH, "")
+	if err := verifyChecksum(downloadHash, t.KnownChecksums, sidecarPath); err != nil {
+		return "", xray.New(fmt.Errorf("checksum verification failed for %s (downloaded from %s, kept at %s): %w", t.Slug, url, dest, err))
 	}
 	if err := writeSidecar(sidecarPath, downloadHash, dlSize); err != nil {
 		return "", xray.New(err)
@@ -674,7 +664,7 @@ func (exe *Tool) lookupBundle(install_dir, GOOS, GOARCH string, m Mode, variable
 	if err := os.Remove(dest); err != nil {
 		return "", xray.New(err)
 	}
-	exe.Path = install_dir
+	t.Path = install_dir
 	return install_dir, nil
 }
 

@@ -32,7 +32,6 @@ type MacOS struct {
 	ToolCatalog tooling.Catalog  `do:""`
 }
 
-// NewMacOS constructs the MacOS builder via DI.
 func NewMacOS(di do.Injector) (*MacOS, error) {
 	return do.InvokeStruct[*MacOS](di)
 }

@@ -63,7 +63,6 @@ type IOS struct {
 	ToolCatalog tooling.Catalog  `do:""`
 }
 
-// NewIOS constructs the IOS builder via DI.
 func NewIOS(di do.Injector) (*IOS, error) {
 	return do.InvokeStruct[*IOS](di)
 }

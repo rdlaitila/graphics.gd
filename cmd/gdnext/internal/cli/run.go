@@ -13,18 +13,16 @@ import (
 	"runtime.link/api/xray"
 )
 
-// RunCommand wires `gdnext run`. Runtime state lives on *RunActions.
+// RunCommand wires `gdnext run`.
 type RunCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// RunActions carries the runtime state.
 type RunActions struct {
 	Injector do.Injector `do:""`
 }
 
-// NewRunCommand constructs the `gdnext run` subcommand
 func NewRunCommand(di do.Injector) (*RunCommand, error) {
 	t := do.MustInvokeStruct[*RunCommand](di)
 	t.Command = &cli.Command{
@@ -37,7 +35,6 @@ func NewRunCommand(di do.Injector) (*RunCommand, error) {
 	return t, nil
 }
 
-// NewRunActions resolves the runtime state for run.
 func NewRunActions(di do.Injector) (*RunActions, error) {
 	return do.InvokeStruct[*RunActions](di)
 }

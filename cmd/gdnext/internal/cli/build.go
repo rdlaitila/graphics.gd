@@ -16,10 +16,7 @@ import (
 	"runtime.link/api/xray"
 )
 
-// BuildCommand wires `gdnext build`. It holds only the urfave Command
-// + Injector at startup; runtime state (BuildEnv, Catalog) lives on
-// *BuildActions, lazily resolved by bindAction once Before has
-// finalised env-dependent state.
+// BuildCommand wires `gdnext build`.
 type BuildCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
@@ -32,14 +29,12 @@ type ExportCommand struct {
 	Injector do.Injector `do:""`
 }
 
-// BuildActions carries the runtime state both verbs need.
 type BuildActions struct {
 	Injector    do.Injector      `do:""`
 	BuildEnv    product.BuildEnv `do:""`
 	ToolCatalog tooling.Catalog  `do:""`
 }
 
-// NewBuildCommand constructs the `gdnext build` subcommand
 func NewBuildCommand(di do.Injector) (*BuildCommand, error) {
 	t := do.MustInvokeStruct[*BuildCommand](di)
 	t.Command = &cli.Command{
@@ -52,7 +47,6 @@ func NewBuildCommand(di do.Injector) (*BuildCommand, error) {
 	return t, nil
 }
 
-// NewExportCommand constructs the `gdnext export` alias subcommand
 func NewExportCommand(di do.Injector) (*ExportCommand, error) {
 	t := do.MustInvokeStruct[*ExportCommand](di)
 	t.Command = &cli.Command{
@@ -65,7 +59,6 @@ func NewExportCommand(di do.Injector) (*ExportCommand, error) {
 	return t, nil
 }
 
-// NewBuildActions resolves the runtime state for build/export.
 func NewBuildActions(di do.Injector) (*BuildActions, error) {
 	return do.InvokeStruct[*BuildActions](di)
 }

@@ -18,17 +18,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// PlatformCommand wires `gdnext platform`. Runtime state lives on
-// *PlatformActions.
+// PlatformCommand wires `gdnext platform`.
 type PlatformCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// PlatformActions carries the runtime state.
 type PlatformActions struct{}
 
-// NewPlatformCommand constructs the `gdnext platform` subcommand
 func NewPlatformCommand(di do.Injector) (*PlatformCommand, error) {
 	t := do.MustInvokeStruct[*PlatformCommand](di)
 	t.Command = &cli.Command{
@@ -61,7 +58,6 @@ func NewPlatformCommand(di do.Injector) (*PlatformCommand, error) {
 	return t, nil
 }
 
-// NewPlatformActions resolves the runtime state for platform.
 func NewPlatformActions(di do.Injector) (*PlatformActions, error) {
 	return do.InvokeStruct[*PlatformActions](di)
 }

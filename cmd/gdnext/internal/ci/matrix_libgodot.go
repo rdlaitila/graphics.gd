@@ -23,7 +23,6 @@ type LibGodotMatrixCommand struct {
 	Injector do.Injector `do:""`
 }
 
-// LibGodotMatrixActions carries the runtime state.
 type LibGodotMatrixActions struct{}
 
 type libgodotMatrixRow struct {
@@ -38,7 +37,6 @@ type libgodotMatrixRow struct {
 	AllowFail bool   `json:"allow_fail,omitempty"`
 }
 
-// NewLibGodotMatrixCommand constructs `gdnext ci libgodot-matrix`.
 func NewLibGodotMatrixCommand(di do.Injector) (*LibGodotMatrixCommand, error) {
 	t := do.MustInvokeStruct[*LibGodotMatrixCommand](di)
 	t.Command = &cli.Command{
@@ -71,7 +69,6 @@ func NewLibGodotMatrixCommand(di do.Injector) (*LibGodotMatrixCommand, error) {
 	return t, nil
 }
 
-// NewLibGodotMatrixActions resolves the runtime state.
 func NewLibGodotMatrixActions(di do.Injector) (*LibGodotMatrixActions, error) {
 	return do.InvokeStruct[*LibGodotMatrixActions](di)
 }

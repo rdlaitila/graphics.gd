@@ -11,17 +11,14 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// GoPassthroughCommand wires `gdnext ci check-go-passthrough`. Runtime
-// state lives on *GoPassthroughActions.
+// GoPassthroughCommand wires `gdnext ci check-go-passthrough`.
 type GoPassthroughCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// GoPassthroughActions carries the runtime state.
 type GoPassthroughActions struct{}
 
-// NewGoPassthroughCommand constructs the go-passthrough subcommand.
 func NewGoPassthroughCommand(di do.Injector) (*GoPassthroughCommand, error) {
 	t := do.MustInvokeStruct[*GoPassthroughCommand](di)
 	t.Command = &cli.Command{
@@ -32,7 +29,6 @@ func NewGoPassthroughCommand(di do.Injector) (*GoPassthroughCommand, error) {
 	return t, nil
 }
 
-// NewGoPassthroughActions resolves the runtime state.
 func NewGoPassthroughActions(di do.Injector) (*GoPassthroughActions, error) {
 	return do.InvokeStruct[*GoPassthroughActions](di)
 }

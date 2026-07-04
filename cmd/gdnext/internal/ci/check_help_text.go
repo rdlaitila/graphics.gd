@@ -19,17 +19,14 @@ var helpVerbs = []string{
 	"android", "ios", "macos", "web", "libgodot", "ci",
 }
 
-// HelpTextCommand wires `gdnext ci check-help-text`. Runtime state lives
-// on *HelpTextActions.
+// HelpTextCommand wires `gdnext ci check-help-text`.
 type HelpTextCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// HelpTextActions carries the runtime state.
 type HelpTextActions struct{}
 
-// NewHelpTextCommand constructs the help-text subcommand.
 func NewHelpTextCommand(di do.Injector) (*HelpTextCommand, error) {
 	t := do.MustInvokeStruct[*HelpTextCommand](di)
 	t.Command = &cli.Command{
@@ -40,7 +37,6 @@ func NewHelpTextCommand(di do.Injector) (*HelpTextCommand, error) {
 	return t, nil
 }
 
-// NewHelpTextActions resolves the runtime state.
 func NewHelpTextActions(di do.Injector) (*HelpTextActions, error) {
 	return do.InvokeStruct[*HelpTextActions](di)
 }

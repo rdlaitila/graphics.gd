@@ -50,7 +50,6 @@ type MetaQuest struct {
 	Android     *Android         `do:""`
 }
 
-// NewMetaQuest constructs the MetaQuest builder via DI.
 func NewMetaQuest(di do.Injector) (*MetaQuest, error) {
 	return do.InvokeStruct[*MetaQuest](di)
 }

@@ -15,13 +15,12 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// DocCommand wires `gdnext doc`. Runtime state lives on *DocActions.
+// DocCommand wires `gdnext doc`.
 type DocCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// DocActions carries the runtime state for doc lookups.
 type DocActions struct {
 	ToolCatalog tooling.Catalog `do:""`
 }
@@ -31,7 +30,6 @@ type gdDocMatch struct {
 	goDocPath string
 }
 
-// NewDocCommand constructs the `gdnext doc` subcommand
 func NewDocCommand(di do.Injector) (*DocCommand, error) {
 	t := do.MustInvokeStruct[*DocCommand](di)
 	t.Command = &cli.Command{
@@ -44,7 +42,6 @@ func NewDocCommand(di do.Injector) (*DocCommand, error) {
 	return t, nil
 }
 
-// NewDocActions resolves the runtime state for doc.
 func NewDocActions(di do.Injector) (*DocActions, error) {
 	return do.InvokeStruct[*DocActions](di)
 }

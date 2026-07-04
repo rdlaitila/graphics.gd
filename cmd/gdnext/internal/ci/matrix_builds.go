@@ -30,16 +30,12 @@ var gha = []struct {
 // Keyed by "goos/goarch".
 var excludedTargets = map[string]string{}
 
-// MatrixCommand wires `gdnext ci build-matrix`. Runtime state lives on
-// *MatrixActions. The build matrix consumes the emitted JSON via
-// fromJSON, so adding a row to product.PlatformMatrix lands in CI
-// with zero workflow edits.
+// MatrixCommand wires `gdnext ci build-matrix`.
 type MatrixCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// MatrixActions carries the runtime state.
 type MatrixActions struct{}
 
 type matrixRow struct {
@@ -52,7 +48,6 @@ type matrixRow struct {
 	Artifact  string `json:"artifact,omitempty"`
 }
 
-// NewMatrixCommand constructs the matrix subcommand.
 func NewMatrixCommand(di do.Injector) (*MatrixCommand, error) {
 	t := do.MustInvokeStruct[*MatrixCommand](di)
 	t.Command = &cli.Command{
@@ -86,7 +81,6 @@ func NewMatrixCommand(di do.Injector) (*MatrixCommand, error) {
 	return t, nil
 }
 
-// NewMatrixActions resolves the runtime state.
 func NewMatrixActions(di do.Injector) (*MatrixActions, error) {
 	return do.InvokeStruct[*MatrixActions](di)
 }

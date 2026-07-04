@@ -10,16 +10,14 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// IosCommand wires `gdnext ios`. Runtime state lives on *IosActions.
+// IosCommand wires `gdnext ios`.
 type IosCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// IosActions carries the runtime state.
 type IosActions struct{}
 
-// NewIosCommand constructs the `gdnext ios` subcommand
 func NewIosCommand(di do.Injector) (*IosCommand, error) {
 	t := do.MustInvokeStruct[*IosCommand](di)
 	t.Command = &cli.Command{
@@ -36,7 +34,6 @@ func NewIosCommand(di do.Injector) (*IosCommand, error) {
 	return t, nil
 }
 
-// NewIosActions resolves the runtime state for ios.
 func NewIosActions(di do.Injector) (*IosActions, error) {
 	return do.InvokeStruct[*IosActions](di)
 }

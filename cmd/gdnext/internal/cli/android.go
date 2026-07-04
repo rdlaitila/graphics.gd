@@ -12,20 +12,17 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// AndroidCommand wires `gdnext android`. Runtime state lives on
-// *AndroidActions.
+// AndroidCommand wires `gdnext android`.
 type AndroidCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// AndroidActions carries the runtime state.
 type AndroidActions struct {
 	ToolCatalog tooling.Catalog  `do:""`
 	BuildEnv    product.BuildEnv `do:""`
 }
 
-// NewAndroidCommand constructs the android subcommand for gdnext
 func NewAndroidCommand(di do.Injector) (*AndroidCommand, error) {
 	t := do.MustInvokeStruct[*AndroidCommand](di)
 	t.Command = &cli.Command{
@@ -97,7 +94,6 @@ func NewAndroidCommand(di do.Injector) (*AndroidCommand, error) {
 	return t, nil
 }
 
-// NewAndroidActions resolves the runtime state for android.
 func NewAndroidActions(di do.Injector) (*AndroidActions, error) {
 	return do.InvokeStruct[*AndroidActions](di)
 }

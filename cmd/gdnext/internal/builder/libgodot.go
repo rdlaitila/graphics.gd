@@ -30,7 +30,6 @@ type LibGodot struct {
 	ToolCatalog tooling.Catalog  `do:""`
 }
 
-// NewLibGodot constructs the LibGodot builder via DI.
 func NewLibGodot(di do.Injector) (*LibGodot, error) {
 	return do.InvokeStruct[*LibGodot](di)
 }

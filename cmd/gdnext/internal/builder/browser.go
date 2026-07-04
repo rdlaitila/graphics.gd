@@ -28,7 +28,6 @@ type Browser struct {
 	handler     http.Handler
 }
 
-// NewBrowser constructs the Browser builder via DI.
 func NewBrowser(di do.Injector) (*Browser, error) {
 	return do.InvokeStruct[*Browser](di)
 }

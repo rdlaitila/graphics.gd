@@ -13,17 +13,14 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// BuildTargetCommand wires `gdnext ci build-target`. Runtime state
-// lives on *BuildTargetActions.
+// BuildTargetCommand wires `gdnext ci build-target`.
 type BuildTargetCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// BuildTargetActions carries the runtime state.
 type BuildTargetActions struct{}
 
-// NewBuildTargetCommand constructs the build-target subcommand.
 func NewBuildTargetCommand(di do.Injector) (*BuildTargetCommand, error) {
 	t := do.MustInvokeStruct[*BuildTargetCommand](di)
 	t.Command = &cli.Command{
@@ -40,7 +37,6 @@ func NewBuildTargetCommand(di do.Injector) (*BuildTargetCommand, error) {
 	return t, nil
 }
 
-// NewBuildTargetActions resolves the runtime state.
 func NewBuildTargetActions(di do.Injector) (*BuildTargetActions, error) {
 	return do.InvokeStruct[*BuildTargetActions](di)
 }

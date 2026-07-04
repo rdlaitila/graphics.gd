@@ -19,15 +19,12 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// WorkflowSummaryCommand wires `gdnext ci workflow-summary`. Runtime
-// state lives on *WorkflowSummaryActions. The workflow step pipes
-// stdout into $GITHUB_STEP_SUMMARY.
+// WorkflowSummaryCommand wires `gdnext ci workflow-summary`.
 type WorkflowSummaryCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// WorkflowSummaryActions carries the runtime state.
 type WorkflowSummaryActions struct{}
 
 // --- GitHub API DTOs -------------------------------------------------
@@ -168,7 +165,6 @@ const (
 // line; stripping it claws back ~30 columns.
 var ghaTimestamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s`)
 
-// NewWorkflowSummaryCommand constructs the workflow-summary subcommand.
 func NewWorkflowSummaryCommand(di do.Injector) (*WorkflowSummaryCommand, error) {
 	t := do.MustInvokeStruct[*WorkflowSummaryCommand](di)
 	t.Command = &cli.Command{
@@ -189,7 +185,6 @@ func NewWorkflowSummaryCommand(di do.Injector) (*WorkflowSummaryCommand, error) 
 	return t, nil
 }
 
-// NewWorkflowSummaryActions resolves the runtime state.
 func NewWorkflowSummaryActions(di do.Injector) (*WorkflowSummaryActions, error) {
 	return do.InvokeStruct[*WorkflowSummaryActions](di)
 }

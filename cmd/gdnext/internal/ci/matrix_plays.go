@@ -15,16 +15,12 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// PlayMatrixCommand wires `gdnext ci play-matrix`. Runtime state
-// lives on *PlayMatrixActions. Emits one row per (play-host,
-// build-host, target, link, example) where Platform.PlayHosts
-// contains the play host.
+// PlayMatrixCommand wires `gdnext ci play-matrix`.
 type PlayMatrixCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// PlayMatrixActions carries the runtime state.
 type PlayMatrixActions struct{}
 
 type playMatrixRow struct {
@@ -39,7 +35,6 @@ type playMatrixRow struct {
 	Artifact  string `json:"artifact"`
 }
 
-// NewPlayMatrixCommand constructs the play-matrix subcommand.
 func NewPlayMatrixCommand(di do.Injector) (*PlayMatrixCommand, error) {
 	t := do.MustInvokeStruct[*PlayMatrixCommand](di)
 	t.Command = &cli.Command{
@@ -73,7 +68,6 @@ func NewPlayMatrixCommand(di do.Injector) (*PlayMatrixCommand, error) {
 	return t, nil
 }
 
-// NewPlayMatrixActions resolves the runtime state.
 func NewPlayMatrixActions(di do.Injector) (*PlayMatrixActions, error) {
 	return do.InvokeStruct[*PlayMatrixActions](di)
 }

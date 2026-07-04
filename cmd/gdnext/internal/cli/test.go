@@ -12,18 +12,16 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// TestCommand wires `gdnext test`. Runtime state lives on *TestActions.
+// TestCommand wires `gdnext test`.
 type TestCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
 }
 
-// TestActions carries the runtime state.
 type TestActions struct {
 	Injector do.Injector `do:""`
 }
 
-// NewTestCommand constructs the `gdnext test` subcommand
 func NewTestCommand(di do.Injector) (*TestCommand, error) {
 	t := do.MustInvokeStruct[*TestCommand](di)
 	t.Command = &cli.Command{
@@ -36,7 +34,6 @@ func NewTestCommand(di do.Injector) (*TestCommand, error) {
 	return t, nil
 }
 
-// NewTestActions resolves the runtime state for test.
 func NewTestActions(di do.Injector) (*TestActions, error) {
 	return do.InvokeStruct[*TestActions](di)
 }

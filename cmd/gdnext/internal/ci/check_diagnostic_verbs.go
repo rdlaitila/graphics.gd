@@ -22,10 +22,8 @@ type DiagnosticVerbsCommand struct {
 	Injector do.Injector `do:""`
 }
 
-// DiagnosticVerbsActions carries the runtime state.
 type DiagnosticVerbsActions struct{}
 
-// NewDiagnosticVerbsCommand constructs the diagnostic-verbs subcommand.
 func NewDiagnosticVerbsCommand(di do.Injector) (*DiagnosticVerbsCommand, error) {
 	t := do.MustInvokeStruct[*DiagnosticVerbsCommand](di)
 	t.Command = &cli.Command{
@@ -36,7 +34,6 @@ func NewDiagnosticVerbsCommand(di do.Injector) (*DiagnosticVerbsCommand, error) 
 	return t, nil
 }
 
-// NewDiagnosticVerbsActions resolves the runtime state.
 func NewDiagnosticVerbsActions(di do.Injector) (*DiagnosticVerbsActions, error) {
 	return do.InvokeStruct[*DiagnosticVerbsActions](di)
 }

@@ -15,8 +15,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// LibGodotCommand wires `gdnext libgodot`. Runtime state (the
-// resolved builder + BuildEnv) lives on *LibGodotActions.
+// LibGodotCommand wires `gdnext libgodot`.
 type LibGodotCommand struct {
 	*cli.Command
 	Injector do.Injector `do:""`
@@ -29,7 +28,6 @@ type LibGodotActions struct {
 	BuildEnv product.BuildEnv  `do:""`
 }
 
-// NewLibGodotCommand constructs the `gdnext libgodot` subcommand tree.
 func NewLibGodotCommand(di do.Injector) (*LibGodotCommand, error) {
 	t := do.MustInvokeStruct[*LibGodotCommand](di)
 	t.Command = &cli.Command{
@@ -90,7 +88,6 @@ func NewLibGodotCommand(di do.Injector) (*LibGodotCommand, error) {
 	return t, nil
 }
 
-// NewLibGodotActions resolves the runtime state for libgodot verbs.
 func NewLibGodotActions(di do.Injector) (*LibGodotActions, error) {
 	return do.InvokeStruct[*LibGodotActions](di)
 }
