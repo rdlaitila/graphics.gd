@@ -460,7 +460,12 @@ func normalizeGoArchive(libgo, zig string) error {
 	}
 	sort.Strings(members)
 	if len(members) == 0 {
-		return fmt.Errorf("normalize: archive %s has no extractable members", libgo)
+		if st, statErr := os.Stat(libgo); statErr == nil {
+			fmt.Fprintf(os.Stderr, "==> archive %s is %d bytes\n", libgo, st.Size())
+		}
+		_ = shared.Run(zig, "ar", "t", libgo)
+		_ = shared.Run(zig, "ar", "tv", libgo)
+		return fmt.Errorf("normalize: archive %s has no extractable members (see zig ar tv above)", libgo)
 	}
 	if err := os.Remove(libgo); err != nil {
 		return fmt.Errorf("normalize: remove old: %w", err)
