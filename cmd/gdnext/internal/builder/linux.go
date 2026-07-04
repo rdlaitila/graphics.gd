@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"graphics.gd/cmd/gdnext/internal/project"
@@ -278,7 +279,7 @@ func (t *Linux) libgodotBuildMusl(args ...string) (err error) {
 	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {
 		return xray.New(err)
 	}
-	if err := shared.Run("ar", "s", libgo); err != nil {
+	if err := normalizeGoArchive(libgo, zig); err != nil {
 		return xray.New(err)
 	}
 	if err := diagLibgodotArchive(libgo); err != nil {
@@ -358,13 +359,7 @@ func (t *Linux) libgodotBuildGlibc(args ...string) (err error) {
 	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-o", libgo); err != nil {
 		return xray.New(err)
 	}
-	// Regenerate the archive symbol index. Go's -buildmode=c-archive
-	// on some cross hosts (observed on darwin/arm64 -> linux/amd64)
-	// omits the symbol table, leaving lld's --start-group scan unable
-	// to find `main` even though the object defining it is inside the
-	// archive. `ar s` rebuilds the index in place; harmless on hosts
-	// where Go already emitted one.
-	if err := shared.Run("ar", "s", libgo); err != nil {
+	if err := normalizeGoArchive(libgo, zig); err != nil {
 		return xray.New(err)
 	}
 	if err := diagLibgodotArchive(libgo); err != nil {
@@ -427,6 +422,53 @@ func setGoCrossEnv(goos, goarch string) error {
 	fmt.Fprintf(os.Stderr, "==> go cross env: GOOS=%s GOARCH=%s CGO_ENABLED=%s CC=%q\n",
 		os.Getenv(product.EnvGOOS), os.Getenv(product.EnvGOARCH),
 		os.Getenv("CGO_ENABLED"), os.Getenv(product.EnvCC))
+	return nil
+}
+
+// normalizeGoArchive extracts every member of libgo through zig ar
+// (llvm-ar under the hood, cross-aware, understands every archive
+// variant) and repacks them into a fresh SysV-format archive. Go's
+// -buildmode=c-archive on darwin emits a BSD-format archive with
+// __.SYMDEF SORTED whose member metadata lld's --start-group scan
+// fails to enumerate — the ELF objects (including cgo's main()
+// wrapper) are inside but invisible to the linker, hence
+// 'undefined symbol: main'. Repacking through zig ar normalises the
+// on-disk layout so any lld build sees the members.
+func normalizeGoArchive(libgo, zig string) error {
+	tmp, err := os.MkdirTemp("", "goarchive-*")
+	if err != nil {
+		return fmt.Errorf("normalize: mkdir tmp: %w", err)
+	}
+	defer os.RemoveAll(tmp)
+	if err := shared.RunIn(tmp, zig, "ar", "x", libgo); err != nil {
+		return fmt.Errorf("normalize: extract: %w", err)
+	}
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		return fmt.Errorf("normalize: readdir: %w", err)
+	}
+	var members []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, "__.SYMDEF") {
+			continue
+		}
+		members = append(members, filepath.Join(tmp, name))
+	}
+	sort.Strings(members)
+	if len(members) == 0 {
+		return fmt.Errorf("normalize: archive %s has no extractable members", libgo)
+	}
+	if err := os.Remove(libgo); err != nil {
+		return fmt.Errorf("normalize: remove old: %w", err)
+	}
+	repackArgs := append([]string{"ar", "rcs", libgo}, members...)
+	if err := shared.Run(zig, repackArgs...); err != nil {
+		return fmt.Errorf("normalize: repack: %w", err)
+	}
 	return nil
 }
 
