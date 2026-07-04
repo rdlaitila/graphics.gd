@@ -276,7 +276,7 @@ func (t *Linux) libgodotBuildMusl(args ...string) (err error) {
 		return fmt.Errorf("gd build: cannot cross-compile linux/libgodot %v on %s", GOARCH, env.Host.Tuple())
 	}
 	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.libgodot.a", GOARCH))
-	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {
+	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-overlay="+overlay, "-a", "-x", "-o", libgo); err != nil {
 		return xray.New(err)
 	}
 	if err := normalizeGoArchive(libgo, zig); err != nil {
@@ -356,7 +356,7 @@ func (t *Linux) libgodotBuildGlibc(args ...string) (err error) {
 		}
 	}
 	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.libgodot.a", GOARCH))
-	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-o", libgo); err != nil {
+	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-a", "-x", "-o", libgo); err != nil {
 		return xray.New(err)
 	}
 	if err := normalizeGoArchive(libgo, zig); err != nil {
