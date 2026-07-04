@@ -281,6 +281,9 @@ func (t *Linux) libgodotBuildMusl(args ...string) (err error) {
 	if err := shared.Run("ar", "s", libgo); err != nil {
 		return xray.New(err)
 	}
+	if err := diagLibgodotArchive(libgo); err != nil {
+		return xray.New(err)
+	}
 	pckStub := filepath.Join(project.GraphicsDirectory, "pck_section.c")
 	if err := os.WriteFile(pckStub, []byte(`static const char pck_dummy[8] __attribute__((section("pck"), used)) = {0};
 `), 0o644); err != nil {
@@ -364,6 +367,9 @@ func (t *Linux) libgodotBuildGlibc(args ...string) (err error) {
 	if err := shared.Run("ar", "s", libgo); err != nil {
 		return xray.New(err)
 	}
+	if err := diagLibgodotArchive(libgo); err != nil {
+		return xray.New(err)
+	}
 	pckStub := filepath.Join(project.GraphicsDirectory, "pck_section.c")
 	if err := os.WriteFile(pckStub, []byte(`static const char pck_dummy[8] __attribute__((section("pck"), used)) = {0};
 `), 0o644); err != nil {
@@ -415,7 +421,43 @@ func setGoCrossEnv(goos, goarch string) error {
 	if err := os.Setenv(product.EnvGOARCH, goarch); err != nil {
 		return err
 	}
-	return os.Setenv("CGO_ENABLED", "1")
+	if err := os.Setenv("CGO_ENABLED", "1"); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "==> go cross env: GOOS=%s GOARCH=%s CGO_ENABLED=%s CC=%q\n",
+		os.Getenv(product.EnvGOOS), os.Getenv(product.EnvGOARCH),
+		os.Getenv("CGO_ENABLED"), os.Getenv(product.EnvCC))
+	return nil
+}
+
+// diagLibgodotArchive dumps what the Go c-archive actually contains
+// so a subsequent 'undefined symbol: main' link error is diagnosable
+// from the CI log alone: the file header + ar member list confirm the
+// archive is ELF-for-target (not host Mach-O / PE), and the nm scan
+// tells us whether the cgo-emitted main() wrapper is actually inside.
+func diagLibgodotArchive(archive string) error {
+	fmt.Fprintf(os.Stderr, "==> diag: %s\n", archive)
+	if err := shared.Run("file", archive); err != nil {
+		return fmt.Errorf("diag file: %w", err)
+	}
+	if err := shared.Run("ar", "t", archive); err != nil {
+		return fmt.Errorf("diag ar t: %w", err)
+	}
+	nm, err := shared.OutputBytes("nm", "--defined-only", archive)
+	if err != nil {
+		return fmt.Errorf("diag nm: %w", err)
+	}
+	mainFound := false
+	for _, line := range strings.Split(string(nm), "\n") {
+		if strings.HasSuffix(line, " T main") || strings.HasSuffix(line, " W main") {
+			fmt.Fprintf(os.Stderr, "    main provider: %s\n", strings.TrimSpace(line))
+			mainFound = true
+		}
+	}
+	if !mainFound {
+		fmt.Fprintln(os.Stderr, "    !! no defined `main` symbol in the archive")
+	}
+	return nil
 }
 
 func (t *Linux) libgodotBuildMain(args ...string) error {
