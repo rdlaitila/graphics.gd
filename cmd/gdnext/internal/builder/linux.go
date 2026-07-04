@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"graphics.gd/cmd/gdnext/internal/project"
+	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
@@ -277,12 +278,15 @@ func (t *Linux) libgodotBuildMusl(args ...string) (err error) {
 	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {
 		return xray.New(err)
 	}
+	if err := shared.Run("ar", "s", libgo); err != nil {
+		return xray.New(err)
+	}
 	pckStub := filepath.Join(project.GraphicsDirectory, "pck_section.c")
 	if err := os.WriteFile(pckStub, []byte(`static const char pck_dummy[8] __attribute__((section("pck"), used)) = {0};
 `), 0o644); err != nil {
 		return xray.New(err)
 	}
-	zigArgs := []string{"cc", "-target", target, pckStub, "-Wl,--start-group", t.lib, libgo}
+	zigArgs := []string{"cc", "-target", target, "-Wl,-u,main", pckStub, "-Wl,--start-group", t.lib, libgo}
 	cgoLDFLAGS, err := tools.Go.Output("list", "-tags", "archive", "-deps", "-f", "{{range .CgoLDFLAGS}}{{println .}}{{end}}", ".")
 	if err != nil {
 		return xray.New(err)
@@ -351,12 +355,25 @@ func (t *Linux) libgodotBuildGlibc(args ...string) (err error) {
 	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-o", libgo); err != nil {
 		return xray.New(err)
 	}
+	// Regenerate the archive symbol index. Go's -buildmode=c-archive
+	// on some cross hosts (observed on darwin/arm64 -> linux/amd64)
+	// omits the symbol table, leaving lld's --start-group scan unable
+	// to find `main` even though the object defining it is inside the
+	// archive. `ar s` rebuilds the index in place; harmless on hosts
+	// where Go already emitted one.
+	if err := shared.Run("ar", "s", libgo); err != nil {
+		return xray.New(err)
+	}
 	pckStub := filepath.Join(project.GraphicsDirectory, "pck_section.c")
 	if err := os.WriteFile(pckStub, []byte(`static const char pck_dummy[8] __attribute__((section("pck"), used)) = {0};
 `), 0o644); err != nil {
 		return xray.New(err)
 	}
-	zigArgs := []string{"cc", "-target", target, pckStub, "-Wl,--start-group", t.lib, libgo}
+	// -Wl,-u,main forces the linker to treat `main` as an initial
+	// undefined reference so the archive scan pulls in the cgo-emitted
+	// main() wrapper even when crt1.o's implicit reference to main
+	// gets lost across --start-group boundaries.
+	zigArgs := []string{"cc", "-target", target, "-Wl,-u,main", pckStub, "-Wl,--start-group", t.lib, libgo}
 	cgoLDFLAGS, err := tools.Go.Output("list", "-tags", "archive", "-deps", "-f", "{{range .CgoLDFLAGS}}{{println .}}{{end}}", ".")
 	if err != nil {
 		return xray.New(err)
