@@ -1,0 +1,126 @@
+{
+  "day": "2026-07-04",
+  "run_id": 28689898052,
+  "shots": [
+    {
+      "label": "android/amd64+gdextension (waydroid)",
+      "path": "2026-07-04/28689898052/android-amd64-gdextension-waydroid.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/android-amd64-gdextension-waydroid.png"
+    },
+    {
+      "label": "android/amd64+gdextension (waydroid)",
+      "path": "2026-07-04/28689898052/android-amd64-gdextension-waydroid.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/android-amd64-gdextension-waydroid.png"
+    },
+    {
+      "label": "android/amd64+gdextension (waydroid)",
+      "path": "2026-07-04/28689898052/android-amd64-gdextension-waydroid.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/android-amd64-gdextension-waydroid.png"
+    },
+    {
+      "label": "darwin/amd64+gdextension (rosetta)",
+      "path": "2026-07-04/28689898052/darwin-amd64-gdextension-rosetta.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/darwin-amd64-gdextension-rosetta.png"
+    },
+    {
+      "label": "darwin/arm64+gdextension",
+      "path": "2026-07-04/28689898052/darwin-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/darwin-arm64-gdextension.png"
+    },
+    {
+      "label": "linux/amd64+gdextension",
+      "path": "2026-07-04/28689898052/linux-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/linux-amd64-gdextension.png"
+    },
+    {
+      "label": "linux/amd64+gdextension",
+      "path": "2026-07-04/28689898052/linux-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/linux-amd64-gdextension.png"
+    },
+    {
+      "label": "linux/amd64+gdextension",
+      "path": "2026-07-04/28689898052/linux-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/linux-amd64-gdextension.png"
+    },
+    {
+      "label": "linux/amd64+libgodot",
+      "path": "2026-07-04/28689898052/linux-amd64-libgodot.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/linux-amd64-libgodot.png"
+    },
+    {
+      "label": "linux/amd64+libgodot",
+      "path": "2026-07-04/28689898052/linux-amd64-libgodot.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/linux-amd64-libgodot.png"
+    },
+    {
+      "label": "linux/arm64+gdextension",
+      "path": "2026-07-04/28689898052/linux-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/linux-arm64-gdextension.png"
+    },
+    {
+      "label": "linux/arm64+gdextension",
+      "path": "2026-07-04/28689898052/linux-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/linux-arm64-gdextension.png"
+    },
+    {
+      "label": "linux/arm64+gdextension",
+      "path": "2026-07-04/28689898052/linux-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/linux-arm64-gdextension.png"
+    },
+    {
+      "label": "linux/arm64+libgodot",
+      "path": "2026-07-04/28689898052/linux-arm64-libgodot.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/linux-arm64-libgodot.png"
+    },
+    {
+      "label": "linux/arm64+libgodot",
+      "path": "2026-07-04/28689898052/linux-arm64-libgodot.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/linux-arm64-libgodot.png"
+    },
+    {
+      "label": "windows/amd64+gdextension",
+      "path": "2026-07-04/28689898052/windows-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/windows-amd64-gdextension.png"
+    },
+    {
+      "label": "windows/amd64+gdextension",
+      "path": "2026-07-04/28689898052/windows-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/windows-amd64-gdextension.png"
+    },
+    {
+      "label": "windows/amd64+gdextension",
+      "path": "2026-07-04/28689898052/windows-amd64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/windows-amd64-gdextension.png"
+    },
+    {
+      "label": "windows/amd64+gdextension (proton-9)",
+      "path": "2026-07-04/28689898052/windows-amd64-gdextension-proton-9.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/windows-amd64-gdextension-proton-9.png"
+    },
+    {
+      "label": "windows/amd64+gdextension (proton-9)",
+      "path": "2026-07-04/28689898052/windows-amd64-gdextension-proton-9.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/windows-amd64-gdextension-proton-9.png"
+    },
+    {
+      "label": "windows/amd64+gdextension (proton-9)",
+      "path": "2026-07-04/28689898052/windows-amd64-gdextension-proton-9.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/windows-amd64-gdextension-proton-9.png"
+    },
+    {
+      "label": "windows/arm64+gdextension",
+      "path": "2026-07-04/28689898052/windows-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/windows-arm64-gdextension.png"
+    },
+    {
+      "label": "windows/arm64+gdextension",
+      "path": "2026-07-04/28689898052/windows-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/windows-arm64-gdextension.png"
+    },
+    {
+      "label": "windows/arm64+gdextension",
+      "path": "2026-07-04/28689898052/windows-arm64-gdextension.png",
+      "url": "https://raw.githubusercontent.com/rdlaitila/graphics.gd/refs/heads/screenshots/2026-07-04/28689898052/windows-arm64-gdextension.png"
+    }
+  ]
+}
