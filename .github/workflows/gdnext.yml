@@ -476,33 +476,38 @@ jobs:
           go install ./cmd/gdnext
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
-      # The matching build cell can be skipped (allow_fail target that
-      # broke) or cancelled, in which case no artefact exists for us
-      # to download. Probe via the REST API so we can short-circuit
-      # this play cell with a clear message instead of crashing the
-      # download-artifact action with `Artifact not found`.
-      - id: artefact-check
+      # Probe via the REST API so a missing artefact (upstream build
+      # skipped, cancelled, or a wrong artifact name) fails the play
+      # cell with a clear diagnostic instead of crashing download-artifact
+      # with 'Artifact not found' or silently ignoring the gap.
+      - name: Check play artefact is present
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ matrix.artifact }}
         run: |
           set -eu
-          # --paginate walks every page so runs with more than 100
-          # artefacts (default page size 30) don't silently miss the
-          # oldest ones — a filtered dispatch stays under 30, but
-          # a full-matrix run pushes past that with all the shot-*
-          # artefacts uploaded after each play cell.
-          if gh api --paginate -X GET "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" \
-               --jq '.artifacts[].name' \
-             | grep -Fxq "${{ matrix.artifact }}"; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::play artefact ${{ matrix.artifact }} not found (build cell skipped or failed); skipping this play cell"
-            echo "present=false" >> "$GITHUB_OUTPUT"
+          # per_page=1000 asks for a fat page; the API caps at 100 per
+          # page, so --paginate walks whatever pages are needed. Buffer
+          # into a file so we can log the actual listing on miss.
+          # Missing artefact fails the cell rather than silently passing
+          # — build failures upstream should surface as red plays, not
+          # as green "ran zero steps" cells.
+          names=$(mktemp)
+          gh api --paginate -X GET \
+            "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=1000" \
+            --jq '.artifacts[].name' > "$names"
+          echo "::group::artefact listing ($(wc -l <"$names" | tr -d ' ') names)"
+          sort "$names"
+          echo "::endgroup::"
+          if ! grep -Fxq -- "$ARTIFACT" "$names"; then
+            echo "::error::play artefact ${ARTIFACT} not found (build cell skipped or failed)"
+            rm -f "$names"
+            exit 1
           fi
+          rm -f "$names"
 
       - name: Download play artefact (${{ matrix.artifact }})
-        if: steps.artefact-check.outputs.present == 'true'
         uses: actions/download-artifact@484a0b528fb4d7bd804637ccb632e47a0e638317 # v8.0.1
         with:
           name: ${{ matrix.artifact }}
@@ -514,14 +519,14 @@ jobs:
       # then `toolchain doctor --fix` heals any drift between the
       # cached set and what the current catalog calls for.
       - id: tools-key
-        if: steps.artefact-check.outputs.present == 'true' && (matrix.compat == 'android-emu' || matrix.compat == 'waydroid')
+        if: matrix.compat == 'android-emu' || matrix.compat == 'waydroid'
         shell: bash
         run: |
           digest=$(gdnext toolchain list --format json | sha256sum | cut -c1-12)
           echo "key=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-${digest}" >> $GITHUB_OUTPUT
           echo "prefix=${{ runner.os }}-${{ runner.arch }}-gdnext-tools-" >> $GITHUB_OUTPUT
       - name: Restore ~/gd (catalog digest)
-        if: steps.artefact-check.outputs.present == 'true' && (matrix.compat == 'android-emu' || matrix.compat == 'waydroid')
+        if: matrix.compat == 'android-emu' || matrix.compat == 'waydroid'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/gd
@@ -529,7 +534,7 @@ jobs:
           restore-keys: |
             ${{ steps.tools-key.outputs.prefix }}
       - name: Toolchain doctor (android tooling)
-        if: steps.artefact-check.outputs.present == 'true' && (matrix.compat == 'android-emu' || matrix.compat == 'waydroid')
+        if: matrix.compat == 'android-emu' || matrix.compat == 'waydroid'
         shell: bash
         run: |
           gdnext toolchain doctor --fix
@@ -541,7 +546,7 @@ jobs:
       # pinned GE-Proton release for proton variants; the install step
       # fetches the tarball when the cache misses.
       - name: Restore Proton (${{ matrix.proton_tag }})
-        if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux' && matrix.proton_tag != ''
+        if: runner.os == 'Linux' && matrix.proton_tag != ''
         id: restore-proton
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -549,7 +554,7 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-proton-${{ matrix.proton_tag }}-v2
 
       - name: Restore umu runtime cache
-        if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux' && matrix.proton_tag != ''
+        if: runner.os == 'Linux' && matrix.proton_tag != ''
         id: restore-umu
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -557,7 +562,7 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-umu-runtime-v2
 
       - name: Install xvfb + compat layer (${{ matrix.compat || 'native' }})
-        if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux'
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
@@ -767,7 +772,7 @@ jobs:
           esac
 
       - name: Save Proton (${{ matrix.proton_tag }})
-        if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux' && matrix.proton_tag != '' && steps.restore-proton.outputs.cache-hit != 'true'
+        if: runner.os == 'Linux' && matrix.proton_tag != '' && steps.restore-proton.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.local/share/Steam/compatibilitytools.d/${{ matrix.proton_tag }}
@@ -778,7 +783,7 @@ jobs:
       # fall back to TCG because the ubuntu-24.04-arm runner's /dev/kvm
       # rejects open() with EINVAL.
       - name: Enable KVM
-        if: steps.artefact-check.outputs.present == 'true' && matrix.compat == 'android-emu' && matrix.target != 'android/arm64'
+        if: matrix.compat == 'android-emu' && matrix.target != 'android/arm64'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -786,7 +791,6 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Compute screenshot artefact name
-        if: steps.artefact-check.outputs.present == 'true'
         shell: bash
         run: |
           SHOT_NAME="shot-${{ matrix.os }}-${{ matrix.artifact }}${{ matrix.compat && format('-{0}', matrix.compat) || '' }}"
@@ -794,7 +798,7 @@ jobs:
           echo "SHOT_PATH=scratch/${SHOT_NAME}.png" >> "$GITHUB_ENV"
 
       - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=android-emu (built on ${{ matrix.build_os }})
-        if: steps.artefact-check.outputs.present == 'true' && matrix.compat == 'android-emu'
+        if: matrix.compat == 'android-emu'
         continue-on-error: ${{ matrix.allow_fail }}
         uses: reactivecircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
         with:
@@ -817,7 +821,7 @@ jobs:
             gdnext ci play-cell --scratch scratch --example "${{ matrix.example }}" --target "${{ matrix.target }}" --link "${{ matrix.link }}" --compat android-emu --build-host "${{ matrix.build_os }}" --screenshot "${{ env.SHOT_PATH }}"
 
       - name: Play ${{ matrix.target }} [${{ matrix.link || 'default' }}] compat=${{ matrix.compat || 'native' }} (built on ${{ matrix.build_os }})
-        if: steps.artefact-check.outputs.present == 'true' && matrix.compat != 'android-emu'
+        if: matrix.compat != 'android-emu'
         continue-on-error: ${{ matrix.allow_fail }}
         shell: bash
         run: |
@@ -831,14 +835,14 @@ jobs:
             --screenshot "${SHOT_PATH}"
 
       - name: Save umu runtime cache
-        if: steps.artefact-check.outputs.present == 'true' && runner.os == 'Linux' && matrix.proton_tag != '' && always() && steps.restore-umu.outputs.cache-hit != 'true'
+        if: runner.os == 'Linux' && matrix.proton_tag != '' && always() && steps.restore-umu.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.local/share/umu
           key: ${{ runner.os }}-${{ runner.arch }}-umu-runtime-v2
 
       - name: Show play report
-        if: steps.artefact-check.outputs.present == 'true' && always()
+        if: always()
         shell: bash
         run: |
           if [ -f scratch/play-report.json ]; then
@@ -850,7 +854,7 @@ jobs:
           fi
 
       - name: Upload play screenshot
-        if: steps.artefact-check.outputs.present == 'true' && always() && hashFiles(env.SHOT_PATH) != ''
+        if: always() && hashFiles(env.SHOT_PATH) != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ env.SHOT_NAME }}
