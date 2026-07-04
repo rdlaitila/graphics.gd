@@ -387,6 +387,7 @@ var (
 		PlayHosts:  []PlayHost{PlayLinuxAmd64},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
+		Quirks:     []Quirk{QuirkDarwinHostLibgodotLinuxEmptyArchive},
 	}
 	PlatformLinuxArm64 = Platform{
 		Title:      "Linux ARM64",
@@ -399,6 +400,7 @@ var (
 		PlayHosts:  []PlayHost{PlayLinuxArm64},
 		BuildTools: append(SharedToolchains, []Toolchain{}...),
 		Renderers:  []string{"vulkan", "opengl3", "gl_compatibility"},
+		Quirks:     []Quirk{QuirkDarwinHostLibgodotLinuxEmptyArchive},
 	}
 	// --- Windows --------------------------------------------------------
 	PlatformWindowsAmd64 = Platform{

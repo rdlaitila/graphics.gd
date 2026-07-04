@@ -137,11 +137,6 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 			if len(platform.PlayHosts) == 0 {
 				continue
 			}
-			// QuirkCIBuildBroken omits the cell on the build side; if
-			// the artefact can't be produced we have nothing to play.
-			if platform.CIBlockedFor(buildHost.Host.GOOS, buildHost.Host.GOARCH) {
-				continue
-			}
 			allowFail := platform.Status.Has(product.Experimental)
 			modes := []product.LinkMode{0}
 			if platform.LinkModes != 0 {
@@ -159,6 +154,13 @@ func buildPlayMatrix(examples []string, filter matrixFilter) []playMatrixRow {
 					link = mode.String()
 				}
 				if !filter.allowsLink(link) {
+					continue
+				}
+				// QuirkCIBuildBroken omits the cell on the build side; if
+				// the artefact can't be produced we have nothing to play.
+				// Scoped per-mode so a quirk that only affects libgodot
+				// doesn't drop the gdextension play cell too.
+				if platform.CIBlockedFor(buildHost.Host.GOOS, buildHost.Host.GOARCH, mode) {
 					continue
 				}
 				for _, ex := range examples {
@@ -238,7 +240,7 @@ func runnerFor(host product.PlayHost) (string, bool) {
 // playOnlyRunners labels hosts that are valid play targets but not
 // CI build targets. Keyed by the canonical "<goos>/<goarch>" tuple.
 var playOnlyRunners = map[string]string{
-	product.Tuple(product.GOOSLinux, product.GOARCHArm64):    "ubuntu-24.04-arm",
+	product.Tuple(product.GOOSLinux, product.GOARCHArm64):   "ubuntu-24.04-arm",
 	product.Tuple(product.GOOSDarwin, product.GOARCHAmd64):  "macos-26-intel",
 	product.Tuple(product.GOOSWindows, product.GOARCHArm64): "windows-11-arm",
 }

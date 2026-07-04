@@ -218,6 +218,33 @@ var QuirkLinuxAmd64LibGodotPlayEnvLoss = Quirk{
 	},
 }
 
+// QuirkDarwinHostLibgodotLinuxEmptyArchive marks libgodot builds of
+// linux targets from a darwin host as CI-broken. Full repro lives at
+// docs/quirks/darwin-host-linux-libgodot-empty-archive.md.
+var QuirkDarwinHostLibgodotLinuxEmptyArchive = Quirk{
+	Title:     "darwin host: libgodot linux build produces empty Go c-archive",
+	Scope:     QuirkCIBuildBroken,
+	Hosts:     []string{Tuple(GOOSDarwin, GOARCHAmd64), Tuple(GOOSDarwin, GOARCHArm64)},
+	LinkModes: []LinkMode{LibGodot},
+	Reason: "`go build -tags archive -buildmode=c-archive` for a linux " +
+		"target on a darwin host emits a 96-byte BSD ar archive " +
+		"containing only `__.SYMDEF SORTED` and no object members. " +
+		"The final zig-cc link then dies with `undefined symbol: main` " +
+		"because the cgo-emitted main() wrapper never made it into " +
+		"the archive. Verified via file/nm/ar tv: the archive really " +
+		"is empty; nothing to repack. Suspected upstream Go bug in " +
+		"the darwin cross-linker for c-archive + external cgo. See " +
+		"docs/quirks/darwin-host-linux-libgodot-empty-archive.md for the full trace.",
+	Result: []string{
+		"the (darwin host, linux/*, libgodot) build cells are omitted",
+		"the (darwin host, linux/*, gdextension) cells continue to build green",
+		"linux libgodot targets still build from linux and windows hosts",
+	},
+	Refs: []string{
+		"https://github.com/rdlaitila/graphics.gd/actions/runs/28696005483/job/85108087010",
+	},
+}
+
 // allow-fail when built from a windows host; user builds on a local
 // windows host may still succeed.
 var QuirkWindowsDarwinBuildAccessDenied = Quirk{
@@ -338,15 +365,23 @@ func (t Quirk) AppliesToLinkMode(mode LinkMode) bool {
 }
 
 // CIBlockedFor reports whether p carries a QuirkCIBuildBroken
-// matching the given build host. The matrix generator uses it to
-// omit the (host, target) cell entirely: build-broken means we
-// don't want CI noise from a cell we know won't work, and the
-// quirk row in the summary is the contract that explains why.
-func (t Platform) CIBlockedFor(hostGOOS, hostGOARCH string) bool {
+// matching the given build host + link mode. The matrix generator
+// uses it to omit the (host, target, link) cell entirely: build-broken
+// means we don't want CI noise from a cell we know won't work, and
+// the quirk row in the summary is the contract that explains why.
+// Pass mode=0 to match a quirk regardless of LinkMode.
+func (t Platform) CIBlockedFor(hostGOOS, hostGOARCH string, mode LinkMode) bool {
 	for _, q := range t.Quirks {
-		if q.Scope == QuirkCIBuildBroken && q.AppliesToHost(hostGOOS, hostGOARCH) {
-			return true
+		if q.Scope != QuirkCIBuildBroken {
+			continue
 		}
+		if !q.AppliesToHost(hostGOOS, hostGOARCH) {
+			continue
+		}
+		if mode != 0 && !q.AppliesToLinkMode(mode) {
+			continue
+		}
+		return true
 	}
 	return false
 }

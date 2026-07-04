@@ -8,11 +8,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"graphics.gd/cmd/gdnext/internal/project"
-	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/cmd/gdnext/internal/tooling"
 	"graphics.gd/product"
 
@@ -276,13 +274,7 @@ func (t *Linux) libgodotBuildMusl(args ...string) (err error) {
 		return fmt.Errorf("gd build: cannot cross-compile linux/libgodot %v on %s", GOARCH, env.Host.Tuple())
 	}
 	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.libgodot.a", GOARCH))
-	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-overlay="+overlay, "-a", "-x", "-o", libgo); err != nil {
-		return xray.New(err)
-	}
-	if err := normalizeGoArchive(libgo, zig); err != nil {
-		return xray.New(err)
-	}
-	if err := diagLibgodotArchive(libgo); err != nil {
+	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-overlay="+overlay, "-o", libgo); err != nil {
 		return xray.New(err)
 	}
 	pckStub := filepath.Join(project.GraphicsDirectory, "pck_section.c")
@@ -290,7 +282,7 @@ func (t *Linux) libgodotBuildMusl(args ...string) (err error) {
 `), 0o644); err != nil {
 		return xray.New(err)
 	}
-	zigArgs := []string{"cc", "-target", target, "-Wl,-u,main", pckStub, "-Wl,--start-group", t.lib, libgo}
+	zigArgs := []string{"cc", "-target", target, pckStub, "-Wl,--start-group", t.lib, libgo}
 	cgoLDFLAGS, err := tools.Go.Output("list", "-tags", "archive", "-deps", "-f", "{{range .CgoLDFLAGS}}{{println .}}{{end}}", ".")
 	if err != nil {
 		return xray.New(err)
@@ -356,13 +348,7 @@ func (t *Linux) libgodotBuildGlibc(args ...string) (err error) {
 		}
 	}
 	libgo := filepath.Join(project.GraphicsDirectory, fmt.Sprintf("linux_%v.libgodot.a", GOARCH))
-	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-a", "-x", "-o", libgo); err != nil {
-		return xray.New(err)
-	}
-	if err := normalizeGoArchive(libgo, zig); err != nil {
-		return xray.New(err)
-	}
-	if err := diagLibgodotArchive(libgo); err != nil {
+	if err := tools.Go.Action("build", args, "-tags", "archive", "-buildmode=c-archive", "-o", libgo); err != nil {
 		return xray.New(err)
 	}
 	pckStub := filepath.Join(project.GraphicsDirectory, "pck_section.c")
@@ -370,11 +356,7 @@ func (t *Linux) libgodotBuildGlibc(args ...string) (err error) {
 `), 0o644); err != nil {
 		return xray.New(err)
 	}
-	// -Wl,-u,main forces the linker to treat `main` as an initial
-	// undefined reference so the archive scan pulls in the cgo-emitted
-	// main() wrapper even when crt1.o's implicit reference to main
-	// gets lost across --start-group boundaries.
-	zigArgs := []string{"cc", "-target", target, "-Wl,-u,main", pckStub, "-Wl,--start-group", t.lib, libgo}
+	zigArgs := []string{"cc", "-target", target, pckStub, "-Wl,--start-group", t.lib, libgo}
 	cgoLDFLAGS, err := tools.Go.Output("list", "-tags", "archive", "-deps", "-f", "{{range .CgoLDFLAGS}}{{println .}}{{end}}", ".")
 	if err != nil {
 		return xray.New(err)
@@ -416,136 +398,7 @@ func setGoCrossEnv(goos, goarch string) error {
 	if err := os.Setenv(product.EnvGOARCH, goarch); err != nil {
 		return err
 	}
-	if err := os.Setenv("CGO_ENABLED", "1"); err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stderr, "==> go cross env: GOOS=%s GOARCH=%s CGO_ENABLED=%s CC=%q\n",
-		os.Getenv(product.EnvGOOS), os.Getenv(product.EnvGOARCH),
-		os.Getenv("CGO_ENABLED"), os.Getenv(product.EnvCC))
-	return nil
-}
-
-// normalizeGoArchive extracts every member of libgo through zig ar
-// (llvm-ar under the hood, cross-aware, understands every archive
-// variant) and repacks them into a fresh SysV-format archive. Go's
-// -buildmode=c-archive on darwin emits a BSD-format archive with
-// __.SYMDEF SORTED whose member metadata lld's --start-group scan
-// fails to enumerate — the ELF objects (including cgo's main()
-// wrapper) are inside but invisible to the linker, hence
-// 'undefined symbol: main'. Repacking through zig ar normalises the
-// on-disk layout so any lld build sees the members.
-func normalizeGoArchive(libgo, zig string) error {
-	// Diag: what did Go actually produce?
-	if st, statErr := os.Stat(libgo); statErr == nil {
-		fmt.Fprintf(os.Stderr, "==> pre-normalize archive %s is %d bytes\n", libgo, st.Size())
-	}
-	_ = shared.Run("file", libgo)
-	if head, err := os.ReadFile(libgo); err == nil {
-		peek := head
-		if len(peek) > 256 {
-			peek = peek[:256]
-		}
-		fmt.Fprintf(os.Stderr, "==> archive head hexdump:\n%s\n", hexDump(peek))
-	}
-	tmp, err := os.MkdirTemp("", "goarchive-*")
-	if err != nil {
-		return fmt.Errorf("normalize: mkdir tmp: %w", err)
-	}
-	defer os.RemoveAll(tmp)
-	if err := shared.RunIn(tmp, zig, "ar", "x", libgo); err != nil {
-		return fmt.Errorf("normalize: extract: %w", err)
-	}
-	entries, err := os.ReadDir(tmp)
-	if err != nil {
-		return fmt.Errorf("normalize: readdir: %w", err)
-	}
-	var members []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if strings.HasPrefix(name, "__.SYMDEF") {
-			continue
-		}
-		members = append(members, filepath.Join(tmp, name))
-	}
-	sort.Strings(members)
-	if len(members) == 0 {
-		if st, statErr := os.Stat(libgo); statErr == nil {
-			fmt.Fprintf(os.Stderr, "==> archive %s is %d bytes\n", libgo, st.Size())
-		}
-		_ = shared.Run(zig, "ar", "t", libgo)
-		_ = shared.Run(zig, "ar", "tv", libgo)
-		return fmt.Errorf("normalize: archive %s has no extractable members (see zig ar tv above)", libgo)
-	}
-	if err := os.Remove(libgo); err != nil {
-		return fmt.Errorf("normalize: remove old: %w", err)
-	}
-	repackArgs := append([]string{"ar", "rcs", libgo}, members...)
-	if err := shared.Run(zig, repackArgs...); err != nil {
-		return fmt.Errorf("normalize: repack: %w", err)
-	}
-	return nil
-}
-
-func hexDump(b []byte) string {
-	var out strings.Builder
-	for i := 0; i < len(b); i += 16 {
-		end := i + 16
-		if end > len(b) {
-			end = len(b)
-		}
-		fmt.Fprintf(&out, "%04x  ", i)
-		for j := i; j < i+16; j++ {
-			if j < end {
-				fmt.Fprintf(&out, "%02x ", b[j])
-			} else {
-				out.WriteString("   ")
-			}
-		}
-		out.WriteString(" |")
-		for j := i; j < end; j++ {
-			c := b[j]
-			if c >= 0x20 && c < 0x7f {
-				out.WriteByte(c)
-			} else {
-				out.WriteByte('.')
-			}
-		}
-		out.WriteString("|\n")
-	}
-	return out.String()
-}
-
-// diagLibgodotArchive dumps what the Go c-archive actually contains
-// so a subsequent 'undefined symbol: main' link error is diagnosable
-// from the CI log alone: the file header + ar member list confirm the
-// archive is ELF-for-target (not host Mach-O / PE), and the nm scan
-// tells us whether the cgo-emitted main() wrapper is actually inside.
-func diagLibgodotArchive(archive string) error {
-	fmt.Fprintf(os.Stderr, "==> diag: %s\n", archive)
-	if err := shared.Run("file", archive); err != nil {
-		return fmt.Errorf("diag file: %w", err)
-	}
-	if err := shared.Run("ar", "t", archive); err != nil {
-		return fmt.Errorf("diag ar t: %w", err)
-	}
-	nm, err := shared.OutputBytes("nm", "--defined-only", archive)
-	if err != nil {
-		return fmt.Errorf("diag nm: %w", err)
-	}
-	mainFound := false
-	for _, line := range strings.Split(string(nm), "\n") {
-		if strings.HasSuffix(line, " T main") || strings.HasSuffix(line, " W main") {
-			fmt.Fprintf(os.Stderr, "    main provider: %s\n", strings.TrimSpace(line))
-			mainFound = true
-		}
-	}
-	if !mainFound {
-		fmt.Fprintln(os.Stderr, "    !! no defined `main` symbol in the archive")
-	}
-	return nil
+	return os.Setenv("CGO_ENABLED", "1")
 }
 
 func (t *Linux) libgodotBuildMain(args ...string) error {

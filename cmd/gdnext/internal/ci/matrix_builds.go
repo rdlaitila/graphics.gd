@@ -144,12 +144,6 @@ func buildMatrix(examples []string, filter matrixFilter) []matrixRow {
 			if !filter.allows(host.Host.Tuple(), platform.Tuple()) {
 				continue
 			}
-			// QuirkCIBuildBroken (e.g. windows host + darwin target)
-			// omits the cell outright; the Quirk row in the summary
-			// is the contract that explains why.
-			if platform.CIBlockedFor(host.Host.GOOS, host.Host.GOARCH) {
-				continue
-			}
 			allowFail := platform.Status.Has(product.Experimental)
 			modes := []product.LinkMode{0}
 			if platform.LinkModes != 0 {
@@ -167,6 +161,14 @@ func buildMatrix(examples []string, filter matrixFilter) []matrixRow {
 					link = mode.String()
 				}
 				if !filter.allowsLink(link) {
+					continue
+				}
+				// QuirkCIBuildBroken (e.g. windows host + darwin target,
+				// or darwin host + linux libgodot) omits the cell outright;
+				// the Quirk row in the summary is the contract that explains
+				// why. Scoped per-mode so a quirk that only affects libgodot
+				// doesn't gate the gdextension cell.
+				if platform.CIBlockedFor(host.Host.GOOS, host.Host.GOARCH, mode) {
 					continue
 				}
 				for _, ex := range examples {
