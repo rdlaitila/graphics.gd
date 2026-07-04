@@ -435,6 +435,18 @@ func setGoCrossEnv(goos, goarch string) error {
 // 'undefined symbol: main'. Repacking through zig ar normalises the
 // on-disk layout so any lld build sees the members.
 func normalizeGoArchive(libgo, zig string) error {
+	// Diag: what did Go actually produce?
+	if st, statErr := os.Stat(libgo); statErr == nil {
+		fmt.Fprintf(os.Stderr, "==> pre-normalize archive %s is %d bytes\n", libgo, st.Size())
+	}
+	_ = shared.Run("file", libgo)
+	if head, err := os.ReadFile(libgo); err == nil {
+		peek := head
+		if len(peek) > 256 {
+			peek = peek[:256]
+		}
+		fmt.Fprintf(os.Stderr, "==> archive head hexdump:\n%s\n", hexDump(peek))
+	}
 	tmp, err := os.MkdirTemp("", "goarchive-*")
 	if err != nil {
 		return fmt.Errorf("normalize: mkdir tmp: %w", err)
@@ -475,6 +487,35 @@ func normalizeGoArchive(libgo, zig string) error {
 		return fmt.Errorf("normalize: repack: %w", err)
 	}
 	return nil
+}
+
+func hexDump(b []byte) string {
+	var out strings.Builder
+	for i := 0; i < len(b); i += 16 {
+		end := i + 16
+		if end > len(b) {
+			end = len(b)
+		}
+		fmt.Fprintf(&out, "%04x  ", i)
+		for j := i; j < i+16; j++ {
+			if j < end {
+				fmt.Fprintf(&out, "%02x ", b[j])
+			} else {
+				out.WriteString("   ")
+			}
+		}
+		out.WriteString(" |")
+		for j := i; j < end; j++ {
+			c := b[j]
+			if c >= 0x20 && c < 0x7f {
+				out.WriteByte(c)
+			} else {
+				out.WriteByte('.')
+			}
+		}
+		out.WriteString("|\n")
+	}
+	return out.String()
 }
 
 // diagLibgodotArchive dumps what the Go c-archive actually contains
