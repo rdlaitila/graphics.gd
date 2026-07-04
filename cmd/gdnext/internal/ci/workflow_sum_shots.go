@@ -29,6 +29,7 @@ import (
 // the markdown renderer break between the two with `<br>` so a narrow
 // grid column doesn't overflow.
 type shotRow struct {
+	Name  string
 	Label string
 	Tail  string
 	PNG   []byte
@@ -155,7 +156,7 @@ func collectShots(dir string) []shotRow {
 			continue
 		}
 		label, tail := shotLabel(name)
-		out = append(out, shotRow{Label: label, Tail: tail, PNG: body})
+		out = append(out, shotRow{Name: name, Label: label, Tail: tail, PNG: body})
 	}
 	if len(out) == 0 && len(entries) > 0 {
 		fmt.Fprintf(os.Stderr, "shots: --shots dir %q had %d entries but none yielded a screenshot:\n", dir, len(entries))
@@ -214,9 +215,15 @@ func shotAltText(head, tail string) string {
 // preceding Plays table — no section header, so it reads as part of
 // the same section. Emits raw HTML rather than a Markdown table so
 // the grid doesn't carry an empty header row (GFM tables require one)
-// and the column count adapts to however many shots we have, capped
+// and the column count adapts to however many cells we have, capped
 // at maxCols for layout.
-func renderShotsMarkdown(w io.Writer, rows []pushedShot) {
+//
+// One cell per play row from the latest run so failures without a
+// screenshot still take up a slot — the caption carries a pass/fail
+// dot so a runner-process crash that still uploaded a PNG doesn't
+// silently read as green.
+func renderShotsMarkdown(w io.Writer, plays []playRow, shots []pushedShot) {
+	rows := shotGridRows(plays, shots)
 	if len(rows) == 0 {
 		return
 	}
@@ -228,7 +235,6 @@ func renderShotsMarkdown(w io.Writer, rows []pushedShot) {
 	cellPct := 100 / cols
 	fmt.Fprintln(w, `<table>`)
 	for i := 0; i < len(rows); i += cols {
-		// Caption row.
 		fmt.Fprint(w, "<tr>")
 		for c := 0; c < cols; c++ {
 			if i+c >= len(rows) {
@@ -236,14 +242,13 @@ func renderShotsMarkdown(w io.Writer, rows []pushedShot) {
 				continue
 			}
 			row := rows[i+c]
-			caption := htmlEscapeCell(row.Label)
+			caption := row.Icon + " " + htmlEscapeCell(row.Label)
 			if row.Tail != "" {
 				caption += "<br>" + htmlEscapeCell(row.Tail)
 			}
 			fmt.Fprintf(w, `<td width="%d%%" align="center"><strong>%s</strong></td>`, cellPct, caption)
 		}
 		fmt.Fprintln(w, "</tr>")
-		// Image row.
 		fmt.Fprint(w, "<tr>")
 		for c := 0; c < cols; c++ {
 			if i+c >= len(rows) {
@@ -256,7 +261,7 @@ func renderShotsMarkdown(w io.Writer, rows []pushedShot) {
 			case row.Error != "":
 				fmt.Fprintf(w, "⚠️ %s", htmlEscapeCell(row.Error))
 			case row.URL == "":
-				fmt.Fprint(w, "<em>no image</em>")
+				fmt.Fprint(w, "<em>no screenshot</em>")
 			default:
 				fmt.Fprintf(w, `<img alt=%q src=%q width="320">`,
 					shotAltText(row.Label, row.Tail), row.URL)
@@ -267,6 +272,70 @@ func renderShotsMarkdown(w io.Writer, rows []pushedShot) {
 	}
 	fmt.Fprintln(w, `</table>`)
 	fmt.Fprintln(w)
+}
+
+// shotGridCell is one rendered cell of the screenshot grid. Icon is
+// the pass/fail dot pulled from the latest play-row entry's outcome.
+type shotGridCell struct {
+	Label string
+	Tail  string
+	Icon  string
+	URL   string
+	Error string
+}
+
+// shotGridRows produces one cell per playRow, matched to a shot by
+// the canonical artefact name. Rows without a shot still emit a cell
+// so a failed play cell that never uploaded a screenshot stays
+// visible instead of dropping out of the grid.
+func shotGridRows(plays []playRow, shots []pushedShot) []shotGridCell {
+	if len(plays) == 0 {
+		return nil
+	}
+	byName := make(map[string]pushedShot, len(shots))
+	for _, s := range shots {
+		if s.Name != "" {
+			byName[s.Name] = s
+		}
+	}
+	out := make([]shotGridCell, 0, len(plays))
+	for _, p := range plays {
+		name := ScreenshotArtifactName(p.PlayHost, p.BuildHost, p.Example, p.Target, p.Link, p.Compat)
+		label, tail := shotLabel(name)
+		cell := shotGridCell{
+			Label: label,
+			Tail:  tail,
+			Icon:  playIcon(p),
+		}
+		if s, ok := byName[name]; ok {
+			cell.URL = s.URL
+			cell.Error = s.Error
+		}
+		out = append(out, cell)
+	}
+	return out
+}
+
+// playIcon returns the pass/fail dot for the most recent history
+// entry of a play row. History is oldest-first so the last index is
+// the current run. AllowFail cells that failed keep the red dot —
+// we want to see them, they just don't gate the workflow.
+func playIcon(p playRow) string {
+	if len(p.History) == 0 {
+		return iconMissing
+	}
+	switch p.History[len(p.History)-1].Outcome {
+	case outcomeSuccess:
+		return iconPass
+	case outcomeFailure:
+		return iconFail
+	case outcomeRunning:
+		return iconRunning
+	case outcomeSkipped:
+		return iconSkip
+	default:
+		return iconMissing
+	}
 }
 
 // htmlEscapeCell escapes the four characters that would break out of
@@ -290,6 +359,7 @@ func errorShots(rows []shotRow, msg string) []pushedShot {
 	out := make([]pushedShot, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, pushedShot{
+			Name:  r.Name,
 			Label: r.Label,
 			Tail:  r.Tail,
 			Error: msg,
@@ -307,6 +377,7 @@ func dataURIShots(rows []shotRow) []pushedShot {
 	out := make([]pushedShot, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, pushedShot{
+			Name:  r.Name,
 			Label: r.Label,
 			Tail:  r.Tail,
 			URL:   "data:image/png;base64," + base64.StdEncoding.EncodeToString(r.PNG),

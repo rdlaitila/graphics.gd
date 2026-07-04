@@ -21,8 +21,11 @@ import (
 // stays honest about what was supposed to be there.
 //
 // Label / Tail mirror shotRow so the renderer can drop a `<br>`
-// between the two halves of the caption.
+// between the two halves of the caption. Name is the raw
+// `shot-<play>-play-<build>-...` artefact name; the renderer keys
+// its play-row-to-shot lookup on that.
 type pushedShot struct {
+	Name  string
 	Label string
 	Tail  string
 	Path  string
@@ -101,6 +104,7 @@ func pushShotsToBranch(repo, branch string, runID int64, rows []shotRow) ([]push
 		p := pathFor(r)
 		entries = append(entries, entry{Path: p, Mode: "100644", Type: "blob", SHA: sha})
 		out = append(out, pushedShot{
+			Name:  r.Name,
 			Label: r.Label,
 			Tail:  r.Tail,
 			Path:  p,

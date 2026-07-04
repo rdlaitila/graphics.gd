@@ -715,7 +715,7 @@ func renderMarkdown(w io.Writer, s summary) error {
 	renderBuildsMarkdown(w, s.Builds)
 	renderQuirksMarkdown(w)
 	renderPlaysMarkdown(w, s.Plays)
-	renderShotsMarkdown(w, s.Shots)
+	renderShotsMarkdown(w, s.Plays, s.Shots)
 	renderFailuresMarkdown(w, s.LastFailures)
 	renderCommitsMarkdown(w, s.Window)
 	renderToolchainsMarkdown(w, s.Toolchains)

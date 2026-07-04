@@ -61,7 +61,7 @@ func collectPlays(asc []runWithJobs) []playRow {
 			return order[a].example < order[b].example
 		}
 		if order[a].target != order[b].target {
-			return targetRank(order[a].target) < targetRank(order[b].target)
+			return order[a].target < order[b].target
 		}
 		if order[a].link != order[b].link {
 			return linkSubrank(order[a].link) < linkSubrank(order[b].link)
