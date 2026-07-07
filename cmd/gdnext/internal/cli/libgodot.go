@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"text/tabwriter"
+	"strconv"
 
 	"graphics.gd/cmd/gdnext/internal/builder"
 	"graphics.gd/cmd/gdnext/internal/shared"
@@ -145,23 +145,25 @@ func (t *LibGodotActions) clean(_ context.Context, cmd *cli.Command) error {
 }
 
 func (t *LibGodotActions) list(_ context.Context, _ *cli.Command) error {
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "GOOS/GOARCH\tLIBC\tEDITOR\tPLATFORM\tARTEFACT\tINSTALLED AS")
+	table := make([][]string, 0, len(product.LibGodotMatrix))
 	for _, r := range product.LibGodotMatrix {
 		libc := r.LibC
 		if libc == "" {
 			libc = "-"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%v\t%s\t%s\t%s\n",
-			r.GOOS+"/"+r.GOARCH,
+		table = append(table, []string{
+			r.GOOS + "/" + r.GOARCH,
 			libc,
-			r.Editor,
-			r.GodotPlatform+"/"+r.GodotArch,
+			strconv.FormatBool(r.Editor),
+			r.GodotPlatform + "/" + r.GodotArch,
 			r.ArtefactName,
 			r.InstallName,
-		)
+		})
 	}
-	return w.Flush()
+	renderTable(os.Stdout,
+		[]string{"GOOS/GOARCH", "LIBC", "EDITOR", "PLATFORM", "ARTEFACT", "INSTALLED AS"},
+		table)
+	return nil
 }
 
 // resolveRecipe reads --goos / --goarch / --editor / --libc with

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"text/tabwriter"
 
 	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/cmd/gdnext/internal/tooling"
@@ -121,23 +120,54 @@ func (t *ToolchainActions) list(_ context.Context, cmd *cli.Command) error {
 	format := strings.ToLower(cmd.String("format"))
 	rows := collectCatalogRows(t.ToolCatalog)
 	if format == "" || format == "table" {
-		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		defer tw.Flush()
-		fmt.Fprintln(tw, "NAME\tVERSION\tPURPOSE\tINSTALLABLE HOSTS")
+		table := make([][]string, 0, len(rows))
 		for _, r := range rows {
 			v := r.Version
 			if v == "" {
 				v = "-"
 			}
-			purpose := r.Required
-			if r.Optional {
-				purpose = "[optional] " + purpose
-			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Slug, v, purpose, strings.Join(r.Hosts, ","))
+			table = append(table, []string{r.Slug, v, collapseHosts(r.Hosts)})
 		}
+		renderTable(os.Stdout,
+			[]string{"NAME", "VERSION", "INSTALLABLE HOSTS"}, table)
 		return nil
 	}
 	return encodeStructured(format, "toolchain-catalog", "entry", rows)
+}
+
+// collapseHosts folds a list of "goos/goarch" hosts into one entry per
+// GOOS, listing its architectures: "linux/{amd64,arm64},windows/amd64".
+// GOOS and arch order follow first appearance in the input. Entries
+// without a "/" pass through unchanged.
+func collapseHosts(hosts []string) string {
+	var order []string
+	arches := map[string][]string{}
+	for _, h := range hosts {
+		goos, arch, ok := strings.Cut(h, "/")
+		if !ok {
+			if _, seen := arches[h]; !seen {
+				order = append(order, h)
+				arches[h] = nil
+			}
+			continue
+		}
+		if _, seen := arches[goos]; !seen {
+			order = append(order, goos)
+		}
+		arches[goos] = append(arches[goos], arch)
+	}
+	groups := make([]string, 0, len(order))
+	for _, goos := range order {
+		switch a := arches[goos]; len(a) {
+		case 0:
+			groups = append(groups, goos)
+		case 1:
+			groups = append(groups, goos+"/"+a[0])
+		default:
+			groups = append(groups, goos+"/{"+strings.Join(a, ",")+"}")
+		}
+	}
+	return strings.Join(groups, ",")
 }
 
 func (t *ToolchainActions) path(_ context.Context, cmd *cli.Command) error {
@@ -686,14 +716,13 @@ func jobLabel(j toolJob) string {
 // stream but lands at a single path on linux/amd64).
 func reportJobStatus(host product.BuildHost, jobs []toolJob) (missing int) {
 	fmt.Fprintf(os.Stdout, "host:    %s\ntargets: %s\n\n", host.Tuple(), targetsString(targetsForHost(host)))
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tVERSION\tMANAGED\tSTATUS\tSHA256\tDETAIL")
 	type miss struct {
 		label        string
 		err          error
 		experimental bool
 	}
 	var misses []miss
+	var table [][]string
 	seenOK := map[string]struct{}{}
 	for _, j := range jobs {
 		path, err := j.Lookup(tooling.ModeFind)
@@ -714,7 +743,7 @@ func reportJobStatus(host product.BuildHost, jobs []toolJob) (missing int) {
 					sha = shortSHA(sum)
 				}
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\tOK\t%s\t%s\n", jobLabel(j), ver, managed, sha, path)
+			table = append(table, []string{jobLabel(j), ver, managed.String(), "OK", sha, path})
 			continue
 		}
 		status := "MISSING"
@@ -723,10 +752,11 @@ func reportJobStatus(host product.BuildHost, jobs []toolJob) (missing int) {
 		} else {
 			missing++
 		}
-		fmt.Fprintf(tw, "%s\t%s\t-\t%s\t-\t-\n", jobLabel(j), ver, status)
+		table = append(table, []string{jobLabel(j), ver, "-", status, "-", "-"})
 		misses = append(misses, miss{label: jobLabel(j), err: err, experimental: j.Experimental})
 	}
-	tw.Flush()
+	renderTable(os.Stdout,
+		[]string{"NAME", "VERSION", "MANAGED", "STATUS", "SHA256", "DETAIL"}, table)
 	if len(misses) > 0 {
 		fmt.Fprintln(os.Stdout, "\nErrors:")
 		for _, m := range misses {

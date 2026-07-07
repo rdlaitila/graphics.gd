@@ -8,7 +8,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"text/tabwriter"
 
 	"graphics.gd/cmd/gdnext/internal/shared"
 	"graphics.gd/product"
@@ -126,38 +125,42 @@ func (t *PlatformActions) platform(_ context.Context, cmd *cli.Command) error {
 	}
 }
 
-// printTable renders rows in the same tabwriter style as `gdnext
-// toolchain doctor` so both commands read consistently.
+// printTable renders rows through the shared renderer so the matrix
+// reads consistently with `gdnext toolchain doctor` and stays legible
+// on narrow terminals (long alias cells wrap in place). Notes are
+// omitted here to keep the matrix compact; see the single-platform
+// detail (`gdnext platform <name>`) or --vertical for them.
 func printTable(title string, rows []product.Platform) {
 	fmt.Fprintf(os.Stdout, "graphics.gd %s (host: %s)\n\n",
 		title, product.Tuple(runtime.GOOS, runtime.GOARCH))
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	defer tw.Flush()
-	fmt.Fprintln(tw, "PLATFORM\tKIND\tSTATUS\tLINK\tALIASES\tNOTES")
+	table := make([][]string, 0, len(rows))
 	for _, p := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			p.Tuple(), p.Kind, p.Status,
+		table = append(table, []string{
+			p.Tuple(), p.Kind.String(), p.Status.String(),
 			linkModeOrDash(p.LinkModes),
 			joinOrDash(p.Aliases),
-			p.Notes,
-		)
+		})
 	}
+	renderTable(os.Stdout,
+		[]string{"PLATFORM", "KIND", "STATUS", "LINK", "ALIASES"},
+		table)
 }
 
 // printDetail renders a single platform's full record. Used by
 // `gdnext platforms <name>` in the default (table) format.
 func printDetail(p product.Platform) {
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	defer tw.Flush()
-	fmt.Fprintf(tw, "title:\t%s\n", p.DisplayTitle())
-	fmt.Fprintf(tw, "platform:\t%s\n", p.Tuple())
-	fmt.Fprintf(tw, "aliases:\t%s\n", joinOrDash(p.Aliases))
-	fmt.Fprintf(tw, "kind:\t%s\n", p.Kind)
-	fmt.Fprintf(tw, "status:\t%s\n", p.Status)
-	fmt.Fprintf(tw, "renderers:\t%s\n", joinOrDash(p.Renderers))
-	if p.Notes != "" {
-		fmt.Fprintf(tw, "notes:\t%s\n", p.Notes)
+	pairs := [][2]string{
+		{"title:", p.DisplayTitle()},
+		{"platform:", p.Tuple()},
+		{"aliases:", joinOrDash(p.Aliases)},
+		{"kind:", p.Kind.String()},
+		{"status:", p.Status.String()},
+		{"renderers:", joinOrDash(p.Renderers)},
 	}
+	if p.Notes != "" {
+		pairs = append(pairs, [2]string{"notes:", p.Notes})
+	}
+	renderKeyValue(os.Stdout, pairs)
 }
 
 // printJSON renders rows as indented JSON. A single platform encodes as
@@ -217,17 +220,18 @@ func printVertical(title string, rows []product.Platform) {
 		if i > 0 {
 			fmt.Fprintln(os.Stdout)
 		}
-		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintf(tw, "title:\t%s\n", p.DisplayTitle())
-		fmt.Fprintf(tw, "platform:\t%s\n", p.Tuple())
-		fmt.Fprintf(tw, "kind:\t%s\n", p.Kind)
-		fmt.Fprintf(tw, "status:\t%s\n", p.Status)
-		fmt.Fprintf(tw, "aliases:\t%s\n", joinOrDash(p.Aliases))
-		fmt.Fprintf(tw, "renderers:\t%s\n", joinOrDash(p.Renderers))
-		if p.Notes != "" {
-			fmt.Fprintf(tw, "notes:\t%s\n", p.Notes)
+		pairs := [][2]string{
+			{"title:", p.DisplayTitle()},
+			{"platform:", p.Tuple()},
+			{"kind:", p.Kind.String()},
+			{"status:", p.Status.String()},
+			{"aliases:", joinOrDash(p.Aliases)},
+			{"renderers:", joinOrDash(p.Renderers)},
 		}
-		tw.Flush()
+		if p.Notes != "" {
+			pairs = append(pairs, [2]string{"notes:", p.Notes})
+		}
+		renderKeyValue(os.Stdout, pairs)
 	}
 }
 

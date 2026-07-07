@@ -12,7 +12,6 @@ import (
 
 	"github.com/samber/do/v2"
 	"github.com/urfave/cli/v3"
-	"golang.org/x/term"
 )
 
 // QuirksCommand wires `gdnext quirks`.
@@ -63,7 +62,7 @@ func (t *QuirksActions) action(_ context.Context, cmd *cli.Command) error {
 	}
 	width := cmd.Int("width")
 	if width <= 0 {
-		width = detectWidth()
+		width = termWidth()
 	}
 	if len(entries) == 0 {
 		fmt.Println("no quirks declared")
@@ -148,11 +147,4 @@ func wrap(s string, width int) []string {
 	}
 	lines = append(lines, cur)
 	return lines
-}
-
-func detectWidth() int {
-	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 40 {
-		return w
-	}
-	return 80
 }
