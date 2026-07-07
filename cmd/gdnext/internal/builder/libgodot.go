@@ -58,7 +58,7 @@ func (t *LibGodot) Build(recipe product.LibGodotRecipe) (string, error) {
 	if err != nil {
 		return "", xray.New(err)
 	}
-	env, err := t.sconsEnv(recipe, shimDir, includeDir)
+	env, err := t.sconsEnv(shimDir, includeDir)
 	if err != nil {
 		return "", xray.New(err)
 	}
@@ -667,7 +667,7 @@ func (t *LibGodot) hostCanBuild(recipe product.LibGodotRecipe) error {
 // SCONSFLAGS augmented with `-j$(nproc)`, PATH prefixed with a
 // per-recipe shim dir when ZigTarget is set, and android's NDK vars
 // when the recipe targets android.
-func (t *LibGodot) sconsEnv(recipe product.LibGodotRecipe, shimDir, includeDir string) ([]string, error) {
+func (t *LibGodot) sconsEnv(shimDir, includeDir string) ([]string, error) {
 	strip := map[string]bool{
 		"CC": true, "CXX": true, "LINK": true, "AR": true, "RANLIB": true,
 		"LD": true, "LDFLAGS": true, "CFLAGS": true, "CXXFLAGS": true, "CPPFLAGS": true,
